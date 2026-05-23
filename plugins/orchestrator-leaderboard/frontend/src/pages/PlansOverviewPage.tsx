@@ -5,9 +5,9 @@ import {
   ChevronRight, Clock, Power, PowerOff, Plus,
 } from 'lucide-react';
 import { CapabilityTag } from '../components/CapabilityTag';
+import { CollapsibleTagList } from '../components/CollapsibleTagList';
 import { SectionLabel } from '../components/SectionLabel';
 import { usePlans } from '../hooks/usePlans';
-import { EndpointGuide } from '../components/EndpointGuide';
 
 export const PlansOverviewPage: React.FC = () => {
   const { plans, loading, error, refresh } = usePlans();
@@ -156,12 +156,14 @@ export const PlansOverviewPage: React.FC = () => {
 
               {/* Capabilities */}
               <SectionLabel className="mb-2">Capability</SectionLabel>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {plan.capabilities.map((c) => (
-                  <CapabilityTag key={c} size="sm">
-                    {c}
-                  </CapabilityTag>
-                ))}
+              <div className="mb-3">
+                <CollapsibleTagList isEmpty={plan.capabilities.length === 0}>
+                  {plan.capabilities.map((c) => (
+                    <CapabilityTag key={c} size="sm">
+                      {c}
+                    </CapabilityTag>
+                  ))}
+                </CollapsibleTagList>
               </div>
 
               {/* Metrics Row */}
@@ -207,11 +209,6 @@ export const PlansOverviewPage: React.FC = () => {
                   <Clock size={10} />
                   {new Date(plan.updatedAt).toLocaleDateString()}
                 </span>
-              </div>
-
-              {/* Endpoint Guide */}
-              <div className="border-t border-[var(--border-color)] pt-3">
-                <EndpointGuide planId={plan.id} />
               </div>
             </div>
           ))}

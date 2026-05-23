@@ -255,7 +255,7 @@ export const PlanDetailPage: React.FC = () => {
           </div>
 
           <div className="min-w-0 xl:border-l xl:border-[var(--border-color)] xl:pl-6">
-            <SectionLabel className="mb-3">Endpoint &amp; Integration</SectionLabel>
+            <SectionLabel className="mb-3">Discovery API</SectionLabel>
             <EndpointGuide planId={plan.id} />
           </div>
         </div>

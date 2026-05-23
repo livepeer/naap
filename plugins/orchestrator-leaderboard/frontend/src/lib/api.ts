@@ -248,6 +248,33 @@ export async function fetchPlanResults(planId: string): Promise<PlanResults> {
   return json.data;
 }
 
+export interface PlanResultsTestResponse {
+  status: number;
+  ok: boolean;
+  body: unknown;
+}
+
+/** Run discovery results with the current session token (not shown in UI). */
+export async function testPlanResultsEndpoint(planId: string): Promise<PlanResultsTestResponse> {
+  const res = await fetch(`${BASE_URL}/plans/${planId}/results`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  const text = await res.text();
+  let body: unknown = text;
+  if (text.length > 0) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      body = text;
+    }
+  }
+
+  return { status: res.status, ok: res.ok, body };
+}
+
 export interface CapabilityCatalogPipelineModel {
   id: string;
   label: string;

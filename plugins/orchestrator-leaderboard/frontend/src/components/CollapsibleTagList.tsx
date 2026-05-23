@@ -93,7 +93,10 @@ export const CollapsibleTagList: React.FC<CollapsibleTagListProps> = ({
       {showToggle && (
         <button
           type="button"
-          onClick={() => setExpanded((prev) => !prev)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((prev) => !prev);
+          }}
           className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-md border border-accent-emerald/40 bg-accent-emerald/10 text-accent-emerald hover:bg-accent-emerald/20 hover:border-accent-emerald/60 transition-colors"
         >
           {expandLabel}
