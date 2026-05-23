@@ -2245,9 +2245,11 @@ model ConnectorCapabilityRanking {
 /// and served from cache. External consumers (signers, SDKs) create plans via
 /// the REST API and poll /plans/:id/results for ranked orchestrator lists.
 model DiscoveryPlan {
-  id              String   @id @default(cuid())
-  billingPlanId   String   @unique
-  name            String
+  id                    String   @id @default(cuid())
+  billingPlanId         String   @unique
+  /// pymthouse | daydream — PymtHouse Builder allowlist intersection applies when pymthouse.
+  billingProviderSlug   String?
+  name                  String
   description     String?
   visibility      String   @default("personal") // "personal" | "team" | "public"
   teamId          String?
@@ -2262,6 +2264,7 @@ model DiscoveryPlan {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  @@index([billingProviderSlug])
   @@index([teamId, enabled])
   @@index([ownerUserId, enabled])
   @@index([visibility, enabled])

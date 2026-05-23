@@ -93,6 +93,12 @@ async function main() {
       console.log(`[seed-plans] No users found — using system owner ID`);
     }
 
+    // The plans API scopes queries by teamId (using the "personal:{userId}"
+    // convention) when the caller authenticates via JWT. Without setting
+    // teamId here, the runtime scopeWhere filter would never match these
+    // rows, making them invisible to logged-in users.
+    const teamId = `personal:${ownerUserId}`;
+
     const existingPlans = await prisma.discoveryPlan.findMany({
       where: { visibility: 'public' },
       select: { billingPlanId: true },
@@ -112,6 +118,7 @@ async function main() {
       await prisma.discoveryPlan.create({
         data: {
           billingPlanId,
+          billingProviderSlug: 'pymthouse',
           name: tpl.name,
           description: tpl.description,
           visibility: 'public',
@@ -122,6 +129,7 @@ async function main() {
           sortBy: tpl.sortBy ?? undefined,
           filters: tpl.filters ?? undefined,
           ownerUserId,
+          teamId,
           enabled: true,
         },
       });

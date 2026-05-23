@@ -36,6 +36,19 @@ describe('CreatePlanSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('accepts capabilities with dots, colons, and multi-segment paths', () => {
+    const result = CreatePlanSchema.safeParse({
+      ...validInput,
+      capabilities: [
+        'openai-chat-completions/gemma3:4b',
+        'openai-chat-completions/minimax-m2.7',
+        'text-to-image/black-forest-labs/FLUX.1-dev',
+        'llm/meta-llama/Meta-Llama-3.1-8B-Instruct',
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('rejects invalid capability pattern', () => {
     const result = CreatePlanSchema.safeParse({
       ...validInput,
@@ -72,12 +85,13 @@ describe('CreatePlanSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('defaults topN to 10', () => {
+  it('defaults topN to 10 and billingProviderSlug to pymthouse', () => {
     const { topN, ...rest } = validInput;
     const result = CreatePlanSchema.safeParse(rest);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.topN).toBe(10);
+      expect(result.data.billingProviderSlug).toBe('pymthouse');
     }
   });
 });
@@ -91,6 +105,9 @@ describe('UpdatePlanSchema', () => {
   it('accepts empty object (no fields to update)', () => {
     const result = UpdatePlanSchema.safeParse({});
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.billingProviderSlug).toBeUndefined();
+    }
   });
 
   it('strips billingPlanId from output (not updatable)', () => {
@@ -106,5 +123,14 @@ describe('UpdatePlanSchema', () => {
       capabilities: ['valid-cap', 'has spaces'],
     });
     expect(result.success).toBe(false);
+  });
+
+  it('accepts null filters, slaWeights, and slaMinScore from persisted plans', () => {
+    const result = UpdatePlanSchema.safeParse({
+      filters: null,
+      slaWeights: null,
+      slaMinScore: null,
+    });
+    expect(result.success).toBe(true);
   });
 });

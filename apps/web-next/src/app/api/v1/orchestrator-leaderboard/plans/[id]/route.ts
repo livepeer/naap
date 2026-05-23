@@ -14,7 +14,10 @@ import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { getPlan, updatePlan, deletePlan } from '@/lib/orchestrator-leaderboard/plans';
 import type { PlanScope } from '@/lib/orchestrator-leaderboard/plans';
-import { UpdatePlanSchema } from '@/lib/orchestrator-leaderboard/types';
+import {
+  BillingProviderSlugSchema,
+  UpdatePlanSchema,
+} from '@/lib/orchestrator-leaderboard/types';
 import { invalidatePlanCache } from '@/lib/orchestrator-leaderboard/refresh';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -32,16 +35,32 @@ async function scopeFromAuth(
   return scope;
 }
 
+function parseBillingProviderSlugParam(
+  request: NextRequest,
+): { value: string | null; error: string | null } {
+  const raw = request.nextUrl.searchParams.get('billingProviderSlug');
+  if (!raw) {
+    return { value: null, error: null };
+  }
+  const parsed = BillingProviderSlugSchema.safeParse(raw.trim().toLowerCase());
+  if (!parsed.success) {
+    return { value: null, error: 'Invalid billingProviderSlug' };
+  }
+  return { value: parsed.data, error: null };
+}
+
 export async function GET(
   request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse | Response> {
   const auth = await authorize(request);
   if (!auth) return errors.unauthorized('Missing or invalid authentication');
+  const parsedSlug = parseBillingProviderSlugParam(request);
+  if (parsedSlug.error) return errors.badRequest(parsedSlug.error);
 
   const scope: PlanScope = { teamId: auth.teamId, ownerUserId: auth.callerId };
   const { id } = await context.params;
-  const plan = await getPlan(id, scope);
+  const plan = await getPlan(id, scope, parsedSlug.value);
   if (!plan) return errors.notFound('Plan not found');
 
   return success({ plan });
