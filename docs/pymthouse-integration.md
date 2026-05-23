@@ -6,17 +6,22 @@ Server-to-server calls use the published SDK [`@pymthouse/builder-api`](https://
 
 **Dependency pin:** NaaP pins `@pymthouse/builder-api` at **exact `0.0.7`** in [apps/web-next/package.json](../apps/web-next/package.json). npm has no stable 1.x release yet (latest published is 0.0.7). Treat this as a pre-release SDK: review the [pymthouse-builder-api](https://github.com/eliteprox/pymthouse-builder-api) changelog before bumping, run `npm install` at the repo root, and re-verify billing/OIDC routes after any upgrade.
 
-## Plan-builder JSON (PymtHouse → NaaP)
+## Plan-builder data (PymtHouse → NaaP)
 
-Stable responses use `schemaVersion: "1.0"`.
+PymtHouse and other external plan-builder consumers should call the **existing dashboard BFF routes** on the NaaP deployment (same cache headers and facade-backed payloads as the NaaP UI). There are no provider-specific `/api/v1/pymthouse/*` intelligence routes.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/api/v1/pymthouse/capabilities/catalog` | Pipeline catalog + network models (`?limit=` optional) |
-| GET | `/api/v1/pymthouse/sla/summary` | KPI, GPU capacity, perf-by-model (`timeframe`, `perfDays`) |
-| GET | `/api/v1/pymthouse/network/price` | Pipeline pricing (`experimental: true`) |
+| Data need | Method | Path | Notes |
+|-----------|--------|------|--------|
+| Pipeline catalog | GET | `/api/v1/dashboard/pipeline-catalog` | Facade pipeline catalog |
+| Network models | GET | `/api/v1/developer/network-models` | `?limit=` (default 50, max 200) or `?limit=all` |
+| KPI | GET | `/api/v1/dashboard/kpi` | `?timeframe=` hours (facade-normalized) |
+| GPU capacity | GET | `/api/v1/dashboard/gpu-capacity` | `?timeframe=` (same key family as KPI) |
+| Perf by model | GET | `/api/v1/network/perf-by-model` | **`start` and `end` required** (ISO-8601 timestamps) |
+| Pipeline pricing | GET | `/api/v1/dashboard/pricing` | Unit cost / pricing table |
 
-Set `NAAP_PLAN_BUILDER_API_BASE` on PymtHouse if the default same-origin base is wrong.
+**SLA-style bundle:** the former `/api/v1/pymthouse/sla/summary` aggregate is not a single route. Call KPI, GPU capacity, and perf-by-model in parallel (compute `start`/`end` from your desired `perfDays` window, e.g. last N days in UTC).
+
+Point PymtHouse at the NaaP public origin (e.g. `https://naap.example.com`) plus the paths above. Do not use a separate `NAAP_PLAN_BUILDER_API_BASE` env on NaaP.
 
 ## Marketplace and subscribe
 
