@@ -185,6 +185,36 @@ describe('getPlan', () => {
       },
     });
   });
+
+  it('treats null provider rows as pymthouse-compatible in getPlan', async () => {
+    mockFindFirst.mockResolvedValue(publicPlan);
+
+    await getPlan('pub-1', { ownerUserId: 'user-b' }, 'pymthouse');
+
+    expect(mockFindFirst).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          { id: 'pub-1' },
+          {
+            AND: [
+              {
+                OR: [
+                  { visibility: 'public' },
+                  { ownerUserId: 'user-b' },
+                ],
+              },
+              {
+                OR: [
+                  { billingProviderSlug: 'pymthouse' },
+                  { billingProviderSlug: null },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
 });
 
 describe('updatePlan', () => {

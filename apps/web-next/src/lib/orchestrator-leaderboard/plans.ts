@@ -160,11 +160,13 @@ export async function updatePlan(
   if (existing.visibility === 'public' && !scope.isAdmin) return 'forbidden';
 
   const scopeWhere = writeScopeWhere(scope);
-  if (!scopeWhere) return 'forbidden';
-
-  const mutationWhere = existing.visibility === 'public'
-    ? { id }
-    : { id, ...scopeWhere };
+  const mutationWhere =
+    existing.visibility === 'public'
+      ? { id }
+      : scopeWhere
+        ? { id, ...scopeWhere }
+        : null;
+  if (!mutationWhere) return 'forbidden';
 
   const result = await prisma.discoveryPlan.updateMany({
     where: mutationWhere,
@@ -196,11 +198,13 @@ export async function deletePlan(
   if (existing.visibility === 'public' && !scope.isAdmin) return 'forbidden';
 
   const scopeWhere = writeScopeWhere(scope);
-  if (!scopeWhere) return 'forbidden';
-
-  const mutationWhere = existing.visibility === 'public'
-    ? { id }
-    : { id, ...scopeWhere };
+  const mutationWhere =
+    existing.visibility === 'public'
+      ? { id }
+      : scopeWhere
+        ? { id, ...scopeWhere }
+        : null;
+  if (!mutationWhere) return 'forbidden';
 
   const result = await prisma.discoveryPlan.deleteMany({
     where: mutationWhere,
