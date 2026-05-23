@@ -102,17 +102,36 @@
   .stat-card:hover {
     border-color: rgba(255, 255, 255, 0.2);
   }
+  /* Capability / model tags — matches dashboard orchestrator model pills */
+  .section-label-icon {
+    @apply p-1 rounded-md shrink-0;
+
+    background: var(--bg-tertiary);
+
+    color: #34d399;
+  }
+  .section-label-text {
+    @apply text-[11px] font-medium uppercase tracking-wider;
+
+    color: var(--text-muted);
+  }
   .pill-btn {
-    @apply px-3 py-1.5 text-xs font-medium rounded-full border transition-all cursor-pointer;
+    @apply inline-flex items-center px-3 py-1.5 text-xs font-medium rounded border transition-all cursor-pointer;
+  }
+  .pill-btn-sm {
+    @apply text-[10px] px-2 py-0.5;
+  }
+  .pill-btn-static {
+    @apply cursor-default;
   }
   .pill-btn-active {
-    background: rgba(30, 153, 96, 0.15);
-    color: var(--accent-emerald);
-    border-color: rgba(30, 153, 96, 0.3);
-    box-shadow: 0 0 4px rgba(30, 153, 96, 0.1);
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border-color: rgba(16, 185, 129, 0.3);
+    box-shadow: 0 0 4px rgba(16, 185, 129, 0.08);
   }
   .pill-btn-inactive {
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     color: var(--text-secondary);
     border-color: var(--border-color);
   }
@@ -120,11 +139,25 @@
     border-color: rgba(255, 255, 255, 0.2);
     color: var(--text-primary);
   }
+  .pill-btn-static.pill-btn-inactive:hover {
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+  }
+  .status-pill-emerald {
+    @apply inline-flex items-center gap-1 pill-btn pill-btn-active pill-btn-sm pill-btn-static;
+  }
+  .status-pill-amber {
+    @apply inline-flex items-center gap-1 pill-btn pill-btn-sm pill-btn-static;
+
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--accent-amber);
+    border-color: rgba(245, 158, 11, 0.3);
+  }
   .plan-card {
     @apply glass-card p-5 cursor-pointer transition-all;
   }
   .plan-card:hover {
-    border-color: rgba(30, 153, 96, 0.3);
+    border-color: rgba(16, 185, 129, 0.3);
     background-color: var(--bg-tertiary);
   }
 }

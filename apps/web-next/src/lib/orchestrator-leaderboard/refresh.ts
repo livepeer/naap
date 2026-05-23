@@ -16,9 +16,28 @@ import type { DiscoveryPlan, OrchestratorRow, PlanResults } from './types';
 import { evaluatePlan } from './ranking';
 import { listEnabledPlans } from './plans';
 import { getRowsForCapability } from './global-dataset';
+import {
+  ensurePymthouseManifestFresh,
+  fingerprintCapabilityList,
+} from '@/lib/pymthouse-manifest';
+import {
+  normalizeBillingProviderSlug,
+  providerRestrictionRevision,
+  resolvePlanCapabilitiesForProvider,
+} from './provider-restrictions';
 
 const REFRESH_INTERVAL_MS = Number(process.env.LEADERBOARD_REFRESH_INTERVAL_MS) || 60_000;
 const CACHE_TTL_MS = REFRESH_INTERVAL_MS * 2;
+
+const PLAN_CACHE_KEY_SEP = '\0';
+
+/** Composite key: plan id, billing provider, allowlist revision (PymtHouse), capability-set fingerprint. */
+export function buildPlanEvaluationCacheKey(plan: DiscoveryPlan): string {
+  const slug = plan.billingProviderSlug ?? 'null';
+  const rev = providerRestrictionRevision(plan.billingProviderSlug);
+  const capFp = fingerprintCapabilityList(plan.capabilities);
+  return `${plan.id}${PLAN_CACHE_KEY_SEP}${slug}${PLAN_CACHE_KEY_SEP}${rev}${PLAN_CACHE_KEY_SEP}${capFp}`;
+}
 
 interface PlanCacheEntry {
   results: PlanResults;
@@ -27,6 +46,16 @@ interface PlanCacheEntry {
 }
 
 const planCache = new Map<string, PlanCacheEntry>();
+
+function queryCapabilityName(capability: string): string {
+  const trimmed = capability.trim();
+  const slash = trimmed.lastIndexOf('/');
+  const name = slash >= 0 ? trimmed.slice(slash + 1).trim() : trimmed;
+  if (!name) {
+    throw new Error(`Invalid capability "${capability}": empty query name after extraction`);
+  }
+  return name;
+}
 
 function isFresh(entry: PlanCacheEntry): boolean {
   return Date.now() - entry.cachedAt < REFRESH_INTERVAL_MS;
@@ -46,7 +75,7 @@ async function evaluate(plan: DiscoveryPlan): Promise<PlanResults> {
 
   for (const capability of plan.capabilities) {
     try {
-      const rows = await getRowsForCapability(capability);
+      const rows = await getRowsForCapability(queryCapabilityName(capability));
       const evaluated = evaluatePlan(rows, plan);
       capabilities[capability] = evaluated;
       totalOrchestrators += evaluated.length;
@@ -79,7 +108,18 @@ export async function evaluateAndCache(
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<PlanResults> {
-  const entry = planCache.get(plan.id);
+  if (normalizeBillingProviderSlug(plan.billingProviderSlug) === 'pymthouse') {
+    await ensurePymthouseManifestFresh({
+      onRevisionChanged: () => invalidatePlanCache(plan.id),
+    });
+  }
+
+  const planForEval: DiscoveryPlan = {
+    ...plan,
+    capabilities: resolvePlanCapabilitiesForProvider(plan),
+  };
+  const cacheKey = buildPlanEvaluationCacheKey(planForEval);
+  const entry = planCache.get(cacheKey);
 
   if (entry && isFresh(entry)) {
     return {
@@ -89,7 +129,7 @@ export async function evaluateAndCache(
   }
 
   if (entry && isValid(entry)) {
-    refreshSingle(plan).catch((err) => {
+    refreshSingle(planForEval).catch((err) => {
       console.error(`[leaderboard] Background refresh failed for plan ${plan.id}:`, err);
     });
     return {
@@ -98,13 +138,14 @@ export async function evaluateAndCache(
     };
   }
 
-  return refreshSingle(plan);
+  return refreshSingle(planForEval);
 }
 
 async function refreshSingle(plan: DiscoveryPlan): Promise<PlanResults> {
   const results = await evaluate(plan);
   const now = Date.now();
-  planCache.set(plan.id, {
+  const cacheKey = buildPlanEvaluationCacheKey(plan);
+  planCache.set(cacheKey, {
     results,
     cachedAt: now,
     expiresAt: now + CACHE_TTL_MS,
@@ -120,13 +161,18 @@ export async function refreshAllPlans(
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<{ refreshed: number; failed: number }> {
+  await ensurePymthouseManifestFresh({ onRevisionChanged: clearPlanCache });
   const plans = await listEnabledPlans();
   let refreshed = 0;
   let failed = 0;
 
   for (const plan of plans) {
     try {
-      await refreshSingle(plan);
+      const planForEval = {
+        ...plan,
+        capabilities: resolvePlanCapabilitiesForProvider(plan),
+      };
+      await refreshSingle(planForEval);
       refreshed++;
     } catch (err) {
       failed++;
@@ -140,16 +186,25 @@ export async function refreshAllPlans(
 }
 
 export function getCachedPlanResults(planId: string): PlanResults | null {
-  const entry = planCache.get(planId);
-  if (!entry || !isValid(entry)) return null;
-  return {
-    ...entry.results,
-    meta: { ...entry.results.meta, cacheAgeMs: Date.now() - entry.cachedAt },
-  };
+  const prefix = `${planId}${PLAN_CACHE_KEY_SEP}`;
+  for (const [key, entry] of planCache) {
+    if (!key.startsWith(prefix)) continue;
+    if (!isValid(entry)) continue;
+    return {
+      ...entry.results,
+      meta: { ...entry.results.meta, cacheAgeMs: Date.now() - entry.cachedAt },
+    };
+  }
+  return null;
 }
 
 export function invalidatePlanCache(planId: string): void {
-  planCache.delete(planId);
+  const prefix = `${planId}${PLAN_CACHE_KEY_SEP}`;
+  for (const key of [...planCache.keys()]) {
+    if (key.startsWith(prefix)) {
+      planCache.delete(key);
+    }
+  }
 }
 
 export function clearPlanCache(): void {

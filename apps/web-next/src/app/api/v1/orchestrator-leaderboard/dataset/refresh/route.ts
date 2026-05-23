@@ -11,15 +11,25 @@
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
 import { getRefreshIntervalMs, getLastRefreshedAt } from '@/lib/orchestrator-leaderboard/config';
 import { refreshGlobalDataset } from '@/lib/orchestrator-leaderboard/global-refresh';
+import { syncPymthouseManifestSnapshot } from '@/lib/pymthouse-manifest';
+import { clearPlanCache } from '@/lib/orchestrator-leaderboard/refresh';
 
 function isCronAuth(request: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
   const auth = request.headers.get('authorization');
-  return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
+  if (!auth) return false;
+  const expected = `Bearer ${secret}`;
+  const authBuf = Buffer.from(auth, 'utf8');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  if (authBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(authBuf, expectedBuf);
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -51,18 +61,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (cronAuthed) {
     const lastRefreshed = await getLastRefreshedAt();
     if (lastRefreshed && Date.now() - lastRefreshed.getTime() < intervalMs) {
+      const { revisionChanged } = await syncPymthouseManifestSnapshot();
+      if (revisionChanged) {
+        clearPlanCache();
+      }
       return NextResponse.json({
         success: true,
         data: {
           skipped: true,
           reason: 'Global dataset is still fresh',
           nextRefreshInMs: intervalMs - (Date.now() - lastRefreshed.getTime()),
+          pymthouseManifestRevisionChanged: revisionChanged,
         },
       });
     }
   }
 
-  const authToken = getAuthToken(request) || process.env.CRON_SECRET || '';
+  const authToken = adminUserId
+    ? (getAuthToken(request) || '')
+    : (getAuthToken(request) || process.env.CRON_SECRET || '');
   const refreshedBy = adminUserId ? `admin:${adminUserId}` : 'cron';
 
   try {

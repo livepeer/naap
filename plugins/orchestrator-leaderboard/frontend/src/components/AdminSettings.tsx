@@ -176,24 +176,16 @@ const DataSourcesPanel: React.FC = () => {
         </p>
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={() => handleStrategyChange('union')}
-            className="px-3 py-1.5 text-xs font-medium rounded-full border transition-all"
-            style={
-              strategy === 'union'
-                ? { background: 'rgba(30, 153, 96, 0.15)', color: 'var(--accent-emerald)', borderColor: 'rgba(30, 153, 96, 0.3)' }
-                : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }
-            }
+            className={`pill-btn ${strategy === 'union' ? 'pill-btn-active' : 'pill-btn-inactive'}`}
           >
             Union (all sources)
           </button>
           <button
+            type="button"
             onClick={() => handleStrategyChange('intersection')}
-            className="px-3 py-1.5 text-xs font-medium rounded-full border transition-all"
-            style={
-              strategy === 'intersection'
-                ? { background: 'rgba(30, 153, 96, 0.15)', color: 'var(--accent-emerald)', borderColor: 'rgba(30, 153, 96, 0.3)' }
-                : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }
-            }
+            className={`pill-btn ${strategy === 'intersection' ? 'pill-btn-active' : 'pill-btn-inactive'}`}
           >
             Intersection (primary only)
           </button>
@@ -585,20 +577,8 @@ export const AdminSettings: React.FC = () => {
                                 setUpdateError(e instanceof Error ? e.message : 'Update failed');
                               }
                             }}
-                            className="px-3 py-1.5 text-xs font-medium rounded-full border transition-all cursor-pointer"
-                            style={
-                              config.refreshIntervalHours === opt.value
-                                ? {
-                                    background: 'rgba(30, 153, 96, 0.15)',
-                                    color: 'var(--accent-emerald)',
-                                    borderColor: 'rgba(30, 153, 96, 0.3)',
-                                  }
-                                : {
-                                    background: 'var(--bg-tertiary)',
-                                    color: 'var(--text-secondary)',
-                                    borderColor: 'var(--border-color)',
-                                  }
-                            }
+                            type="button"
+                            className={`pill-btn ${config.refreshIntervalHours === opt.value ? 'pill-btn-active' : 'pill-btn-inactive'}`}
                           >
                             {opt.label}
                           </button>

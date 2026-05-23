@@ -14,7 +14,7 @@ export const TabNav: React.FC = () => {
   const activeTab = pathname.startsWith('/plans') ? '/plans' : '/';
 
   return (
-    <div className="flex items-center gap-1 border-b border-[var(--border-color)] px-6 pt-3">
+    <div className="flex items-center gap-1 border-b border-[var(--border-color)] px-4 pt-1">
       {TABS.map(({ path, label, icon: Icon }) => {
         const active = path === activeTab;
         return (

@@ -237,32 +237,6 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /api/v1/orchestrator-leaderboard/plans/seed:
-    post:
-      tags: [Discovery Plans]
-      summary: Seed 4 demo plans for the caller
-      description: |
-        Idempotent — skips templates whose `billingPlanId` already exists
-        for the caller. Useful for onboarding and demos.
-      operationId: seedDemoPlans
-      responses:
-        "200":
-          description: Ok
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/SuccessEnvelope"
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        properties:
-                          created: { type: integer, minimum: 0 }
-                          total: { type: integer, minimum: 0 }
-                        required: [created, total]
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
   /api/v1/orchestrator-leaderboard/plans/refresh:
     post:
       tags: [Admin]

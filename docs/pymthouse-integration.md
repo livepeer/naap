@@ -1,0 +1,157 @@
+# PymtHouse integration (NaaP)
+
+Official Builder API contract: [PymtHouse `docs/builder-api.md`](https://github.com/pymthouse/pymthouse/blob/main/docs/builder-api.md).
+
+Server-to-server calls use the published npm package [`@pymthouse/builder-sdk`](https://www.npmjs.com/package/@pymthouse/builder-sdk) (source: [pymthouse/builder-sdk](https://github.com/pymthouse/builder-sdk)), wrapped in [apps/web-next/src/lib/pymthouse-client.ts](apps/web-next/src/lib/pymthouse-client.ts) with `import "server-only"` so M2M secrets never ship to the browser.
+
+**Dependency pin:** NaaP pins `@pymthouse/builder-sdk` at **exact `0.0.8`** in [apps/web-next/package.json](../apps/web-next/package.json). npm has no stable 1.x release yet (latest published is 0.0.8). Treat this as a pre-release SDK: review the [builder-sdk CHANGELOG](https://github.com/pymthouse/builder-sdk/blob/main/CHANGELOG.md) before bumping, run `npm install` at the repo root, and re-verify billing/OIDC routes after any upgrade.
+
+## Plan-builder data (PymtHouse → NaaP)
+
+PymtHouse and other external plan-builder consumers should call the **existing dashboard BFF routes** on the NaaP deployment (same cache headers and facade-backed payloads as the NaaP UI). There are no provider-specific `/api/v1/pymthouse/*` intelligence routes.
+
+| Data need | Method | Path | Notes |
+|-----------|--------|------|--------|
+| Pipeline catalog | GET | `/api/v1/dashboard/pipeline-catalog` | Facade pipeline catalog |
+| Network models | GET | `/api/v1/developer/network-models` | `?limit=` (default 50, max 200) or `?limit=all` |
+| KPI | GET | `/api/v1/dashboard/kpi` | `?timeframe=` hours (facade-normalized) |
+| GPU capacity | GET | `/api/v1/dashboard/gpu-capacity` | `?timeframe=` (same key family as KPI) |
+| Perf by model | GET | `/api/v1/network/perf-by-model` | **`start` and `end` required** (ISO-8601 timestamps) |
+| Pipeline pricing | GET | `/api/v1/dashboard/pricing` | Unit cost / pricing table |
+
+**SLA-style bundle:** the former `/api/v1/pymthouse/sla/summary` aggregate is not a single route. Call KPI, GPU capacity, and perf-by-model in parallel (compute `start`/`end` from your desired `perfDays` window, e.g. last N days in UTC).
+
+Point PymtHouse at the NaaP public origin (e.g. `https://naap.example.com`) plus the paths above. Do not use a separate `NAAP_PLAN_BUILDER_API_BASE` env on NaaP.
+
+## Marketplace and subscribe
+
+NaaP does not mirror the billing marketplace. Use `PYMTHOUSE_MARKETPLACE_URL`, or `PMTHOUSE_BASE_URL` (appends `/marketplace`), or `PYMTHOUSE_ISSUER_URL` (marketplace path defaults to `/marketplace` on the non-`api.` host).
+
+## Billing provider — user access tokens (Builder API)
+
+NaaP uses `@pymthouse/builder-sdk` (`PmtHouseClient`) to upsert app users and mint **short-lived user-scoped JWTs** (`scope: sign:job`, TTL ~15 min) — no browser popup, no redirect URI, no machine-token step.
+
+```text
+NaaP server                                              PymtHouse
+    │                                                         │
+    ├─ POST /api/v1/apps/{clientId}/users ─────────────────────►│  M2M client (SDK: Basic auth on Builder routes)
+    │    { externalUserId, email?, status: "active" }          │  upsert end user (NaaP user id)
+    │◄─ 200 ───────────────────────────────────────────────────┤
+    │                                                         │
+    ├─ POST .../users/{externalUserId}/token ──────────────────►│  same M2M credentials
+    │    { "scope": "sign:job" }                                │  issue user-scoped JWT
+    │◄─ { access_token, refresh_token, expires_in, scope } ─────┤
+    │                                                         │
+    ├─ Returned to browser / caller — never persisted in NaaP ─
+```
+
+- **URL paths** use the **public** app id (`app_…`) — device login and `/api/v1/apps/{clientId}/...` Builder routes.
+- **Confidential M2M** (`m2m_…`) credentials are **`PYMTHOUSE_M2M_CLIENT_ID`** + **`PYMTHOUSE_M2M_CLIENT_SECRET`**. A single OIDC client cannot be both public (device flow) and confidential; PymtHouse provisions two clients per developer app when you enable **Backend device helper** in Auth & Scopes.
+- **End-user scope** is only **`sign:job`** on the token request.
+- The M2M client must allow **`users:read`**, **`users:write`**, **`users:token`**, and **`sign:job`** in its allowed scopes (defaults for the backend helper).
+- Short-lived Builder-minted user JWTs are **not** surfaced as NaaP developer API keys; NaaP exchanges them server-side for opaque **`pmth_…`** signer sessions (~90 days).
+
+### NaaP endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/v1/auth/providers/pymthouse/start` | First-time link from the **Create API Key** UI. Returns `{ access_token, token_type, expires_in, scope, login_session_id, auth_url: null, poll_after_ms: 0 }` where `access_token` is an opaque **`pmth_…`** signer session (~90 days). |
+| `POST` | `/api/v1/billing/pymthouse/token` | Mint-on-demand signer session. Returns `{ access_token, token_type, expires_in, scope }` where `access_token` is an opaque **`pmth_…`** token (~90 days). Auth: NaaP session + CSRF. Rate limited per user. Internally mints a short-lived JWT then RFC 8693 token-exchanges with the M2M client. |
+| `GET` | `/api/v1/billing/pymthouse/usage` | Session BFF over PymtHouse **Usage API** (see below). Auth: NaaP session cookie / bearer. `Cache-Control: no-store`. |
+
+### Developer API manager SDK token
+
+The Developer API manager's **Create API Key** flow returns the normal billing API key and, for providers that support python-gateway discovery (`pymthouse` and `daydream`), also creates an optional SDK token for `python-gateway --token`.
+
+That SDK token is **base64-encoded JSON**, not a JWT. It bundles two independent credentials so python-gateway can separate signing from discovery:
+
+```json
+{
+  "signer": "https://pymthouse.com/api/signer",
+  "discovery": "https://naap.example.com/api/v1/orchestrator-leaderboard/plans/{planId}/python-gateway",
+  "signer_headers": {
+    "Authorization": "Bearer pmth_..."
+  },
+  "discovery_headers": {
+    "Authorization": "Bearer gw_..."
+  }
+}
+```
+
+- `signer_headers.Authorization` uses the billing-provider signer session returned by PymtHouse (`pmth_…`). This is the same secret shown as the API key in the success dialog.
+- `discovery_headers.Authorization` uses a separate NaaP service-gateway key (`gw_…`) minted during the same dialog via `/api/v1/gw/admin/keys`. It is scoped to NaaP's discovery endpoint and should not be reused as the billing signer credential.
+- If the user selects a saved discovery plan, the token points at `/api/v1/orchestrator-leaderboard/plans/{planId}/python-gateway`; otherwise it points at `/api/v1/orchestrator-leaderboard/python-gateway` for default model-based discovery.
+- If NaaP cannot mint the `gw_…` key, the UI still shows the billing API key and explains that the user must create a gateway key manually and populate `discovery_headers`.
+
+This keeps token auth explicit: the signer remains a PymtHouse-issued billing secret, while discovery remains a NaaP-authenticated request that can use curated orchestrator-leaderboard plans.
+
+### Network Price discovery allowlist (PymtHouse → NaaP)
+
+For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/manifest`** with the same **M2M Basic** credentials as other Builder routes. The manifest’s **`excludedCapabilities`** array is authoritative: NaaP denies explicitly excluded pipeline/model rules and allows every other NaaP catalog capability. The JSON **`capabilities`** array is treated as an informational PymtHouse-local resolved set, not as a complete NaaP allowlist, because PymtHouse can know fewer capabilities than NaaP. **`manifestVersion`** is used for cache busting when present. A missing manifest **denies discovery by default**; set **`PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1`** only in controlled environments to restore legacy fail-open behavior (high-severity audit log).
+
+NaaP applies the synced denylist snapshot (`syncPymthouseManifestSnapshot` in `apps/web-next/src/lib/pymthouse-manifest.ts`) to python-gateway discovery and orchestrator-leaderboard evaluation. Minimal app metadata is available via **`GET …/apps/{publicClientId}`** (M2M). Legacy per-plan policy rows for the UI still come from **`GET …/apps/{id}/plans`**.
+
+### Usage API (BFF)
+
+Official contract: [PymtHouse Usage API](https://docs.pymthouse.com/integration/usage-api).
+
+PymtHouse usage is **tenant-wide** (M2M). A NaaP session alone must not expose raw `byUser` or arbitrary `userId` filters to every user. NaaP proxies usage through **`GET /api/v1/billing/pymthouse/usage`** with explicit scopes:
+
+| Query | Behavior |
+|-------|-----------|
+| `scope=me` (default) | Server first calls upstream with `groupBy=user`, finds all `byUser` buckets whose `externalUserId` matches the logged-in NaaP user id (`session.user.id`), then requests `groupBy=pipeline_model` for each matching stored `endUserId`. Returns `{ clientId, period, currentUser: { externalUserId, requestCount, feeWei, pipelineModels } }` where `pipelineModels` is the merged, sorted pipeline/model list for that user (empty when none). App totals and raw `byUser` / `byPipelineModel` arrays are omitted. |
+| `scope=app` | **Requires** role `system:admin`. Passes through `groupBy` (`none` \| `user`) and internal PymtHouse `userId` (end user id) to the SDK and returns the **raw** `UsageApiResponse` from upstream. |
+
+**Dates:** Optional `startDate` and `endDate` (ISO strings, validated with `Date.parse`). Both must be set together, or both omitted. If omitted, the BFF uses the **current calendar month in UTC** (same default as the Developer plugin Usage tab).
+
+**Wei:** `totalFeeWei` / `feeWei` are decimal integer strings; format with `BigInt` in app code — never `Number()` on raw wei. The Developer plugin uses `formatFeeWeiStringToEthDisplay` from `@naap/utils`.
+
+**Identifiers:** Upstream `userId` filters `usage_records.user_id`, which may contain legacy app-user ids, end-user ids, or the external id. NaaP’s `scope=me` path matches on **`externalUserId`** first, then uses the matching `byUser.endUserId` values for the pipeline/model calls so duplicate buckets for one external user are still included.
+
+**Env gate:** If PymtHouse M2M env is incomplete, the route returns `400` with `PYMTHOUSE_NOT_CONFIGURED_MESSAGE` from [`pymthouse-env.ts`](../apps/web-next/src/lib/pymthouse-env.ts) (SDK-free, safe to import outside `server-only` routes).
+
+**Implementation:** [`apps/web-next/src/app/api/v1/billing/pymthouse/usage/route.ts`](../apps/web-next/src/app/api/v1/billing/pymthouse/usage/route.ts) uses `getPmtHouseServerClient()` from [`pymthouse-client.ts`](../apps/web-next/src/lib/pymthouse-client.ts) only (never `@pymthouse/builder-sdk/env` in middleware).
+
+### Required env vars (NaaP)
+
+These match [`createPmtHouseClientFromEnv`](https://github.com/pymthouse/builder-sdk/blob/main/src/env.ts) (`@pymthouse/builder-sdk/env`).
+
+| Variable | Purpose |
+|----------|---------|
+| `PYMTHOUSE_ISSUER_URL` | OIDC issuer base, e.g. `https://example.com/api/v1/oidc` |
+| `PYMTHOUSE_PUBLIC_CLIENT_ID` | **Public** app **`client_id`** (`app_…`) — device flow + Builder URL paths. **Required.** |
+| `PYMTHOUSE_M2M_CLIENT_ID` | **Confidential** backend client (`m2m_…`) for Builder API and token-endpoint flows used by the SDK. **Required.** |
+| `PYMTHOUSE_M2M_CLIENT_SECRET` | Secret for the M2M client. **Required.** |
+| `PMTHOUSE_BASE_URL` | Optional; site origin for marketplace link (`{base}/marketplace`) when `PYMTHOUSE_MARKETPLACE_URL` is unset. Used by middleware/device-initiate helpers where a separate site origin from the issuer is needed. |
+
+`BILLING_PROVIDER_OAUTH_CALLBACK_ORIGIN` is **not needed** for PymtHouse (no redirect URI).
+
+### PymtHouse setup (operators)
+
+1. In the app’s **Auth & Scopes** UI, enable **Backend device helper** and save — PymtHouse provisions an **`m2m_…`** client (or use a standalone **Client Credentials** app for M2M-only integrations).
+2. Copy the **public** **`app_…`** id into **`PYMTHOUSE_PUBLIC_CLIENT_ID`** (device flow + Builder paths).
+3. Copy the **M2M** **`m2m_…`** id and its secret into **`PYMTHOUSE_M2M_CLIENT_ID`** / **`PYMTHOUSE_M2M_CLIENT_SECRET`**.
+4. Ensure **`PYMTHOUSE_ISSUER_URL`** points at the OIDC issuer (`.../api/v1/oidc`).
+5. Restart NaaP.
+
+Legacy **`naap/link-user`**, **`naap-service`** seed-only flows, and **`gateway`**-only machine scopes are **not** used for this integration.
+
+### Verification checklist
+
+- `PYMTHOUSE_ISSUER_URL` ends with `/api/v1/oidc`.
+- `PYMTHOUSE_PUBLIC_CLIENT_ID` is the public **`app_...`** id; `PYMTHOUSE_M2M_CLIENT_ID` is the confidential **`m2m_...`** id.
+- `PYMTHOUSE_M2M_CLIENT_SECRET` matches the M2M client’s secret.
+- NaaP logs show `[billing-auth:pymthouse] Linked user …` (no browser popup).
+- Provider start and billing token routes return an opaque **`pmth_…`** signer session (`expires_in` ≈ 90 days); the short-lived subject JWT is used only server-side during exchange.
+
+## Device login (RFC 8628) — Option B (NaaP-side approval)
+
+When PymtHouse redirects the browser to NaaP with `iss` + `target_link_uri` (third-party initiated login), NaaP stores a short-lived cookie, completes sign-in, then the server runs **`PmtHouseClient`**: mint user JWT via Builder, then **`completeDeviceApproval`** (RFC 8693 token exchange at `{issuer}/token` via oauth4webapi).
+
+NaaP treats success from `completeDeviceApproval` as authorized and clears the cookie; the CLI keeps polling PymtHouse **`POST .../token`** with the `device_code` as usual until it receives tokens.
+
+Requires: **`PYMTHOUSE_ISSUER_URL`** (must match the `iss` query param, e.g. `http://localhost:3001/api/v1/oidc`), **`PYMTHOUSE_PUBLIC_CLIENT_ID`**, **`PYMTHOUSE_M2M_CLIENT_ID`**, **`PYMTHOUSE_M2M_CLIENT_SECRET`**, and PymtHouse app settings with device third-party login + initiate URI pointing at NaaP. Device initiate validation uses the **issuer URL’s origin** for `target_link_uri` (so **`PMTHOUSE_BASE_URL`** is not required for that check; avoid pointing `PMTHOUSE_BASE_URL` at NaaP if you also rely on it for PymtHouse site URLs elsewhere).
+
+## Database
+
+`BillingProviderOAuthSession` is still created for audit purposes on each link but the opaque API key itself is never stored in this row: `accessToken` is always `null` for PymtHouse, `redeemedAt` is set immediately, and the row `expiresAt` follows the returned signer session TTL (~90 days). `pkceCodeVerifier` is always `null` for PymtHouse (no browser OAuth). Run `npx prisma db push` or migrate from `packages/database` after pulling schema changes.
