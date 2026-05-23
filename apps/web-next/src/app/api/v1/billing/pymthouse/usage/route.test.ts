@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { PmtHouseError } from '@pymthouse/builder-api';
+import { PmtHouseError } from '@pymthouse/builder-sdk';
 import type { AuthUser } from '@naap/types';
 
 import { GET } from '@/app/api/v1/billing/pymthouse/usage/route';

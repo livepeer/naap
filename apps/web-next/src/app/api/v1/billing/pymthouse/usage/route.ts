@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PmtHouseError, toPmtHouseError } from '@pymthouse/builder-api';
+import { PmtHouseError, toPmtHouseError } from '@pymthouse/builder-sdk';
 
 import { validateSession } from '@/lib/api/auth';
 import { error, errors, getAuthToken, success } from '@/lib/api/response';

@@ -1,6 +1,6 @@
 import {
   type UsageApiResponse,
-} from '@pymthouse/builder-api';
+} from '@pymthouse/builder-sdk';
 
 export interface UsageByPipelineModelFiatRow {
   pipeline: string;

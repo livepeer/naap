@@ -28,7 +28,7 @@ const nextConfig = {
     '@naap/plugin-sdk',
     '@naap/cache',
     '@naap/crypto',
-    '@pymthouse/builder-api',
+    '@pymthouse/builder-sdk',
   ],
 
   // Image optimization

@@ -1,7 +1,7 @@
 /**
  * PymtHouse Builder API helpers for NaaP → PymtHouse server-to-server.
  *
- * Uses `@pymthouse/builder-api` (`PmtHouseClient`) for Builder + OIDC token endpoint
+ * Uses `@pymthouse/builder-sdk` (`PmtHouseClient`) for Builder + OIDC token endpoint
  * (oauth4webapi). Mints short-lived user-scoped JWTs (`scope: "sign:job"`) via
  * `externalUserId = naapUserId`.
  *
@@ -15,7 +15,7 @@ import {
   PmtHouseError,
   toPmtHouseError,
   type TokenExchangeResponse,
-} from '@pymthouse/builder-api';
+} from '@pymthouse/builder-sdk';
 
 import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
 import {

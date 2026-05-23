@@ -1,10 +1,10 @@
 # PymtHouse integration (NaaP)
 
-Official Builder API contract: [PymtHouse `docs/builder-api.md`](https://github.com/eliteprox/pymthouse/blob/main/docs/builder-api.md).
+Official Builder API contract: [PymtHouse `docs/builder-api.md`](https://github.com/pymthouse/pymthouse/blob/main/docs/builder-api.md).
 
-Server-to-server calls use the published SDK [`@pymthouse/builder-api`](https://github.com/eliteprox/pymthouse-builder-api) (wrapped in [apps/web-next/src/lib/pymthouse-client.ts](apps/web-next/src/lib/pymthouse-client.ts) with `import "server-only"` so M2M secrets never ship to the browser).
+Server-to-server calls use the published npm package [`@pymthouse/builder-sdk`](https://www.npmjs.com/package/@pymthouse/builder-sdk) (source: [pymthouse/builder-sdk](https://github.com/pymthouse/builder-sdk)), wrapped in [apps/web-next/src/lib/pymthouse-client.ts](apps/web-next/src/lib/pymthouse-client.ts) with `import "server-only"` so M2M secrets never ship to the browser.
 
-**Dependency pin:** NaaP pins `@pymthouse/builder-api` at **exact `0.0.7`** in [apps/web-next/package.json](../apps/web-next/package.json). npm has no stable 1.x release yet (latest published is 0.0.7). Treat this as a pre-release SDK: review the [pymthouse-builder-api](https://github.com/eliteprox/pymthouse-builder-api) changelog before bumping, run `npm install` at the repo root, and re-verify billing/OIDC routes after any upgrade.
+**Dependency pin:** NaaP pins `@pymthouse/builder-sdk` at **exact `0.0.8`** in [apps/web-next/package.json](../apps/web-next/package.json). npm has no stable 1.x release yet (latest published is 0.0.8). Treat this as a pre-release SDK: review the [builder-sdk CHANGELOG](https://github.com/pymthouse/builder-sdk/blob/main/CHANGELOG.md) before bumping, run `npm install` at the repo root, and re-verify billing/OIDC routes after any upgrade.
 
 ## Plan-builder data (PymtHouse → NaaP)
 
@@ -29,7 +29,7 @@ NaaP does not mirror the billing marketplace. Use `PYMTHOUSE_MARKETPLACE_URL`, o
 
 ## Billing provider — user access tokens (Builder API)
 
-NaaP uses `@pymthouse/builder-api` (`PmtHouseClient`) to upsert app users and mint **short-lived user-scoped JWTs** (`scope: sign:job`, TTL ~15 min) — no browser popup, no redirect URI, no machine-token step.
+NaaP uses `@pymthouse/builder-sdk` (`PmtHouseClient`) to upsert app users and mint **short-lived user-scoped JWTs** (`scope: sign:job`, TTL ~15 min) — no browser popup, no redirect URI, no machine-token step.
 
 ```text
 NaaP server                                              PymtHouse
@@ -110,11 +110,11 @@ PymtHouse usage is **tenant-wide** (M2M). A NaaP session alone must not expose r
 
 **Env gate:** If PymtHouse M2M env is incomplete, the route returns `400` with `PYMTHOUSE_NOT_CONFIGURED_MESSAGE` from [`pymthouse-env.ts`](../apps/web-next/src/lib/pymthouse-env.ts) (SDK-free, safe to import outside `server-only` routes).
 
-**Implementation:** [`apps/web-next/src/app/api/v1/billing/pymthouse/usage/route.ts`](../apps/web-next/src/app/api/v1/billing/pymthouse/usage/route.ts) uses `getPmtHouseServerClient()` from [`pymthouse-client.ts`](../apps/web-next/src/lib/pymthouse-client.ts) only (never `@pymthouse/builder-api/env` in middleware).
+**Implementation:** [`apps/web-next/src/app/api/v1/billing/pymthouse/usage/route.ts`](../apps/web-next/src/app/api/v1/billing/pymthouse/usage/route.ts) uses `getPmtHouseServerClient()` from [`pymthouse-client.ts`](../apps/web-next/src/lib/pymthouse-client.ts) only (never `@pymthouse/builder-sdk/env` in middleware).
 
 ### Required env vars (NaaP)
 
-These match [`createPmtHouseClientFromEnv`](https://github.com/eliteprox/pymthouse-builder-api/blob/main/src/env.ts) (`@pymthouse/builder-api/env`).
+These match [`createPmtHouseClientFromEnv`](https://github.com/pymthouse/builder-sdk/blob/main/src/env.ts) (`@pymthouse/builder-sdk/env`).
 
 | Variable | Purpose |
 |----------|---------|

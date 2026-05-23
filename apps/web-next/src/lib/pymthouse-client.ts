@@ -1,12 +1,12 @@
 /**
- * Server-only entry for `@pymthouse/builder-api` (M2M secrets must not ship to the browser).
- * Route handlers and server libs import from here, not from `@pymthouse/builder-api/env` directly.
+ * Server-only entry for `@pymthouse/builder-sdk` (M2M secrets must not ship to the browser).
+ * Route handlers and server libs import from here, not from `@pymthouse/builder-sdk/env` directly.
  */
 
 import 'server-only';
 
-import { createPmtHouseClientFromEnv } from '@pymthouse/builder-api/env';
-import type { PmtHouseClient } from '@pymthouse/builder-api';
+import { createPmtHouseClientFromEnv } from '@pymthouse/builder-sdk/env';
+import type { PmtHouseClient } from '@pymthouse/builder-sdk';
 
 let cached: PmtHouseClient | null = null;
 
