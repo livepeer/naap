@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     // Handle the callback
     const result = await handleOAuthCallback(provider, code);
 
-    const deviceApproval = tryParseDeviceApprovalCookie(
+    const deviceApproval = await tryParseDeviceApprovalCookie(
       request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value,
     );
     const redirectUrl = deviceApproval

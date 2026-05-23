@@ -145,20 +145,98 @@ export interface DeviceApprovalCookiePayload {
   exp: number;
 }
 
-export function encodeDeviceApprovalCookiePayload(payload: Omit<DeviceApprovalCookiePayload, 'exp'>): string {
+function getDeviceApprovalCookieSecret(): string | null {
+  const secret =
+    process.env.PYMTHOUSE_DEVICE_COOKIE_SECRET?.trim() ||
+    process.env.NEXTAUTH_SECRET?.trim() ||
+    null;
+  return secret && secret.length > 0 ? secret : null;
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  const base64 =
+    typeof btoa === 'function'
+      ? btoa(binary)
+      : Buffer.from(binary, 'binary').toString('base64');
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlToBytes(value: string): Uint8Array | null {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  try {
+    const binary =
+      typeof atob === 'function'
+        ? atob(padded)
+        : Buffer.from(padded, 'base64').toString('binary');
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+async function signCookiePayload(serializedPayload: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(serializedPayload),
+  );
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+export async function encodeDeviceApprovalCookiePayload(
+  payload: Omit<DeviceApprovalCookiePayload, 'exp'>,
+): Promise<string> {
+  const secret = getDeviceApprovalCookieSecret();
+  if (!secret) {
+    throw new Error('Missing PYMTHOUSE_DEVICE_COOKIE_SECRET or NEXTAUTH_SECRET');
+  }
   const body: DeviceApprovalCookiePayload = {
     ...payload,
     exp: Date.now() + 10 * 60 * 1000,
   };
-  return JSON.stringify(body);
+  const serializedPayload = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(body)));
+  const signature = await signCookiePayload(serializedPayload, secret);
+  return `${serializedPayload}.${signature}`;
 }
 
-export function tryParseDeviceApprovalCookie(
+export async function tryParseDeviceApprovalCookie(
   raw: string | undefined,
-): DeviceApprovalCookiePayload | null {
+): Promise<DeviceApprovalCookiePayload | null> {
   if (!raw || raw.length > 8192) return null;
+  const secret = getDeviceApprovalCookieSecret();
+  if (!secret) {
+    console.error('[pymthouse-device-initiate] Missing cookie signing secret');
+    return null;
+  }
+  const separator = raw.lastIndexOf('.');
+  if (separator <= 0 || separator === raw.length - 1) return null;
+  const serializedPayload = raw.slice(0, separator);
+  const providedSignature = raw.slice(separator + 1);
   try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const expectedSignature = await signCookiePayload(serializedPayload, secret);
+    if (providedSignature !== expectedSignature) {
+      console.warn('[pymthouse-device-initiate] Device approval cookie signature mismatch');
+      return null;
+    }
+    const payloadBytes = base64UrlToBytes(serializedPayload);
+    if (!payloadBytes) return null;
+    const parsed = JSON.parse(new TextDecoder().decode(payloadBytes)) as Record<string, unknown>;
     const userCode = typeof parsed.userCode === 'string' ? parsed.userCode.trim() : '';
     const publicClientId =
       typeof parsed.publicClientId === 'string' ? parsed.publicClientId.trim() : '';

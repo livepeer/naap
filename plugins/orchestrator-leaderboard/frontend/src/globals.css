@@ -105,11 +105,14 @@
   /* Capability / model tags — matches dashboard orchestrator model pills */
   .section-label-icon {
     @apply p-1 rounded-md shrink-0;
+
     background: var(--bg-tertiary);
+
     color: #34d399;
   }
   .section-label-text {
     @apply text-[11px] font-medium uppercase tracking-wider;
+
     color: var(--text-muted);
   }
   .pill-btn {
@@ -145,6 +148,7 @@
   }
   .status-pill-amber {
     @apply inline-flex items-center gap-1 pill-btn pill-btn-sm pill-btn-static;
+
     background: rgba(245, 158, 11, 0.15);
     color: var(--accent-amber);
     border-color: rgba(245, 158, 11, 0.3);

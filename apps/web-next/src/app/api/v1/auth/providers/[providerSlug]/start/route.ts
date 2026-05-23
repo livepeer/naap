@@ -98,11 +98,9 @@ export async function POST(
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
-        console.error('[billing-auth:pymthouse] Builder API error:', msg);
+        console.error('[billing-auth:pymthouse] Builder API error:', { msg, err });
         return errors.badRequest(
-          `PymtHouse user linking failed: ${msg}. ` +
-            'Ensure PYMTHOUSE_ISSUER_URL (…/api/v1/oidc), PYMTHOUSE_PUBLIC_CLIENT_ID (app_…), PYMTHOUSE_M2M_CLIENT_ID, and PYMTHOUSE_M2M_CLIENT_SECRET are set, ' +
-            'and the confidential client on PymtHouse allows users:read, users:write, users:token, and sign:job.',
+          'User linking failed; please try again or contact support.',
         );
       }
 

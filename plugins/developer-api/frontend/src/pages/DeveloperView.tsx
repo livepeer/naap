@@ -145,7 +145,12 @@ function computePymthouseExpiresAtFromCreated(
   return new Date(ms + PYMTHOUSE_SIGNER_SESSION_MS).toISOString();
 }
 
-/** Prefer server `expiresAt`; for PymtHouse keys without it, derive from `createdAt`. */
+/**
+ * TODO(backend): return actual token expiry for PymtHouse keys in `expiresAt`
+ * (not only the default 90-day TTL fallback) so frontend can rely on server data.
+ *
+ * Prefer server `expiresAt`; for PymtHouse keys without it, derive from `createdAt`.
+ */
 function resolveApiKeyExpiresAt(key: ApiKey): string | null {
   if (key.expiresAt != null && String(key.expiresAt).trim() !== '') {
     return key.expiresAt;

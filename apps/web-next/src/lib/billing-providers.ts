@@ -11,7 +11,7 @@ export interface BillingProviderRedirectConfig {
 }
 
 const DAYDREAM_AUTH_URL =
-  process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
+  process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in';
 
 const REDIRECT_FLOW_BILLING_PROVIDERS: Readonly<Record<string, BillingProviderRedirectConfig>> = {
   daydream: { providerSlug: 'daydream', authUrl: DAYDREAM_AUTH_URL },

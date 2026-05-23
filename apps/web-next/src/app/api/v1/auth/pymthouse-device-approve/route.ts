@@ -34,7 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return errors.unauthorized('Invalid or expired session');
   }
 
-  const payload = tryParseDeviceApprovalCookie(
+  const payload = await tryParseDeviceApprovalCookie(
     request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value,
   );
   if (!payload) {

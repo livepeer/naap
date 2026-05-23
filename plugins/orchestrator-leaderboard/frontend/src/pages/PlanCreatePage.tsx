@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Plus } from 'lucide-react';
 import { createPlan } from '../lib/api';
@@ -27,6 +27,11 @@ export const PlanCreatePage: React.FC = () => {
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const uniqueSuffixRef = useRef(
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().slice(0, 8)
+      : Date.now().toString(36),
+  );
   const { pipelines, loading, error: catalogError, meta } = useCapabilityCatalog(billingProviderSlug);
   const pymthouseConfigured = meta?.pymthouseConfigured ?? true;
   const capabilityCatalogReady = !loading && meta !== null;
@@ -39,8 +44,7 @@ export const PlanCreatePage: React.FC = () => {
   const generatedBillingPlanId = useMemo(() => {
     const trimmedName = name.trim();
     const slug = slugify(trimmedName || 'new-discovery-plan');
-    const uniqueSuffix = trimmedName ? '' : `-${Date.now()}`;
-    return `${billingProviderSlug}-${slug}${uniqueSuffix}`;
+    return `${billingProviderSlug}-${slug}-${uniqueSuffixRef.current}`;
   }, [billingProviderSlug, name]);
 
   const availableCapabilities = useMemo(

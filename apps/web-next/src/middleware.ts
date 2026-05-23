@@ -140,7 +140,7 @@ function getPluginForPath(pathname: string): string | null {
   return null;
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // --- Observability: inject request-id and trace-id on every request ---
@@ -185,7 +185,7 @@ export function middleware(request: NextRequest) {
         res.headers.set('x-trace-id', traceId);
         return res;
       }
-      const cookiePayload = encodeDeviceApprovalCookiePayload({
+      const cookiePayload = await encodeDeviceApprovalCookiePayload({
         userCode: tuple.userCode,
         publicClientId: tuple.publicClientId,
       });

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { errors, getClientIP } from '@/lib/api/response';
 
@@ -37,8 +38,23 @@ export function enforceRateLimit(
   const windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
   const maxRequests = options.maxRequests ?? DEFAULT_MAX_REQUESTS;
   const ip = getClientIP(request);
-  if (!ip) return null;
-  const key = `${options.keyPrefix}:${ip}`;
+  const key = ip
+    ? `${options.keyPrefix}:${ip}`
+    : `${options.keyPrefix}:anon:${createHash('sha256')
+        .update(
+          [
+            request.headers.get('user-agent') ?? '',
+            request.headers.get('accept') ?? '',
+            request.method,
+            request.url,
+          ].join('|'),
+        )
+        .digest('hex')
+        .slice(0, 24)}`;
+  const effectiveMaxRequests = ip ? maxRequests : Math.max(1, Math.min(maxRequests, 3));
+  if (!ip) {
+    console.warn('[rate-limit] Missing client IP; using fallback anonymous key');
+  }
 
   cleanupExpiredEntries(now);
 
@@ -48,7 +64,7 @@ export function enforceRateLimit(
     return null;
   }
 
-  if (existing.count >= maxRequests) {
+  if (existing.count >= effectiveMaxRequests) {
     const retryAfter = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
     const response = errors.rateLimited(retryAfter);
     response.headers.set('Retry-After', retryAfter.toString());

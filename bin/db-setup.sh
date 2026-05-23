@@ -80,12 +80,20 @@ done
 if [ -f "$ROOT_DIR/packages/database/prisma/seed.ts" ]; then
   log_info "Seeding database..."
   cd "$ROOT_DIR/packages/database"
-  npx tsx prisma/seed.ts 2>/dev/null && log_success "Database seeded" || log_warn "Seeding had issues (non-critical)"
+  if npx tsx prisma/seed.ts 2>/dev/null; then
+    log_success "Database seeded"
+  else
+    log_warn "Seeding had issues (non-critical)"
+  fi
 fi
 
 log_info "Seeding default discovery plans..."
 cd "$ROOT_DIR"
-npx tsx bin/seed-discovery-plans.ts 2>/dev/null && log_success "Default discovery plans seeded" || log_warn "Discovery plan seed had issues (non-critical)"
+if npx tsx bin/seed-discovery-plans.ts 2>/dev/null; then
+  log_success "Default discovery plans seeded"
+else
+  log_warn "Discovery plan seed had issues (non-critical)"
+fi
 
 echo ""
 log_success "Database setup complete!"

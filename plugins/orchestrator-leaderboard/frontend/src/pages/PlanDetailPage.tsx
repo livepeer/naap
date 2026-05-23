@@ -87,30 +87,21 @@ export const PlanDetailPage: React.FC = () => {
   }, [capabilityCatalogReady, isCapabilityInCatalog, manifestSelectedCapabilities]);
 
   React.useEffect(() => {
-    if (manifestFilteredCapabilities === null) {
-      return;
+    const desiredCapabilities = capabilityCatalogReady
+      ? (effectiveSelectedCapabilities ?? [])
+      : (manifestFilteredCapabilities ?? selectedCapabilities ?? []);
+    const currentCapabilities = selectedCapabilities ?? [];
+    const isSame =
+      desiredCapabilities.length === currentCapabilities.length &&
+      desiredCapabilities.every((capability, index) => capability === currentCapabilities[index]);
+    if (!isSame) {
+      setDraft({ capabilities: desiredCapabilities });
     }
-    if (
-      manifestFilteredCapabilities.length === selectedCapabilities.length &&
-      manifestFilteredCapabilities.every((capability, index) => capability === selectedCapabilities[index])
-    ) {
-      return;
-    }
-    setDraft({ capabilities: manifestFilteredCapabilities });
-  }, [manifestFilteredCapabilities, selectedCapabilities, setDraft]);
-
-  React.useEffect(() => {
-    if (!capabilityCatalogReady) {
-      return;
-    }
-    if (effectiveSelectedCapabilities.length === selectedCapabilities.length) {
-      return;
-    }
-    setDraft({ capabilities: effectiveSelectedCapabilities });
   }, [
     capabilityCatalogReady,
+    manifestFilteredCapabilities,
     effectiveSelectedCapabilities,
-    selectedCapabilities.length,
+    selectedCapabilities,
     setDraft,
   ]);
 

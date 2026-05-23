@@ -909,7 +909,12 @@ app.post('/api/v1/developer/keys', async (req, res) => {
           createdAt: newKey.createdAt.toISOString(),
           expiresAt:
             newKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
-              ? computePymthouseExpiry(newKey.createdAt).toISOString()
+              ? new Date(
+                  Math.min(
+                    (pymthouseTokenExpiry ?? computePymthouseExpiry(newKey.createdAt)).getTime(),
+                    computePymthouseExpiry(newKey.createdAt).getTime(),
+                  ),
+                ).toISOString()
               : null,
         },
         rawApiKey,
@@ -923,6 +928,10 @@ app.post('/api/v1/developer/keys', async (req, res) => {
     const fallbackProject = inMemoryProjects.find((p: any) => p.id === projectId) || { id: 'proj-default', name: 'Default', isDefault: true };
     const fallbackProvider = inMemoryBillingProviders.find(p => p.id === billingProviderId) || inMemoryBillingProviders[0];
     const fallbackLabel = label && typeof label === 'string' && label.trim() ? label.trim() : null;
+    const fallbackPymthouseTokenExpiry =
+      fallbackProvider?.slug === PYMTHOUSE_PROVIDER_SLUG && isLikelyOidcJwt(rawApiKey)
+        ? decodeJwtExp(rawApiKey)
+        : null;
 
     const newKey = {
       id: `key-${Date.now()}`,
@@ -943,7 +952,15 @@ app.post('/api/v1/developer/keys', async (req, res) => {
         ...newKey,
         expiresAt:
           newKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
-            ? computePymthouseExpiry(newKey.createdAt).toISOString()
+            ? new Date(
+                Math.min(
+                  (
+                    fallbackPymthouseTokenExpiry ??
+                    computePymthouseExpiry(newKey.createdAt)
+                  ).getTime(),
+                  computePymthouseExpiry(newKey.createdAt).getTime(),
+                ),
+              ).toISOString()
             : null,
       },
       rawApiKey,
