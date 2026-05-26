@@ -70,7 +70,7 @@ export function usePlanDetail(planId: string): UsePlanDetailResult {
           slaMinScore: found.slaMinScore ?? undefined,
           sortBy: found.sortBy ?? undefined,
           filters: found.filters ?? undefined,
-          billingProviderSlug: found.billingProviderSlug ?? 'daydream',
+          billingProviderSlug: 'daydream',
         });
         setDirty(false);
       } catch (err) {

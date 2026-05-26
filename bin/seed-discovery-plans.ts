@@ -75,19 +75,30 @@ function defaultPlanId(slug: string): string {
   return `naap-default-${slug}`;
 }
 
-async function backfillLegacyBillingProviderSlugs(
+async function backfillBillingProviderSlugs(
   prisma: PrismaClient,
 ): Promise<number> {
-  const result = await prisma.discoveryPlan.updateMany({
+  const pymthouseResult = await prisma.discoveryPlan.updateMany({
+    where: { billingProviderSlug: 'pymthouse' },
+    data: { billingProviderSlug: 'daydream' },
+  });
+  if (pymthouseResult.count > 0) {
+    console.log(
+      `[seed-plans] Migrated billingProviderSlug pymthouse → daydream on ${pymthouseResult.count} plan(s)`,
+    );
+  }
+
+  const nullResult = await prisma.discoveryPlan.updateMany({
     where: { billingProviderSlug: null },
     data: { billingProviderSlug: 'daydream' },
   });
-  if (result.count > 0) {
+  if (nullResult.count > 0) {
     console.log(
-      `[seed-plans] Backfilled billingProviderSlug=daydream on ${result.count} legacy plan(s)`,
+      `[seed-plans] Backfilled billingProviderSlug=daydream on ${nullResult.count} legacy plan(s)`,
     );
   }
-  return result.count;
+
+  return pymthouseResult.count + nullResult.count;
 }
 
 async function main() {
@@ -96,7 +107,7 @@ async function main() {
   const prisma = new PrismaClient();
 
   try {
-    await backfillLegacyBillingProviderSlugs(prisma);
+    await backfillBillingProviderSlugs(prisma);
     let ownerUserId = SYSTEM_OWNER_ID;
     const existingUser = await prisma.user.findFirst({
       orderBy: { createdAt: 'asc' },

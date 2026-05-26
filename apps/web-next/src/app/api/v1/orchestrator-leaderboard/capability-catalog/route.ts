@@ -10,8 +10,8 @@ export const runtime = 'nodejs';
 import { NextRequest } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { success, errors } from '@/lib/api/response';
-import { getDashboardPipelineCatalog } from '@/lib/facade';
-import { isCapabilityAllowedForProvider, normalizeBillingProviderSlug } from '@/lib/orchestrator-leaderboard/provider-restrictions';
+import { normalizeBillingProviderSlug } from '@/lib/orchestrator-leaderboard/provider-restrictions';
+import { getDatasetCapabilities } from '@/lib/orchestrator-leaderboard/global-dataset';
 import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/orchestrator-leaderboard/discovery-constants';
 
 interface CapabilityCatalogModel {
@@ -41,14 +41,15 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
   const manifestOnly = request.nextUrl.searchParams.get('manifestOnly') === '1';
   const capabilitiesToValidate = request.nextUrl.searchParams.getAll('capability');
-  let billingProviderSlug = requestedBillingProviderSlug;
+  const billingProviderSlug = requestedBillingProviderSlug;
 
   // PR #337 is Daydream-only; keep manifest response fields stable as false.
-  let manifestChecked = false;
-  let manifestAvailable = false;
+  const manifestChecked = false;
+  const manifestAvailable = false;
   const pymthouseConfigured = false;
 
   if (manifestOnly) {
+    // Daydream has no manifest; pass all requested capabilities through unfiltered.
     const response = success({
       requestedBillingProviderSlug,
       billingProviderSlug,
@@ -57,43 +58,31 @@ export async function GET(request: NextRequest): Promise<Response> {
       manifestAvailable,
       pipelines: [],
       capabilities: [],
-      filteredCapabilities: capabilitiesToValidate.filter((capability) =>
-        isCapabilityAllowedForProvider(capability, billingProviderSlug),
-      ),
+      filteredCapabilities: capabilitiesToValidate,
     });
     response.headers.set('Cache-Control', DISCOVERY_RESPONSE_CACHE_CONTROL);
     return response;
   }
 
-  const refresh = request.nextUrl.searchParams.get('refresh') === '1';
-  const catalog = await getDashboardPipelineCatalog(
-    refresh ? { bypassCache: true } : undefined,
-  );
+  // Build the pipeline catalog from the leaderboard dataset (same source as plan evaluation).
+  // Capabilities are stored as "{pipelineId}/{modelId}"; capabilities without a slash are
+  // treated as standalone entries using the full string as both pipeline and model.
+  const allCapabilities = await getDatasetCapabilities();
+
+  const pipelineMap = new Map<string, CapabilityCatalogModel[]>();
+  for (const capability of allCapabilities) {
+    const slashIdx = capability.indexOf('/');
+    const pipelineId = slashIdx > 0 ? capability.slice(0, slashIdx) : capability;
+    const modelId = slashIdx > 0 ? capability.slice(slashIdx + 1) : capability;
+    const models = pipelineMap.get(pipelineId) ?? [];
+    models.push({ id: modelId, label: modelId, capability });
+    pipelineMap.set(pipelineId, models);
+  }
+
   const pipelines: CapabilityCatalogPipeline[] = [];
-
-  for (const pipeline of catalog) {
-    const models = (pipeline.models ?? [])
-      .map((modelId) => modelId.trim())
-      .filter(Boolean)
-      .filter((modelId) =>
-        isCapabilityAllowedForProvider(`${pipeline.id}/${modelId}`, billingProviderSlug),
-      )
-      .sort((a, b) => a.localeCompare(b))
-      .map((modelId) => ({
-        id: modelId,
-        label: modelId,
-        capability: `${pipeline.id}/${modelId}`,
-      }));
-
-    if (models.length === 0) {
-      continue;
-    }
-
-    pipelines.push({
-      id: pipeline.id,
-      name: pipeline.name || pipeline.id,
-      models,
-    });
+  for (const [pipelineId, models] of pipelineMap) {
+    models.sort((a, b) => a.id.localeCompare(b.id));
+    pipelines.push({ id: pipelineId, name: pipelineId, models });
   }
 
   pipelines.sort((a, b) => a.name.localeCompare(b.name));
