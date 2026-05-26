@@ -32,12 +32,12 @@ describe('pymthouse-discovery-plans', () => {
 
   it('fetchPymthouseDiscoveryPlans parses JSON on 200', async () => {
     vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:3001/api/v1/oidc');
-    vi.stubEnv('PMTHOUSE_CLIENT_ID', 'app_x');
+    vi.stubEnv('PYMTHOUSE_PUBLIC_CLIENT_ID', 'app_x');
     vi.stubEnv('PYMTHOUSE_M2M_CLIENT_ID', 'm2m_x');
-    vi.stubEnv('PMTHOUSE_M2M_CLIENT_SECRET', 'secret');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_SECRET', 'secret');
 
     const fetchMock = vi.fn(async () =>
-      Promise.resolve({
+      ({
         ok: true,
         json: async () => ({
           plans: [{ id: 'p1', name: 'P', status: 'active', discoveryPolicy: null, capabilities: [] }],

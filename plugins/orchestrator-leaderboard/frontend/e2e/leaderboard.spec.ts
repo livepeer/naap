@@ -224,15 +224,13 @@ test.describe('Global Dataset & Plan Integration', () => {
         body: JSON.stringify({
           success: true,
           data: {
-            data: {
-              planId: 'plan-1',
-              refreshedAt: new Date().toISOString(),
-              capabilities: {
-                noop: [FIXTURE_RANK.data[0]],
-              },
-              plan: { name: 'Test Plan', description: 'A test plan', capabilities: ['noop'], topN: 5 },
-              meta: { totalOrchestrators: 1, refreshIntervalMs: 60000, cacheAgeMs: 0 },
+            planId: 'plan-1',
+            refreshedAt: new Date().toISOString(),
+            capabilities: {
+              noop: [FIXTURE_RANK.data[0]],
             },
+            plan: { name: 'Test Plan', description: 'A test plan', capabilities: ['noop'], topN: 5 },
+            meta: { totalOrchestrators: 1, refreshIntervalMs: 60000, cacheAgeMs: 0 },
           },
         }),
       });

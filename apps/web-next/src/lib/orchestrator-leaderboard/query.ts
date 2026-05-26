@@ -54,11 +54,16 @@ function getDirectClickhouseConfig(): { url: string; user: string; password: str
 }
 
 function resolveDirectClickhouseUrl(rawUrl: string): string {
-  return new URL('/', rawUrl).toString();
+  const url = new URL(rawUrl);
+  if (!url.pathname.endsWith('/')) {
+    url.pathname = `${url.pathname}/`;
+  }
+  return url.toString();
 }
 
 function buildBasicAuthHeader(user: string, password: string): string {
-  return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
+  const credentials = `${user}:${password}`;
+  return `Basic ${Buffer.from(credentials).toString('base64')}`;
 }
 
 /**
@@ -199,7 +204,7 @@ export function buildLeaderboardSQL(capability: string, topN: number): string {
   const validTopN = validateTopN(topN);
 
   return LEADERBOARD_SQL_TEMPLATE
-    .replace(/\$CAPABILITY/g, capability)
+    .replaceAll('$CAPABILITY', capability)
     .replace('$TOP_N', String(validTopN));
 }
 

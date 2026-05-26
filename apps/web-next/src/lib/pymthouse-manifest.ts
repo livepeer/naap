@@ -189,10 +189,16 @@ function sortedCaps(caps: PymthouseManifestCapability[]): PymthouseManifestCapab
 }
 
 export function computeManifestRevision(
-  data: Pick<PymthouseManifestResponse, 'capabilities' | 'excludedCapabilities'> | null,
+  data: Pick<
+    PymthouseManifestResponse,
+    'capabilities' | 'excludedCapabilities' | 'manifestVersion'
+  > | null,
 ): string {
   if (data == null) {
     return 'unavailable';
+  }
+  if (data.manifestVersion?.trim()) {
+    return data.manifestVersion.trim();
   }
   const caps = sortedCaps(data.capabilities ?? []);
   const excl = sortedCaps(data.excludedCapabilities ?? []);
@@ -222,6 +228,13 @@ export function getPymthouseManifestSnapshot(): {
   return { data: globalSnapshot.data, revision: globalSnapshot.revision };
 }
 
+function getLastManifestSnapshot(): {
+  body: PymthouseManifestResponse | null;
+  etag: string | null;
+} {
+  return { body: globalSnapshot.data, etag: globalSnapshot.etag };
+}
+
 /**
  * HTTP fetch from PymtHouse; updates process-wide snapshot. Call from refresh pipelines only
  * (or tests with mocked fetch).
@@ -243,8 +256,9 @@ export async function syncPymthouseManifestSnapshot(opts?: {
   }
 
   const url = creds.url;
-  let body: PymthouseManifestResponse | null = null;
-  let etag: string | null = null;
+  const last = getLastManifestSnapshot();
+  let body: PymthouseManifestResponse | null = last.body;
+  let etag: string | null = last.etag;
   try {
     const res = await fetch(url, {
       method: 'GET',
@@ -252,14 +266,13 @@ export async function syncPymthouseManifestSnapshot(opts?: {
       signal: opts?.signal,
       cache: 'no-store',
     });
-    etag = res.headers.get('etag')?.trim() || null;
     if (res.ok) {
       const json = (await res.json()) as Record<string, unknown>;
       body = parseManifestJson(json);
+      etag = res.headers.get('etag')?.trim() || null;
     }
   } catch {
-    body = null;
-    etag = null;
+    // Preserve the last known-good snapshot on transient manifest fetch failures.
   }
 
   return applyManifestSnapshot(body, etag);

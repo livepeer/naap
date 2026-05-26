@@ -24,6 +24,11 @@ const SORT_OPTIONS: { value: PlanSortBy; label: string }[] = [
   { value: 'avail', label: 'Availability' },
 ];
 
+const capabilityAliasMap: Record<string, string[]> = {
+  sdxl: ['streamdiffusion-sdxl'],
+  'streamdiffusion-sdxl': ['sdxl'],
+};
+
 export const PlanDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -130,6 +135,16 @@ export const PlanDetailPage: React.FC = () => {
       next = [...current, ...toAdd];
     } else {
       const removeSet = new Set(capabilities);
+      for (const capability of capabilities) {
+        const modelId = capability.slice(capability.lastIndexOf('/') + 1);
+        removeSet.add(modelId);
+        for (const alias of capabilityAliasMap[capability] ?? []) {
+          removeSet.add(alias);
+        }
+        for (const alias of capabilityAliasMap[modelId] ?? []) {
+          removeSet.add(alias);
+        }
+      }
       next = current.filter((cap) => !removeSet.has(cap));
     }
     setDraft({ capabilities: next });

@@ -10,8 +10,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
-import { success, errors } from '@/lib/api/response';
-import { getAuthToken } from '@/lib/api/response';
+import { success, errors, getAuthToken } from '@/lib/api/response';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/pymthouse-manifest';
@@ -27,10 +26,14 @@ function parseBillingProviderSlugParam(
   request: NextRequest,
 ): { value: string | null; error: string | null } {
   const raw = request.nextUrl.searchParams.get('billingProviderSlug');
-  if (!raw) {
+  if (raw === null) {
     return { value: null, error: null };
   }
-  const parsed = BillingProviderSlugSchema.safeParse(raw.trim().toLowerCase());
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === '') {
+    return { value: null, error: 'Invalid billingProviderSlug' };
+  }
+  const parsed = BillingProviderSlugSchema.safeParse(normalized);
   if (!parsed.success) {
     return { value: null, error: 'Invalid billingProviderSlug' };
   }

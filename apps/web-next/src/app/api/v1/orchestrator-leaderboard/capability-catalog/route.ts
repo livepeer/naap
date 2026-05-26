@@ -62,8 +62,13 @@ export async function GET(request: NextRequest): Promise<Response> {
   if (requestedBillingProviderSlug === 'pymthouse') {
     manifestChecked = true;
     if (pymthouseConfigured) {
-      await ensurePymthouseManifestFresh();
-      manifestAvailable = getPymthouseManifestSnapshot().data != null;
+      try {
+        await ensurePymthouseManifestFresh();
+        manifestAvailable = getPymthouseManifestSnapshot().data != null;
+      } catch (err) {
+        console.error('[capability-catalog] PymtHouse manifest refresh failed', err);
+        manifestAvailable = false;
+      }
     } else {
       billingProviderSlug = 'daydream';
     }

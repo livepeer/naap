@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   computeManifestRevision,
   filterPlanCapabilitiesForManifest,
+  getPymthouseManifestSnapshot,
   isLeaderboardCapabilityAllowed,
   isMissingManifestFailOpenEnabled,
   isPipelineModelInManifest,
@@ -117,7 +118,7 @@ describe('pymthouse-manifest', () => {
       excludedCapabilities: [] as { pipeline: string; modelId: string }[],
       manifestVersion: 'server-rev-abc',
     };
-    expect(computeManifestRevision(data)).not.toBe('server-rev-abc');
+    expect(computeManifestRevision(data)).toBe('server-rev-abc');
   });
 
   it('syncPymthouseManifestSnapshot skips GET when HEAD returns 304', async () => {
@@ -146,5 +147,30 @@ describe('pymthouse-manifest', () => {
     expect(result.revisionChanged).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('HEAD');
+  });
+
+  it('preserves last manifest snapshot when refresh fetch fails', async () => {
+    vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'https://pymthouse.example/oidc');
+    vi.stubEnv('PYMTHOUSE_PUBLIC_CLIENT_ID', 'app-public');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_ID', 'm2m');
+    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_SECRET', 'secret');
+
+    const previous = {
+      capabilities: [{ pipeline: 'p', modelId: 'm' }],
+      manifestVersion: 'rev-1',
+    };
+    seedPymthouseManifestForTests(previous, { etag: '"manifest-plan-1"' });
+
+    const fetchMock = vi.fn(async (_input: RequestInfo, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Response(null, { status: 500 });
+      }
+      throw new Error('network down');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await syncPymthouseManifestSnapshot();
+    expect(result).toEqual({ revision: 'rev-1', revisionChanged: false });
+    expect(getPymthouseManifestSnapshot().data).toEqual(previous);
   });
 });

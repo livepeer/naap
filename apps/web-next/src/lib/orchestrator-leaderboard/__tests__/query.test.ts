@@ -66,7 +66,7 @@ describe('validateTopN', () => {
   it('rejects non-integers', () => {
     expect(() => validateTopN(1.5)).toThrow();
     expect(() => validateTopN('abc')).toThrow();
-    expect(() => validateTopN(NaN)).toThrow();
+    expect(() => validateTopN(Number.NaN)).toThrow();
   });
 
   it('rejects values over 1000', () => {
@@ -106,6 +106,18 @@ describe('resolveClickhouseQueryTarget', () => {
     expect(t.url).toBe('https://ch.example.com:8443/');
     expect(t.headers['Content-Type']).toBe('text/plain');
     expect(t.headers.Authorization).toMatch(/^Basic /);
+  });
+
+  it('preserves direct ClickHouse URL path and query', () => {
+    process.env.CLICKHOUSE_URL = 'https://ch.example.com:8443/proxy/clickhouse?database=semantic';
+    process.env.CLICKHOUSE_USER = 'u';
+    process.env.CLICKHOUSE_PASSWORD = 'p';
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.VERCEL_URL;
+
+    const t = resolveClickhouseQueryTarget();
+    expect(t.mode).toBe('direct');
+    expect(t.url).toBe('https://ch.example.com:8443/proxy/clickhouse/?database=semantic');
   });
 
   it('throws when only some direct env vars are set', () => {

@@ -84,11 +84,11 @@ export async function GET(request: NextRequest): Promise<Response> {
   const topN = resolveTopN(url);
   const authToken = getAuthToken(request) || '';
 
-  if (billingProvider === 'pymthouse') {
-    await ensurePymthouseManifestFresh();
-  }
-
   try {
+    if (billingProvider === 'pymthouse') {
+      await ensurePymthouseManifestFresh();
+    }
+
     const ordered: string[] = [];
     const seen = new Set<string>();
     let cacheAgeMs = 0;
@@ -141,9 +141,15 @@ export async function GET(request: NextRequest): Promise<Response> {
       message.includes('capability is required') ||
       message.includes('capability must') ||
       message.includes('128 characters');
+    const status = invalidCapability ? 400 : 500;
+    const responseMessage = invalidCapability ? message : 'Internal server error';
 
-    return new NextResponse(message, {
-      status: invalidCapability ? 400 : 500,
+    if (status === 500) {
+      console.error('[python-gateway] Failed to fetch default discovery', err);
+    }
+
+    return new NextResponse(responseMessage, {
+      status,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
   }

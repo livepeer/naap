@@ -75,6 +75,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlanListEnvelope"
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
     post:
@@ -150,6 +151,7 @@ paths:
                         properties:
                           plan: { $ref: "#/components/schemas/DiscoveryPlan" }
                         required: [plan]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
     put:
@@ -311,12 +313,20 @@ paths:
         - name: caps
           in: query
           required: false
-          schema: { type: string }
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: { type: string }
           description: Full capability path (e.g. `live-video-to-video/streamdiffusion-sdxl`).
         - name: capability
           in: query
           required: false
-          schema: { type: string }
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: { type: string }
         - name: model
           in: query
           required: false
@@ -795,6 +805,11 @@ components:
   responses:
     Unauthorized:
       description: Missing or invalid authentication
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    BadRequest:
+      description: Invalid request parameters or validation failure
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }

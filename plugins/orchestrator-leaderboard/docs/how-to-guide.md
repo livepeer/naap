@@ -448,7 +448,7 @@ Key takeaways from this example:
 - **`upsertPlan()`** is the safe re-run pattern. `POST /plans` rejects duplicate
   `billingPlanId`s with `400`, so check the list first and `PUT` if it exists.
 - **`billingPlanId` is immutable** — strip it from update payloads.
-- **`results.data.capabilities[<cap>]`** is the per-capability ranked
+- **`results.capabilities[<cap>]`** is the per-capability ranked
   array; `.orchUri` is what your caller / signer dials.
 - **Honor `meta.refreshIntervalMs`** and the response `Cache-Control: max-age=10`
   when deciding how often to re-poll.
