@@ -13,12 +13,13 @@
  * Mutations on public plans require isAdmin.
  */
 
-import type { Prisma } from '@naap/database';
+import { Prisma } from '@naap/database';
 import { prisma } from '@/lib/db';
 import type {
   CreatePlanInput,
   UpdatePlanInput,
   DiscoveryPlan,
+  BillingProviderSlug,
   LeaderboardFilters,
   SLAWeights,
   PlanVisibility,
@@ -53,7 +54,7 @@ function writeScopeWhere(
 
 function listPlansWhere(
   scope: PlanScope,
-  billingProviderSlug?: string | null,
+  billingProviderSlug?: BillingProviderSlug | null,
 ): Prisma.DiscoveryPlanWhereInput {
   const base = readScopeWhere(scope) as Prisma.DiscoveryPlanWhereInput;
   const slugPart = billingProviderWhere(billingProviderSlug);
@@ -64,14 +65,17 @@ function listPlansWhere(
 }
 
 function billingProviderWhere(
-  billingProviderSlug?: string | null,
+  billingProviderSlug?: BillingProviderSlug | null,
 ): Prisma.DiscoveryPlanWhereInput | null {
-  const slug = billingProviderSlug?.trim();
-  if (!slug) {
+  if (billingProviderSlug === null || billingProviderSlug === undefined) {
     return null;
   }
 
-  return { billingProviderSlug: slug };
+  if (billingProviderSlug.trim() === '') {
+    throw new Error('Invalid billingProviderSlug');
+  }
+
+  return { billingProviderSlug };
 }
 
 function toPlan(row: Record<string, unknown>): DiscoveryPlan {
@@ -122,7 +126,7 @@ export async function createPlan(
 
 export async function listPlans(
   scope: PlanScope,
-  billingProviderSlug?: string | null,
+  billingProviderSlug?: BillingProviderSlug | null,
 ): Promise<DiscoveryPlan[]> {
   const rows = await prisma.discoveryPlan.findMany({
     where: listPlansWhere(scope, billingProviderSlug),
@@ -134,7 +138,7 @@ export async function listPlans(
 export async function getPlan(
   id: string,
   scope: PlanScope,
-  billingProviderSlug?: string | null,
+  billingProviderSlug?: BillingProviderSlug | null,
 ): Promise<DiscoveryPlan | null> {
   const where = listPlansWhere(scope, billingProviderSlug);
   const row = await prisma.discoveryPlan.findFirst({
@@ -171,10 +175,10 @@ export async function updatePlan(
       ...(input.description !== undefined && { description: input.description }),
       ...(input.capabilities !== undefined && { capabilities: input.capabilities }),
       ...(input.topN !== undefined && { topN: input.topN }),
-      ...(input.slaWeights !== undefined && { slaWeights: input.slaWeights }),
+      ...(input.slaWeights !== undefined && { slaWeights: input.slaWeights ?? Prisma.JsonNull }),
       ...(input.slaMinScore !== undefined && { slaMinScore: input.slaMinScore }),
       ...(input.sortBy !== undefined && { sortBy: input.sortBy }),
-      ...(input.filters !== undefined && { filters: input.filters }),
+      ...(input.filters !== undefined && { filters: input.filters ?? Prisma.JsonNull }),
       ...(input.billingProviderSlug !== undefined && { billingProviderSlug: input.billingProviderSlug }),
     },
   });

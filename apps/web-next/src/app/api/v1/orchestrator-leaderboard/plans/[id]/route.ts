@@ -15,6 +15,7 @@ import { success, errors, getAuthToken } from '@/lib/api/response';
 import { getPlan, updatePlan, deletePlan } from '@/lib/orchestrator-leaderboard/plans';
 import type { PlanScope } from '@/lib/orchestrator-leaderboard/plans';
 import {
+  type BillingProviderSlug,
   BillingProviderSlugSchema,
   UpdatePlanSchema,
 } from '@/lib/orchestrator-leaderboard/types';
@@ -37,7 +38,7 @@ async function scopeFromAuth(
 
 function parseBillingProviderSlugParam(
   request: NextRequest,
-): { value: string | null; error: string | null } {
+): { value: BillingProviderSlug | null; error: string | null } {
   const raw = request.nextUrl.searchParams.get('billingProviderSlug');
   if (raw === null) {
     return { value: null, error: null };

@@ -32,9 +32,13 @@ export async function GET(request: NextRequest): Promise<Response> {
     return errors.unauthorized('Missing or invalid authentication');
   }
 
-  const requestedBillingProviderSlug = normalizeBillingProviderSlug(
-    request.nextUrl.searchParams.get('billingProviderSlug'),
-  ) ?? 'daydream';
+  const hasBillingProviderSlug = request.nextUrl.searchParams.has('billingProviderSlug');
+  const requestedBillingProviderSlug = hasBillingProviderSlug
+    ? normalizeBillingProviderSlug(request.nextUrl.searchParams.get('billingProviderSlug'))
+    : 'daydream';
+  if (!requestedBillingProviderSlug) {
+    return errors.badRequest('Invalid billingProviderSlug');
+  }
   const manifestOnly = request.nextUrl.searchParams.get('manifestOnly') === '1';
   const capabilitiesToValidate = request.nextUrl.searchParams.getAll('capability');
   let billingProviderSlug = requestedBillingProviderSlug;

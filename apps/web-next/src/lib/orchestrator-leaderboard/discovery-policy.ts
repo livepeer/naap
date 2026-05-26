@@ -39,7 +39,7 @@ function passesFilters(row: DashboardOrchestrator, policy: DiscoveryPolicy): boo
 
   if (f.maxSwapRatio !== undefined) {
     const sr = swapRatioFromNoSwapPct(row.noSwapRatio);
-    if (sr !== null && sr > f.maxSwapRatio) return false;
+    if (sr === null || sr > f.maxSwapRatio) return false;
   }
 
   // Other filter dimensions are currently handled upstream (daydream).
@@ -76,9 +76,10 @@ export function applyDiscoveryPolicyToOrchestrators(
   let out = rows.filter((row) => passesFilters(row, policy));
 
   if (policy.sortBy) {
+    const sortBy = policy.sortBy;
     const dir = -1;
     out = [...out].sort(
-      (a, b) => dir * (sortValue(a, policy.sortBy) - sortValue(b, policy.sortBy)),
+      (a, b) => dir * (sortValue(a, sortBy) - sortValue(b, sortBy)),
     );
   }
 

@@ -108,29 +108,10 @@ describe('listPlans', () => {
     });
   });
 
-  it('does not treat null provider rows as pymthouse-compatible', async () => {
-    mockFindMany.mockResolvedValue([]);
-
+  it('rejects blank billingProviderSlug values', async () => {
     const scope = { teamId: 'personal:user-b', ownerUserId: 'user-b' };
-    await listPlans(scope, 'pymthouse');
-
-    expect(mockFindMany).toHaveBeenCalledWith({
-      where: {
-        AND: [
-          {
-            OR: [
-              { visibility: 'public' },
-              { teamId: 'personal:user-b' },
-              { ownerUserId: 'user-b' },
-            ],
-          },
-          {
-            billingProviderSlug: 'pymthouse',
-          },
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    await expect(listPlans(scope, ' ' as never)).rejects.toThrow('Invalid billingProviderSlug');
+    expect(mockFindMany).not.toHaveBeenCalled();
   });
 });
 
@@ -183,31 +164,11 @@ describe('getPlan', () => {
     });
   });
 
-  it('does not treat null provider rows as pymthouse-compatible in getPlan', async () => {
-    mockFindFirst.mockResolvedValue(publicPlan);
-
-    await getPlan('pub-1', { ownerUserId: 'user-b' }, 'pymthouse');
-
-    expect(mockFindFirst).toHaveBeenCalledWith({
-      where: {
-        AND: [
-          { id: 'pub-1' },
-          {
-            AND: [
-              {
-                OR: [
-                  { visibility: 'public' },
-                  { ownerUserId: 'user-b' },
-                ],
-              },
-              {
-                billingProviderSlug: 'pymthouse',
-              },
-            ],
-          },
-        ],
-      },
-    });
+  it('rejects blank billingProviderSlug values in getPlan', async () => {
+    await expect(getPlan('pub-1', { ownerUserId: 'user-b' }, ' ' as never)).rejects.toThrow(
+      'Invalid billingProviderSlug',
+    );
+    expect(mockFindFirst).not.toHaveBeenCalled();
   });
 });
 

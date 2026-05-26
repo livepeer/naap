@@ -10,6 +10,7 @@ import { authorize } from '@/lib/gateway/authorize';
 import { success, errors } from '@/lib/api/response';
 import { createPlan, listPlans } from '@/lib/orchestrator-leaderboard/plans';
 import {
+  type BillingProviderSlug,
   BillingProviderSlugSchema,
   CreatePlanSchema,
 } from '@/lib/orchestrator-leaderboard/types';
@@ -20,7 +21,7 @@ function scopeFromAuth(auth: { teamId: string; callerId: string }) {
 
 function parseBillingProviderSlugParam(
   request: NextRequest,
-): { value: string | null; error: string | null } {
+): { value: BillingProviderSlug | null; error: string | null } {
   const raw = request.nextUrl.searchParams.get('billingProviderSlug');
   if (raw === null) {
     return { value: null, error: null };

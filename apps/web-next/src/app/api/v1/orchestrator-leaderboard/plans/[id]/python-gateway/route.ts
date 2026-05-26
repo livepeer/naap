@@ -18,7 +18,10 @@ import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 import { resolvePlanCapabilitiesForProvider } from '@/lib/orchestrator-leaderboard/provider-restrictions';
-import { BillingProviderSlugSchema } from '@/lib/orchestrator-leaderboard/types';
+import {
+  type BillingProviderSlug,
+  BillingProviderSlugSchema,
+} from '@/lib/orchestrator-leaderboard/types';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -28,7 +31,7 @@ function scopeFromAuth(auth: { teamId: string; callerId: string }) {
 
 function parseBillingProviderSlugParam(
   request: NextRequest,
-): { value: string | null; error: string | null } {
+): { value: BillingProviderSlug | null; error: string | null } {
   const raw = request.nextUrl.searchParams.get('billingProviderSlug');
   if (raw === null) {
     return { value: null, error: null };

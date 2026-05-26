@@ -85,7 +85,7 @@ describe('CreatePlanSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('defaults topN to 10 and billingProviderSlug to pymthouse', () => {
+  it('defaults topN to 10 and billingProviderSlug to daydream', () => {
     const { topN, ...rest } = validInput;
     const result = CreatePlanSchema.safeParse(rest);
     expect(result.success).toBe(true);

@@ -121,6 +121,24 @@ describe('evaluateAndCache', () => {
     expect(results.capabilities['live-video-to-video/streamdiffusion-sdxl']).toBeDefined();
   });
 
+  it('returns the newest cached variant for a plan id', async () => {
+    vi.useFakeTimers();
+    try {
+      const planA: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c1'] };
+      const planB: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c2'] };
+
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      await evaluateAndCache(planA, 'test-token');
+      vi.setSystemTime(new Date('2026-01-01T00:00:01.000Z'));
+      await evaluateAndCache(planB, 'test-token');
+
+      const cached = getCachedPlanResults('plan-x');
+      expect(Object.keys(cached?.capabilities ?? {})).toEqual(['c2']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('invalidatePlanCache removes all composite-key entries for a plan id', async () => {
     const planA: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c1'] };
     const planB: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c2'] };

@@ -176,12 +176,18 @@ export async function refreshAllPlans(
 
 export function getCachedPlanResults(planId: string): PlanResults | null {
   const prefix = `${planId}${PLAN_CACHE_KEY_SEP}`;
+  let newestEntry: PlanCacheEntry | null = null;
   for (const [key, entry] of planCache) {
     if (!key.startsWith(prefix)) continue;
     if (!isValid(entry)) continue;
+    if (!newestEntry || entry.cachedAt > newestEntry.cachedAt) {
+      newestEntry = entry;
+    }
+  }
+  if (newestEntry) {
     return {
-      ...entry.results,
-      meta: { ...entry.results.meta, cacheAgeMs: Date.now() - entry.cachedAt },
+      ...newestEntry.results,
+      meta: { ...newestEntry.results.meta, cacheAgeMs: Date.now() - newestEntry.cachedAt },
     };
   }
   return null;
