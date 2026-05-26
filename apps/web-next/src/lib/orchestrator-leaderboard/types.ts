@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 
-export const BILLING_PROVIDER_SLUGS = ['daydream'] as const;
+export const BILLING_PROVIDER_SLUGS = ['daydream', 'pymthouse'] as const;
 export type BillingProviderSlug = (typeof BILLING_PROVIDER_SLUGS)[number];
 
 export const BillingProviderSlugSchema = z.enum(BILLING_PROVIDER_SLUGS);
