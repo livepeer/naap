@@ -1,15 +1,7 @@
 import type { BillingProviderSlug, DiscoveryPlan } from './types';
 
 // Daydream-only discovery-plan gating. No PymtHouse manifest filtering happens in PR #337.
-//
-// IMPORTANT — deliberate asymmetry with BILLING_PROVIDER_SLUGS in types.ts:
-//   - BILLING_PROVIDER_SLUGS (and CreatePlanSchema) includes 'pymthouse' so that the
-//     plan CRUD layer can surface legacy null-slug rows as pymthouse-scoped via the
-//     billingProviderWhere OR-null clause.
-//   - SUPPORTED_PROVIDER_SLUGS here intentionally excludes 'pymthouse' so that
-//     normalizeBillingProviderSlug returns null for it, and any route that uses this
-//     normalizer (e.g. /capability-catalog) rejects pymthouse requests with a 400
-//     until manifest-gating support lands in PR #338.
+// PymtHouse support (manifest sync, capability filtering) lands in PR #338.
 const SUPPORTED_PROVIDER_SLUGS: ReadonlySet<string> = new Set(['daydream']);
 
 export function normalizeBillingProviderSlug(
