@@ -9,13 +9,13 @@
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { success } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
 import { resolveClickhouseGatewayQueryUrl } from '@/lib/orchestrator-leaderboard/query';
 import { getDatasetCapabilities } from '@/lib/orchestrator-leaderboard/global-dataset';
+import { verifyCronAuth } from '@/lib/orchestrator-leaderboard/cron-auth';
 
 const FILTERS_SQL = `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
@@ -23,18 +23,6 @@ WHERE timestamp_ts >= now() - INTERVAL 1 HOUR
   AND warm_bool = 1
 ORDER BY capability_name
 FORMAT JSON`;
-
-function isCronAuth(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const auth = request.headers.get('authorization');
-  if (!auth) return false;
-  const expected = `Bearer ${secret}`;
-  const authBuf = Buffer.from(auth, 'utf8');
-  const expectedBuf = Buffer.from(expected, 'utf8');
-  if (authBuf.length !== expectedBuf.length) return false;
-  return timingSafeEqual(authBuf, expectedBuf);
-}
 
 function sanitizeCapabilityRows(rows: unknown[]): Array<{ capability_name: string }> {
   const out: Array<{ capability_name: string }> = [];
@@ -60,7 +48,7 @@ function parseCapabilityRows(json: unknown): Array<{ capability_name: string }> 
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse | Response> {
-  const cronAuthed = isCronAuth(request);
+  const cronAuthed = verifyCronAuth(request);
   if (!cronAuthed) {
     const auth = await authorize(request);
     if (!auth) {

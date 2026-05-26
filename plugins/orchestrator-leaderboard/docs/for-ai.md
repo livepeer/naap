@@ -33,15 +33,17 @@ dataset, lazily refreshed and server-cached.
 2. **`billingPlanId` is globally unique and immutable.** `POST /plans` with a
    duplicate returns `400`. Use the upsert pattern below.
 3. **Response envelope is `{ success, data, error? }`.** For
-   `/plans/{id}/results` the payload is **double-nested**:
-   `body.data.data.capabilities[<cap>][]`. This is intentional, not a bug.
+   `/plans/{id}/results` the payload is **single-wrapped**: `body.data`
+   is the `PlanResults` object directly — `body.data.capabilities[<cap>][]`.
+   There is no second `.data` nesting.
 4. **Plan results are scoped to the caller** (`teamId` + `ownerUserId`).
    Cross-team reads return `404`, never the plan.
 5. **Do not poll faster than every 10 seconds per process.** Honour
    `Cache-Control: max-age=10` and the response `meta.refreshIntervalMs`.
 6. **Disabled plans return `400 Plan is disabled`** on `/results`. Re-enable
    via `PUT /plans/{id}` with `{ "enabled": true }`.
-7. **`capability` strings must match `^[a-zA-Z0-9_-]+$`** and be ≤ 128 chars.
+7. **`capability` strings must match `^[a-zA-Z0-9_.:\-/]+$`** and be ≤ 128 chars.
+   Dots, colons, and slashes are valid (e.g. `video/model-a`).
    Always validate against `GET /filters` before creating a plan.
 8. **Never call `/plans/refresh` from app code.** It is `CRON_SECRET`-only and
    used by Vercel Cron. Use `/plans/{id}/results` (lazy refresh) instead.
@@ -262,10 +264,10 @@ async function upsertPlan(input: CreatePlanInput): Promise<DiscoveryPlan> {
   return out.plan;
 }
 
-// 3. Poll results (handles the double-nested envelope).
+// 3. Poll results (body.data is PlanResults directly — single-wrapped).
 async function getResults(planId: string): Promise<PlanResults> {
-  const out = await call<{ data: PlanResults }>(`/plans/${planId}/results`);
-  return out.data;
+  const out = await call<PlanResults>(`/plans/${planId}/results`);
+  return out;
 }
 
 // 4. Pick orchestrator URLs for a single capability.
@@ -306,7 +308,7 @@ async function pollLoop(planId: string, capability: string, onUrls: (u: string[]
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Hard-coding capability strings that aren't warm.                          | Validate against `GET /filters` and warn on missing.                         |
 | Using `POST /plans` on every restart and getting 400s.                    | Implement `upsertPlan()` (list → find → POST or PUT).                        |
-| Reading `body.data.capabilities` on `/results` and getting `undefined`.   | Path is `body.data.data.capabilities` — double `.data`.                      |
+| Reading `body.data.data.capabilities` on `/results` and getting `undefined`. | Path is `body.data.capabilities` — single `.data`. There is no second nesting.   |
 | Including `billingPlanId` in `PUT` body.                                  | It's immutable; strip it. Server may 400 or silently ignore.                 |
 | Polling once per second.                                                  | Honour `Cache-Control: max-age=10` and `meta.refreshIntervalMs`.             |
 | Using `POST /rank` in a runtime loop.                                     | Stateless, less cacheable, less auditable. Use plans instead.                |

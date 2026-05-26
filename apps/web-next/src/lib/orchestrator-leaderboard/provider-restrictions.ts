@@ -14,10 +14,9 @@ export function normalizeBillingProviderSlug(
   return normalized as BillingProviderSlug;
 }
 
-export function providerRestrictionRevision(
-  billingProviderSlug?: string | null,
-): string {
+export function providerRestrictionRevision(): string {
   // Stable revision for caching. Daydream has no allowlist/manifest dependency.
+  // When PymtHouse is added (#338), this will return a manifest-based hash.
   return 'na';
 }
 

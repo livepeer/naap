@@ -11,27 +11,15 @@
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
 import { getRefreshIntervalMs, getLastRefreshedAt } from '@/lib/orchestrator-leaderboard/config';
 import { refreshGlobalDataset } from '@/lib/orchestrator-leaderboard/global-refresh';
-
-function isCronAuth(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const auth = request.headers.get('authorization');
-  if (!auth) return false;
-  const expected = `Bearer ${secret}`;
-  const authBuf = Buffer.from(auth, 'utf8');
-  const expectedBuf = Buffer.from(expected, 'utf8');
-  if (authBuf.length !== expectedBuf.length) return false;
-  return timingSafeEqual(authBuf, expectedBuf);
-}
+import { verifyCronAuth } from '@/lib/orchestrator-leaderboard/cron-auth';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const cronAuthed = isCronAuth(request);
+  const cronAuthed = verifyCronAuth(request);
 
   let adminUserId: string | null = null;
   if (!cronAuthed) {
@@ -85,9 +73,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Refresh failed';
+    console.error('[dataset/refresh] refreshGlobalDataset failed:', err);
     return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL_ERROR', message } },
+      { success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
       { status: 500 },
     );
   }

@@ -110,9 +110,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       lastRefreshedAt: lastAudit?.refreshedAt?.toISOString() ?? null,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to list sources';
+    console.error('[sources] GET failed:', err);
     return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL_ERROR', message } },
+      { success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
       { status: 500 },
     );
   }
@@ -186,9 +186,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
-    const message = err instanceof Error ? err.message : 'Failed to update sources';
+    console.error('[sources] PUT failed:', err);
     return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL_ERROR', message } },
+      { success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
       { status: 500 },
     );
   }

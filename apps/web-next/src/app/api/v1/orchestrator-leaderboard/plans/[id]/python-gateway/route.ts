@@ -127,8 +127,8 @@ export async function GET(
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to evaluate plan';
-    return new NextResponse(message, {
+    console.error('[plans/python-gateway] evaluateAndCache failed:', err);
+    return new NextResponse('Internal server error', {
       status: 500,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });

@@ -236,11 +236,8 @@ paths:
                   - $ref: "#/components/schemas/SuccessEnvelope"
                   - type: object
                     properties:
-                      data:
-                        type: object
-                        properties:
-                          data: { $ref: "#/components/schemas/PlanResults" }
-                        required: [data]
+                      data: { $ref: "#/components/schemas/PlanResults" }
+                    required: [data]
         "400":
           description: Plan disabled or evaluation failed
           content:
@@ -855,10 +852,10 @@ components:
 
     Capability:
       type: string
-      pattern: "^[a-zA-Z0-9_-]+$"
+      pattern: "^[a-zA-Z0-9_.:\\-/]+$"
       maxLength: 128
-      description: "Capability identifier (e.g. `streamdiffusion-sdxl`, `noop`)."
-      examples: [streamdiffusion-sdxl, image-to-video, noop]
+      description: "Capability identifier (e.g. `streamdiffusion-sdxl`, `video/model-a`, `noop`)."
+      examples: [streamdiffusion-sdxl, image-to-video, video/model-a, noop]
 
     LeaderboardFilters:
       type: object
@@ -879,9 +876,9 @@ components:
         on a metric means that metric counts more (lower latency / swap / price
         is always better).
       properties:
-        latency: { type: number, minimum: 0, maximum: 1, default: 0.4 }
-        swapRate: { type: number, minimum: 0, maximum: 1, default: 0.3 }
-        price: { type: number, minimum: 0, maximum: 1, default: 0.3 }
+        latency: { type: number, minimum: 0, maximum: 1 }
+        swapRate: { type: number, minimum: 0, maximum: 1 }
+        price: { type: number, minimum: 0, maximum: 1 }
 
     PlanSortBy:
       type: string

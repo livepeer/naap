@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   filterCapabilitiesForProvider,
   isCapabilityAllowedForProvider,
@@ -8,10 +8,6 @@ import {
 } from '../provider-restrictions';
 
 describe('provider-restrictions', () => {
-  afterEach(() => {
-    // Daydream-only: no manifest snapshot state to reset.
-  });
-
   it('normalizes supported slugs and rejects unknown values', () => {
     expect(normalizeBillingProviderSlug(' PYMTHOUSE ')).toBeNull();
     expect(normalizeBillingProviderSlug('daydream')).toBe('daydream');
@@ -20,8 +16,7 @@ describe('provider-restrictions', () => {
   });
 
   it('uses a stable restriction revision for caching', () => {
-    expect(providerRestrictionRevision('daydream')).toBe('na');
-    expect(providerRestrictionRevision('pymthouse')).toBe('na');
+    expect(providerRestrictionRevision()).toBe('na');
   });
 
   it('does not filter capabilities for Daydream', () => {

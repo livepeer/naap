@@ -30,7 +30,7 @@ const PLAN_CACHE_KEY_SEP = '\0';
 /** Composite key: plan id, billing provider, allowlist revision (PymtHouse), capability-set fingerprint. */
 export function buildPlanEvaluationCacheKey(plan: DiscoveryPlan): string {
   const slug = plan.billingProviderSlug ?? 'null';
-  const rev = providerRestrictionRevision(plan.billingProviderSlug);
+  const rev = providerRestrictionRevision();
   const capFp = fingerprintCapabilityList(plan.capabilities);
   return `${plan.id}${PLAN_CACHE_KEY_SEP}${slug}${PLAN_CACHE_KEY_SEP}${rev}${PLAN_CACHE_KEY_SEP}${capFp}`;
 }

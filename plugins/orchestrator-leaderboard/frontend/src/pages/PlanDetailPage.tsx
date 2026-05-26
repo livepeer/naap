@@ -49,8 +49,7 @@ export const PlanDetailPage: React.FC = () => {
     pipelines: capabilityPipelines,
     loading: capabilityLoading,
     meta: capabilityMeta,
-    manifestFilteredCapabilities,
-  } = useCapabilityCatalog(effectiveBillingProvider, selectedCapabilities);
+  } = useCapabilityCatalog(effectiveBillingProvider);
   const capabilityCatalogReady = !capabilityLoading && capabilityMeta !== null;
 
   const availableCapabilitySet = React.useMemo(
@@ -72,19 +71,17 @@ export const PlanDetailPage: React.FC = () => {
     return false;
   }, [availableCapabilitySet]);
 
-  const manifestSelectedCapabilities = manifestFilteredCapabilities ?? selectedCapabilities;
-
   const effectiveSelectedCapabilities = React.useMemo(() => {
     if (!capabilityCatalogReady) {
-      return manifestSelectedCapabilities;
+      return selectedCapabilities;
     }
-    return manifestSelectedCapabilities.filter(isCapabilityInCatalog);
-  }, [capabilityCatalogReady, isCapabilityInCatalog, manifestSelectedCapabilities]);
+    return selectedCapabilities.filter(isCapabilityInCatalog);
+  }, [capabilityCatalogReady, isCapabilityInCatalog, selectedCapabilities]);
 
   React.useEffect(() => {
     const desiredCapabilities = capabilityCatalogReady
       ? (effectiveSelectedCapabilities ?? [])
-      : (manifestFilteredCapabilities ?? selectedCapabilities ?? []);
+      : (selectedCapabilities ?? []);
     const currentCapabilities = selectedCapabilities ?? [];
     const isSame =
       desiredCapabilities.length === currentCapabilities.length &&
@@ -94,7 +91,6 @@ export const PlanDetailPage: React.FC = () => {
     }
   }, [
     capabilityCatalogReady,
-    manifestFilteredCapabilities,
     effectiveSelectedCapabilities,
     selectedCapabilities,
     setDraft,

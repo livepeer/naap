@@ -2247,7 +2247,7 @@ model ConnectorCapabilityRanking {
 model DiscoveryPlan {
   id                    String   @id @default(cuid())
   billingPlanId         String   @unique
-  /// pymthouse | daydream — PymtHouse Builder allowlist intersection applies when pymthouse.
+  /// daydream — the only supported billing provider in PR #337. PymtHouse (with allowlist intersection) lands in PR #338.
   billingProviderSlug   String?
   name                  String
   description     String?
