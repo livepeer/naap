@@ -16,12 +16,8 @@ import type { DiscoveryPlan, OrchestratorRow, PlanResults } from './types';
 import { evaluatePlan } from './ranking';
 import { listEnabledPlans } from './plans';
 import { getRowsForCapability } from './global-dataset';
+import { fingerprintCapabilityList } from './discovery-constants';
 import {
-  ensurePymthouseManifestFresh,
-  fingerprintCapabilityList,
-} from '@/lib/pymthouse-manifest';
-import {
-  normalizeBillingProviderSlug,
   providerRestrictionRevision,
   resolvePlanCapabilitiesForProvider,
 } from './provider-restrictions';
@@ -108,12 +104,6 @@ export async function evaluateAndCache(
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<PlanResults> {
-  if (normalizeBillingProviderSlug(plan.billingProviderSlug) === 'pymthouse') {
-    await ensurePymthouseManifestFresh({
-      onRevisionChanged: () => invalidatePlanCache(plan.id),
-    });
-  }
-
   const planForEval: DiscoveryPlan = {
     ...plan,
     capabilities: resolvePlanCapabilitiesForProvider(plan),
@@ -161,7 +151,6 @@ export async function refreshAllPlans(
   requestUrl?: string,
   cookieHeader?: string | null,
 ): Promise<{ refreshed: number; failed: number }> {
-  await ensurePymthouseManifestFresh({ onRevisionChanged: clearPlanCache });
   const plans = await listEnabledPlans();
   let refreshed = 0;
   let failed = 0;

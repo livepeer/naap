@@ -108,7 +108,7 @@ describe('listPlans', () => {
     });
   });
 
-  it('treats null provider rows as pymthouse-compatible', async () => {
+  it('does not treat null provider rows as pymthouse-compatible', async () => {
     mockFindMany.mockResolvedValue([]);
 
     const scope = { teamId: 'personal:user-b', ownerUserId: 'user-b' };
@@ -125,10 +125,7 @@ describe('listPlans', () => {
             ],
           },
           {
-            OR: [
-              { billingProviderSlug: 'pymthouse' },
-              { billingProviderSlug: null },
-            ],
+            billingProviderSlug: 'pymthouse',
           },
         ],
       },
@@ -186,7 +183,7 @@ describe('getPlan', () => {
     });
   });
 
-  it('treats null provider rows as pymthouse-compatible in getPlan', async () => {
+  it('does not treat null provider rows as pymthouse-compatible in getPlan', async () => {
     mockFindFirst.mockResolvedValue(publicPlan);
 
     await getPlan('pub-1', { ownerUserId: 'user-b' }, 'pymthouse');
@@ -204,10 +201,7 @@ describe('getPlan', () => {
                 ],
               },
               {
-                OR: [
-                  { billingProviderSlug: 'pymthouse' },
-                  { billingProviderSlug: null },
-                ],
+                billingProviderSlug: 'pymthouse',
               },
             ],
           },

@@ -13,7 +13,7 @@ import { authorize } from '@/lib/gateway/authorize';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
-import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/pymthouse-manifest';
+import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/orchestrator-leaderboard/discovery-constants';
 import { BillingProviderSlugSchema } from '@/lib/orchestrator-leaderboard/types';
 
 type RouteContext = { params: Promise<{ id: string }> };

@@ -41,7 +41,7 @@ export const PlanDetailPage: React.FC = () => {
   const effectiveBillingProvider = (
     draft.billingProviderSlug ??
     plan?.billingProviderSlug ??
-    'pymthouse'
+    'daydream'
   ) as 'pymthouse' | 'daydream';
   const selectedCapabilities = React.useMemo(
     () => draft.capabilities ?? plan?.capabilities ?? [],
@@ -54,14 +54,7 @@ export const PlanDetailPage: React.FC = () => {
     manifestMeta: capabilityManifestMeta,
     manifestFilteredCapabilities,
   } = useCapabilityCatalog(effectiveBillingProvider, selectedCapabilities);
-  const manifestAwareMeta = capabilityManifestMeta ?? capabilityMeta;
-  const pymthouseConfigured = manifestAwareMeta?.pymthouseConfigured ?? true;
   const capabilityCatalogReady = !capabilityLoading && capabilityMeta !== null;
-  const manifestUnavailable =
-    manifestAwareMeta !== null &&
-    effectiveBillingProvider === 'pymthouse' &&
-    manifestAwareMeta.manifestChecked &&
-    !manifestAwareMeta.manifestAvailable;
 
   const availableCapabilitySet = React.useMemo(
     () => new Set(capabilityPipelines.flatMap((pipeline) => pipeline.models.map((model) => model.capability))),
@@ -150,11 +143,7 @@ export const PlanDetailPage: React.FC = () => {
     setDraft({ capabilities: next });
   };
 
-  React.useEffect(() => {
-    if (!pymthouseConfigured && effectiveBillingProvider === 'pymthouse') {
-      setDraft({ billingProviderSlug: 'daydream' });
-    }
-  }, [pymthouseConfigured, effectiveBillingProvider, setDraft]);
+  // PR #337 is Daydream-only: no manifest-based provider toggling.
 
   const handleWeightChange = (key: keyof SLAWeights, value: number) => {
     const current = draft.slaWeights ?? { latency: 0.4, swapRate: 0.3, price: 0.3 };
@@ -311,29 +300,15 @@ export const PlanDetailPage: React.FC = () => {
           toolbarEnd={
             <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer shrink-0">
               <StyledCheckbox
-                checked={effectiveBillingProvider === 'pymthouse'}
-                disabled={!pymthouseConfigured}
-                aria-label="Use PymtHouse allowlist filtering"
-                onChange={(isChecked) =>
-                  setDraft({
-                    billingProviderSlug: isChecked ? 'pymthouse' : 'daydream',
-                  })
-                }
+                checked={true}
+                disabled={true}
+                aria-label="Billing provider is fixed to Daydream in this PR"
+                onChange={() => {}}
               />
-              <span>Use PymtHouse allowlist filtering</span>
+              <span>Billing provider: Daydream</span>
             </label>
           }
         />
-        {!pymthouseConfigured && (
-          <p className="text-[11px] text-accent-amber">
-            PymtHouse credentials are not configured in NaaP; showing unfiltered capability catalog.
-          </p>
-        )}
-        {manifestUnavailable && (
-          <p className="text-[11px] text-accent-amber">
-            PymtHouse manifest is currently unavailable; capability filtering is restricted until the manifest syncs.
-          </p>
-        )}
       </div>
 
       {/* Interactive Configuration Panel */}

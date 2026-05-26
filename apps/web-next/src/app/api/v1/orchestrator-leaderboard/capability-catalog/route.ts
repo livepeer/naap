@@ -12,12 +12,7 @@ import { authorize } from '@/lib/gateway/authorize';
 import { success, errors } from '@/lib/api/response';
 import { getDashboardPipelineCatalog } from '@/lib/facade';
 import { isCapabilityAllowedForProvider, normalizeBillingProviderSlug } from '@/lib/orchestrator-leaderboard/provider-restrictions';
-import {
-  DISCOVERY_RESPONSE_CACHE_CONTROL,
-  ensurePymthouseManifestFresh,
-  getPymthouseApiV1Base,
-  getPymthouseManifestSnapshot,
-} from '@/lib/pymthouse-manifest';
+import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/orchestrator-leaderboard/discovery-constants';
 
 interface CapabilityCatalogModel {
   id: string;
@@ -39,40 +34,15 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const requestedBillingProviderSlug = normalizeBillingProviderSlug(
     request.nextUrl.searchParams.get('billingProviderSlug'),
-  ) ?? 'pymthouse';
+  ) ?? 'daydream';
   const manifestOnly = request.nextUrl.searchParams.get('manifestOnly') === '1';
   const capabilitiesToValidate = request.nextUrl.searchParams.getAll('capability');
   let billingProviderSlug = requestedBillingProviderSlug;
 
-  const publicId =
-    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim() || process.env.PMTHOUSE_CLIENT_ID?.trim();
-  const m2mId =
-    process.env.PYMTHOUSE_M2M_CLIENT_ID?.trim() || process.env.PMTHOUSE_M2M_CLIENT_ID?.trim();
-  const m2mSecret =
-    process.env.PYMTHOUSE_M2M_CLIENT_SECRET?.trim() || process.env.PMTHOUSE_M2M_CLIENT_SECRET?.trim();
-  const pymthouseConfigured = Boolean(
-    getPymthouseApiV1Base() &&
-    publicId &&
-    m2mId &&
-    m2mSecret,
-  );
-
+  // PR #337 is Daydream-only; keep manifest response fields stable as false.
   let manifestChecked = false;
   let manifestAvailable = false;
-  if (requestedBillingProviderSlug === 'pymthouse') {
-    manifestChecked = true;
-    if (pymthouseConfigured) {
-      try {
-        await ensurePymthouseManifestFresh();
-        manifestAvailable = getPymthouseManifestSnapshot().data != null;
-      } catch (err) {
-        console.error('[capability-catalog] PymtHouse manifest refresh failed', err);
-        manifestAvailable = false;
-      }
-    } else {
-      billingProviderSlug = 'daydream';
-    }
-  }
+  const pymthouseConfigured = false;
 
   if (manifestOnly) {
     const response = success({

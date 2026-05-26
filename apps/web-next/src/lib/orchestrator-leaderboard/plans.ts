@@ -71,11 +71,7 @@ function billingProviderWhere(
     return null;
   }
 
-  return (
-    slug === 'pymthouse'
-      ? { OR: [{ billingProviderSlug: 'pymthouse' }, { billingProviderSlug: null }] }
-      : { billingProviderSlug: slug }
-  );
+  return { billingProviderSlug: slug };
 }
 
 function toPlan(row: Record<string, unknown>): DiscoveryPlan {
@@ -107,7 +103,7 @@ export async function createPlan(
   const row = await prisma.discoveryPlan.create({
     data: {
       billingPlanId: input.billingPlanId,
-      billingProviderSlug: input.billingProviderSlug ?? 'pymthouse',
+      billingProviderSlug: input.billingProviderSlug ?? 'daydream',
       name: input.name,
       description: input.description ?? undefined,
       visibility: 'personal',

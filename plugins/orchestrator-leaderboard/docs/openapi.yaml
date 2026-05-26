@@ -889,7 +889,7 @@ components:
 
     BillingProviderSlug:
       type: string
-      enum: [pymthouse, daydream]
+      enum: [daydream]
       description: Billing provider that scopes manifest-based capability filtering.
 
     PythonGatewayAddress:
@@ -960,7 +960,7 @@ components:
             **Globally unique** across the platform.
         billingProviderSlug:
           $ref: "#/components/schemas/BillingProviderSlug"
-          default: pymthouse
+          default: daydream
         name:
           type: string
           minLength: 1

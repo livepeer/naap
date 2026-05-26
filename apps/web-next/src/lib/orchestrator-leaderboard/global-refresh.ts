@@ -15,7 +15,6 @@ import { resolve, type ResolverConfig, type AuditEntry } from './resolver';
 import { getGlobalDatasetStats, writeGlobalDataset } from './global-dataset';
 import { getMembershipStrategy, getRefreshIntervalMs } from './config';
 import { clearPlanCache } from './refresh';
-import { syncPymthouseManifestSnapshot } from '@/lib/pymthouse-manifest';
 
 // ---------------------------------------------------------------------------
 // Load resolver config from DB (LeaderboardSource table)
@@ -120,12 +119,6 @@ export function refreshGlobalDatasetOnStartup(): Promise<{
 
     const ageMs = stats.refreshedAt ? Date.now() - stats.refreshedAt : Infinity;
     if (stats.populated && ageMs < intervalMs) {
-      // Dataset rows persist in Postgres, but the PymtHouse manifest snapshot is
-      // in-memory only — always sync it on startup even when skipping dataset refresh.
-      const { revisionChanged } = await syncPymthouseManifestSnapshot();
-      if (revisionChanged) {
-        clearPlanCache();
-      }
       return {
         refreshed: false,
         capabilities: stats.capabilityCount,
@@ -162,10 +155,6 @@ export async function refreshGlobalDataset(
   orchestrators: number;
 }> {
   const t0 = Date.now();
-  const { revisionChanged } = await syncPymthouseManifestSnapshot();
-  if (revisionChanged) {
-    clearPlanCache();
-  }
 
   const cfg = await loadResolverConfig();
   cfg.membershipStrategy = await getMembershipStrategy();

@@ -5,7 +5,7 @@
  * Live tests (skipped in CI): validate real network endpoints.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { FetchCtx, NormalizedOrch } from '../../sources/types';
 
 const IS_CI = !!process.env.CI;
@@ -265,7 +265,7 @@ describe('resolver with union membership (integration)', () => {
 // Live integration tests (skipped in CI — run locally with `CI= npx vitest run ...`)
 // ---------------------------------------------------------------------------
 
-describe.skipIf(IS_CI)('naap-discover adapter (live)', () => {
+describe.skipIf(IS_CI || process.env.RUN_LIVE_INTEGRATION_TESTS !== 'true')('naap-discover adapter (live)', () => {
   it('fetches real orchestrators from public Discovery API', async () => {
     // Call the public endpoint directly (bypasses mocks)
     const res = await globalThis.fetch('https://naap-api.cloudspe.com/v1/discover/orchestrators', {

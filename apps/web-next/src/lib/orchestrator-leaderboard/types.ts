@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 
-export const BILLING_PROVIDER_SLUGS = ['pymthouse', 'daydream'] as const;
+export const BILLING_PROVIDER_SLUGS = ['daydream'] as const;
 export type BillingProviderSlug = (typeof BILLING_PROVIDER_SLUGS)[number];
 
 export const BillingProviderSlugSchema = z.enum(BILLING_PROVIDER_SLUGS);
@@ -117,7 +117,7 @@ export type PlanSortBy = (typeof PLAN_SORT_OPTIONS)[number];
 
 export const CreatePlanSchema = z.object({
   billingPlanId: z.string().min(1).max(255),
-  billingProviderSlug: BillingProviderSlugSchema.default('pymthouse'),
+  billingProviderSlug: BillingProviderSlugSchema.default('daydream'),
   name: z.string().min(1).max(255),
   description: z.string().max(1000).optional(),
   capabilities: z.array(z.string().regex(CAPABILITY_RE).max(128)).min(1).max(50),

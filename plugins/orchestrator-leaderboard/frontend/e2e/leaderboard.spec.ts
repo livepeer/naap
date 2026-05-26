@@ -195,7 +195,7 @@ test.describe('Global Dataset & Plan Integration', () => {
                 {
                   id: 'plan-1',
                   billingPlanId: 'bp-1',
-                  billingProviderSlug: 'pymthouse',
+                  billingProviderSlug: 'daydream',
                   name: 'Test Plan',
                   description: 'A test plan',
                   capabilities: ['noop'],

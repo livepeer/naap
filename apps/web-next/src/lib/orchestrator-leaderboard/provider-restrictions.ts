@@ -1,11 +1,6 @@
 import type { BillingProviderSlug, DiscoveryPlan } from './types';
-import {
-  filterPlanCapabilitiesForManifest,
-  getPymthouseManifestSnapshot,
-  isLeaderboardCapabilityAllowed,
-} from '@/lib/pymthouse-manifest';
-
-const SUPPORTED_PROVIDER_SLUGS: ReadonlySet<string> = new Set(['pymthouse', 'daydream']);
+// Daydream-only discovery-plan gating. No PymtHouse manifest filtering happens in PR #337.
+const SUPPORTED_PROVIDER_SLUGS: ReadonlySet<string> = new Set(['daydream']);
 
 export function normalizeBillingProviderSlug(
   slug?: string | null,
@@ -20,9 +15,8 @@ export function normalizeBillingProviderSlug(
 export function providerRestrictionRevision(
   billingProviderSlug?: string | null,
 ): string {
-  return normalizeBillingProviderSlug(billingProviderSlug) === 'pymthouse'
-    ? getPymthouseManifestSnapshot().revision
-    : 'na';
+  // Stable revision for caching. Daydream has no allowlist/manifest dependency.
+  return 'na';
 }
 
 export function resolvePlanCapabilitiesForProvider(
@@ -35,22 +29,14 @@ export function filterCapabilitiesForProvider(
   capabilities: string[],
   billingProviderSlug?: string | null,
 ): string[] {
-  if (normalizeBillingProviderSlug(billingProviderSlug) !== 'pymthouse') {
-    return capabilities;
-  }
-  const manifest = getPymthouseManifestSnapshot().data;
-  return filterPlanCapabilitiesForManifest(capabilities, manifest);
+  // Daydream does not filter capabilities (no manifest gating).
+  return capabilities;
 }
 
 export function isCapabilityAllowedForProvider(
   capability: string,
   billingProviderSlug?: string | null,
 ): boolean {
-  if (normalizeBillingProviderSlug(billingProviderSlug) !== 'pymthouse') {
-    return true;
-  }
-  return isLeaderboardCapabilityAllowed(
-    getPymthouseManifestSnapshot().data,
-    capability,
-  );
+  // Daydream allows all capabilities by default (no manifest allowlist intersection).
+  return true;
 }

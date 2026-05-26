@@ -91,7 +91,7 @@ describe('CreatePlanSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.topN).toBe(10);
-      expect(result.data.billingProviderSlug).toBe('pymthouse');
+      expect(result.data.billingProviderSlug).toBe('daydream');
     }
   });
 });

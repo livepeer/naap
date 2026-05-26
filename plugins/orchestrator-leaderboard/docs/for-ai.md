@@ -116,8 +116,8 @@ Seeding public demo plans (deploy-time, not a public API)?
 type CreatePlanInput = {
   /** Globally unique. Immutable. Use a stable slug or your billing SKU. */
   billingPlanId: string;            // 1..255
-  /** Defaults to `pymthouse` when omitted. */
-  billingProviderSlug?: 'pymthouse' | 'daydream';
+  /** Defaults to `daydream` when omitted. */
+  billingProviderSlug?: 'daydream';
   name: string;                     // 1..255
   description?: string;             // ≤ 1000
   /** 1..50 items, each `^[a-zA-Z0-9_-]+$`, ≤ 128 chars. */

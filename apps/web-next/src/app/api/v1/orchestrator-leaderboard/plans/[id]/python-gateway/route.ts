@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { authorize } from '@/lib/gateway/authorize';
 import { getAuthToken } from '@/lib/api/response';
-import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/pymthouse-manifest';
+import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/orchestrator-leaderboard/discovery-constants';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';

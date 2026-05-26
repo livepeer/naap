@@ -33,8 +33,8 @@ import { normalizeTimeframeHours, resolveKPI } from './resolvers/kpi.js';
 import { resolvePipelines } from './resolvers/pipelines.js';
 import { resolvePipelineCatalog } from './resolvers/pipeline-catalog.js';
 import { resolveOrchestrators } from './resolvers/orchestrators.js';
-import { applyPymthouseDiscoveryToOrchestrators } from '../orchestrators-discovery-policy.js';
-import type { DiscoveryPolicy } from '../pymthouse-discovery-plans.js';
+import { applyDiscoveryPolicyToOrchestrators } from '../orchestrator-leaderboard/discovery-policy.js';
+import type { DiscoveryPolicy } from '../orchestrator-leaderboard/discovery-policy.js';
 import { resolveGPUCapacity } from './resolvers/gpu-capacity.js';
 import { resolvePricing } from './resolvers/pricing.js';
 import { resolveNetworkModels } from './resolvers/network-models.js';
@@ -97,11 +97,8 @@ export async function getDashboardOrchestrators(opts: {
 }): Promise<DashboardOrchestrator[]> {
   if (USE_STUBS) return stubs.orchestrators;
   const rows = await resolveOrchestrators(opts);
-  return applyPymthouseDiscoveryToOrchestrators(rows, {
-    pipeline: opts.pipeline,
-    modelId: opts.modelId,
-    userDiscoveryPolicy: opts.userDiscoveryPolicy,
-  });
+  // PR #337 is Daydream-only: do not apply any PymtHouse pipeline/model manifest denylist here.
+  return applyDiscoveryPolicyToOrchestrators(rows, opts.userDiscoveryPolicy ?? null);
 }
 
 export async function getDashboardPricing(): Promise<DashboardPipelinePricing[]> {
