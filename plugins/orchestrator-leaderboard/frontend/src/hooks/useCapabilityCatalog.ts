@@ -6,7 +6,8 @@ import {
   type CapabilityCatalogPipeline,
 } from '../lib/api';
 
-type BillingProviderSlug = 'pymthouse' | 'daydream';
+// Only Daydream is supported right now; extend this union when PymtHouse is added.
+type BillingProviderSlug = 'daydream';
 
 export function useCapabilityCatalog(
   billingProviderSlug: BillingProviderSlug,

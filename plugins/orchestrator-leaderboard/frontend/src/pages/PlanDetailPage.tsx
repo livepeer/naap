@@ -38,11 +38,9 @@ export const PlanDetailPage: React.FC = () => {
   } = usePlanDetail(id!);
 
   const [showFilters, setShowFilters] = React.useState(false);
-  const effectiveBillingProvider = (
-    draft.billingProviderSlug ??
-    plan?.billingProviderSlug ??
-    'daydream'
-  ) as 'pymthouse' | 'daydream';
+  // Only Daydream is supported as a billing provider right now.
+  // When PymtHouse is added, restore the draft/plan value here.
+  const effectiveBillingProvider = 'daydream' as const;
   const selectedCapabilities = React.useMemo(
     () => draft.capabilities ?? plan?.capabilities ?? [],
     [draft.capabilities, plan?.capabilities],
@@ -51,7 +49,6 @@ export const PlanDetailPage: React.FC = () => {
     pipelines: capabilityPipelines,
     loading: capabilityLoading,
     meta: capabilityMeta,
-    manifestMeta: capabilityManifestMeta,
     manifestFilteredCapabilities,
   } = useCapabilityCatalog(effectiveBillingProvider, selectedCapabilities);
   const capabilityCatalogReady = !capabilityLoading && capabilityMeta !== null;

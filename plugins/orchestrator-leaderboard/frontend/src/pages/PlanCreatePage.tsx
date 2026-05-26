@@ -7,7 +7,8 @@ import { CapabilityGroupPicker } from '../components/CapabilityGroupPicker';
 import { FormLabel } from '../components/FormLabel';
 import { SectionLabel } from '../components/SectionLabel';
 
-type BillingProviderSlug = 'pymthouse' | 'daydream';
+// Only Daydream is supported right now; extend this union when PymtHouse is added.
+type BillingProviderSlug = 'daydream';
 
 function slugify(input: string): string {
   return input

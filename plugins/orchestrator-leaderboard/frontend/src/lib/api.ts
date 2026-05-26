@@ -299,7 +299,7 @@ export interface CapabilityCatalogResponse {
 }
 
 export async function fetchCapabilityCatalog(
-  billingProviderSlug: 'pymthouse' | 'daydream',
+  billingProviderSlug: 'daydream',
 ): Promise<CapabilityCatalogResponse> {
   const q = new URLSearchParams({ billingProviderSlug }).toString();
   const res = await fetch(`${BASE_URL}/capability-catalog?${q}`, {
@@ -319,7 +319,7 @@ export async function fetchCapabilityCatalog(
 }
 
 export async function fetchCapabilityCatalogManifest(
-  billingProviderSlug: 'pymthouse' | 'daydream',
+  billingProviderSlug: 'daydream',
   capabilities: string[],
 ): Promise<CapabilityCatalogResponse> {
   const q = new URLSearchParams({
