@@ -36,6 +36,8 @@ export async function GET(request: NextRequest): Promise<Response> {
   const requestedBillingProviderSlug = hasBillingProviderSlug
     ? normalizeBillingProviderSlug(request.nextUrl.searchParams.get('billingProviderSlug'))
     : 'daydream';
+  // normalizeBillingProviderSlug only accepts 'daydream' in PR #337 — 'pymthouse' intentionally
+  // returns null here and is rejected with a 400 until manifest-gating lands in PR #338.
   if (!requestedBillingProviderSlug) {
     return errors.badRequest('Invalid billingProviderSlug');
   }
