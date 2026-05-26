@@ -47,6 +47,10 @@ tags:
     description: Stateless ranking — useful for one-off queries and dashboards.
   - name: Capabilities
     description: Discover which capabilities the network advertises.
+  - name: Python Gateway Discovery
+    description: |
+      Bare JSON discovery endpoints for python-gateway consumers. Responses are
+      **not** wrapped in `{ success, data }`; errors are plain text.
   - name: Dataset
     description: Read-only access to the cached global dataset and its config.
   - name: Admin
@@ -62,6 +66,8 @@ paths:
       tags: [Discovery Plans]
       summary: List the caller's discovery plans
       operationId: listPlans
+      parameters:
+        - $ref: "#/components/parameters/BillingProviderSlugQuery"
       responses:
         "200":
           description: Ok
@@ -127,6 +133,8 @@ paths:
       tags: [Discovery Plans]
       summary: Get a discovery plan definition
       operationId: getPlan
+      parameters:
+        - $ref: "#/components/parameters/BillingProviderSlugQuery"
       responses:
         "200":
           description: Ok
@@ -207,6 +215,8 @@ paths:
 
         Disabled plans return `400`.
       operationId: getPlanResults
+      parameters:
+        - $ref: "#/components/parameters/BillingProviderSlugQuery"
       responses:
         "200":
           description: Ok
@@ -236,6 +246,165 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/orchestrator-leaderboard/plans/{id}/python-gateway:
+    parameters:
+      - $ref: "#/components/parameters/PlanId"
+    get:
+      tags: [Discovery Plans, Python Gateway Discovery]
+      summary: Plan-scoped python-gateway discovery
+      description: |
+        Returns a bare JSON array of orchestrator addresses for the plan's
+        capabilities, de-duplicated and tier-shuffled. Not wrapped in
+        `{ success, data }`.
+      operationId: getPlanPythonGateway
+      parameters:
+        - $ref: "#/components/parameters/BillingProviderSlugQuery"
+      responses:
+        "200":
+          description: Ranked orchestrator addresses
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "private, no-store, must-revalidate" }
+            X-Cache-Age:
+              schema: { type: integer }
+            X-Refresh-Interval:
+              schema: { type: integer }
+            X-Pymthouse-Manifest:
+              schema: { type: string, enum: [empty] }
+              description: Present when manifest filtering removed all capabilities.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PythonGatewayAddress" }
+        "400":
+          description: Invalid query, disabled plan, or evaluation failed
+          content:
+            text/plain:
+              schema: { type: string }
+        "401":
+          description: Unauthorized
+          content:
+            text/plain:
+              schema: { type: string }
+        "404":
+          description: Plan not found
+          content:
+            text/plain:
+              schema: { type: string }
+        "500":
+          description: Evaluation failed
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /api/v1/orchestrator-leaderboard/python-gateway:
+    get:
+      tags: [Python Gateway Discovery]
+      summary: Default python-gateway discovery (no saved plan)
+      description: |
+        Stateless discovery when no plan is selected. Accepts repeated `caps`
+        query params (`pipeline/model`) and returns a bare JSON array.
+      operationId: getPythonGateway
+      parameters:
+        - name: caps
+          in: query
+          required: false
+          schema: { type: string }
+          description: Full capability path (e.g. `live-video-to-video/streamdiffusion-sdxl`).
+        - name: capability
+          in: query
+          required: false
+          schema: { type: string }
+        - name: model
+          in: query
+          required: false
+          schema: { type: string }
+        - name: topN
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - $ref: "#/components/parameters/BillingProviderSlugQuery"
+        - name: billingProvider
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/BillingProviderSlug" }
+          description: Alias for `billingProviderSlug`.
+      responses:
+        "200":
+          description: Ranked orchestrator addresses
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "private, no-store, must-revalidate" }
+            X-Cache:
+              schema: { type: string, enum: [HIT, MISS] }
+            X-Cache-Age:
+              schema: { type: integer }
+            X-Discovery-Mode:
+              schema: { type: string, enum: [default] }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PythonGatewayAddress" }
+        "400":
+          description: Invalid capability
+          content:
+            text/plain:
+              schema: { type: string }
+        "401":
+          description: Unauthorized
+          content:
+            text/plain:
+              schema: { type: string }
+        "500":
+          description: Upstream failure
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /api/v1/orchestrator-leaderboard/capability-catalog:
+    get:
+      tags: [Capabilities]
+      summary: Provider-scoped capability catalog for plan UI
+      description: |
+        Returns pipeline/model tags for discovery plan create/edit UI, filtered
+        by billing provider manifest rules when applicable. Pass `refresh=1` to
+        bypass the facade pipeline-catalog cache.
+      operationId: getCapabilityCatalog
+      parameters:
+        - $ref: "#/components/parameters/BillingProviderSlugQuery"
+        - name: manifestOnly
+          in: query
+          required: false
+          schema: { type: string, enum: ['1'] }
+          description: When `1`, returns manifest metadata only (no pipeline catalog fetch).
+        - name: capability
+          in: query
+          required: false
+          schema: { type: string }
+          description: Repeatable. Validate each capability against provider rules.
+        - name: refresh
+          in: query
+          required: false
+          schema: { type: string, enum: ['1'] }
+          description: When `1`, bypass facade cache for pipeline catalog.
+      responses:
+        "200":
+          description: Capability catalog
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "private, no-store, must-revalidate" }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/CapabilityCatalogResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/v1/orchestrator-leaderboard/plans/refresh:
     post:
@@ -614,6 +783,15 @@ components:
       required: true
       schema: { type: string, description: "Plan UUID/CUID returned by createPlan" }
 
+    BillingProviderSlugQuery:
+      name: billingProviderSlug
+      in: query
+      required: false
+      schema: { $ref: "#/components/schemas/BillingProviderSlug" }
+      description: |
+        Filter or scope by billing provider. When present but empty, returns 400.
+        When omitted, no provider filter is applied on list/get routes.
+
   responses:
     Unauthorized:
       description: Missing or invalid authentication
@@ -694,6 +872,66 @@ components:
       type: string
       enum: [slaScore, latency, price, swapRate, avail]
 
+    BillingProviderSlug:
+      type: string
+      enum: [pymthouse, daydream]
+      description: Billing provider that scopes manifest-based capability filtering.
+
+    PythonGatewayAddress:
+      type: object
+      required: [address]
+      additionalProperties: false
+      properties:
+        address:
+          type: string
+          format: uri
+          description: Reachable orchestrator base URL.
+
+    CapabilityCatalogModel:
+      type: object
+      required: [id, label, capability]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        capability: { type: string }
+
+    CapabilityCatalogPipeline:
+      type: object
+      required: [id, name, models]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/CapabilityCatalogModel" }
+
+    CapabilityCatalogResponse:
+      type: object
+      required:
+        - requestedBillingProviderSlug
+        - billingProviderSlug
+        - pymthouseConfigured
+        - manifestChecked
+        - manifestAvailable
+        - pipelines
+        - capabilities
+      properties:
+        requestedBillingProviderSlug: { $ref: "#/components/schemas/BillingProviderSlug" }
+        billingProviderSlug: { $ref: "#/components/schemas/BillingProviderSlug" }
+        pymthouseConfigured: { type: boolean }
+        manifestChecked: { type: boolean }
+        manifestAvailable: { type: boolean }
+        pipelines:
+          type: array
+          items: { $ref: "#/components/schemas/CapabilityCatalogPipeline" }
+        capabilities:
+          type: array
+          items: { type: string }
+        filteredCapabilities:
+          type: array
+          items: { type: string }
+          description: Present when `manifestOnly=1` and `capability` query params are supplied.
+
     CreatePlanInput:
       type: object
       required: [billingPlanId, name, capabilities]
@@ -705,6 +943,9 @@ components:
           description: |
             External, caller-owned identifier (e.g. your billing plan SKU).
             **Globally unique** across the platform.
+        billingProviderSlug:
+          $ref: "#/components/schemas/BillingProviderSlug"
+          default: pymthouse
         name:
           type: string
           minLength: 1
@@ -763,6 +1004,7 @@ components:
             - $ref: "#/components/schemas/LeaderboardFilters"
             - type: "null"
         enabled: { type: boolean }
+        billingProviderSlug: { $ref: "#/components/schemas/BillingProviderSlug" }
 
     DiscoveryPlan:
       type: object
@@ -778,6 +1020,10 @@ components:
       properties:
         id: { type: string, description: "Plan UUID/CUID" }
         billingPlanId: { type: string }
+        billingProviderSlug:
+          oneOf:
+            - $ref: "#/components/schemas/BillingProviderSlug"
+            - type: "null"
         name: { type: string }
         description: { type: [string, "null"] }
         teamId: { type: [string, "null"] }

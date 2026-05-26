@@ -86,7 +86,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     return response;
   }
 
-  const catalog = await getDashboardPipelineCatalog({ bypassCache: true });
+  const refresh = request.nextUrl.searchParams.get('refresh') === '1';
+  const catalog = await getDashboardPipelineCatalog(
+    refresh ? { bypassCache: true } : undefined,
+  );
   const pipelines: CapabilityCatalogPipeline[] = [];
 
   for (const pipeline of catalog) {

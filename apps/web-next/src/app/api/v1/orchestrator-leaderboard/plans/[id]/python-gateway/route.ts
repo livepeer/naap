@@ -30,7 +30,7 @@ function parseBillingProviderSlugParam(
   request: NextRequest,
 ): { value: string | null; error: string | null } {
   const raw = request.nextUrl.searchParams.get('billingProviderSlug');
-  if (!raw) {
+  if (raw === null) {
     return { value: null, error: null };
   }
   const parsed = BillingProviderSlugSchema.safeParse(raw.trim().toLowerCase());

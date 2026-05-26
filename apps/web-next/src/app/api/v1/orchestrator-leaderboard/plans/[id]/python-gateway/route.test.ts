@@ -81,6 +81,17 @@ describe('GET /api/v1/orchestrator-leaderboard/plans/:id/python-gateway', () => 
     ]);
   });
 
+  it('returns 400 when billingProviderSlug query param is empty', async () => {
+    const { GET } = await import('./route');
+    const req = new NextRequest(
+      'http://localhost/api/v1/orchestrator-leaderboard/plans/plan-1/python-gateway?billingProviderSlug=',
+      { headers: { Authorization: 'Bearer pmth_test' } },
+    );
+    const res = await GET(req, { params: Promise.resolve({ id: 'plan-1' }) });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe('Invalid billingProviderSlug');
+  });
+
   it('returns 401 when unauthenticated', async () => {
     (authorize as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const { GET } = await import('./route');

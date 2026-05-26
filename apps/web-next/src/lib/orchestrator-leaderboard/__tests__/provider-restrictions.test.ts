@@ -56,6 +56,17 @@ describe('provider-restrictions', () => {
     } as const)).toEqual(['video/model-a', 'future/model-c']);
   });
 
+  it('does not apply manifest filter when billingProviderSlug is null (backfill target)', () => {
+    seedPymthouseManifestForTests({
+      capabilities: [{ pipeline: 'video', modelId: 'model-a' }],
+      excludedCapabilities: [{ pipeline: 'video', modelId: 'model-b' }],
+    });
+
+    const caps = ['video/model-a', 'video/model-b'];
+    expect(filterCapabilitiesForProvider(caps, null)).toEqual(caps);
+    expect(filterCapabilitiesForProvider(caps, 'pymthouse')).toEqual(['video/model-a']);
+  });
+
   it('checks capability allow decision via provider semantics', () => {
     seedPymthouseManifestForTests({
       capabilities: [{ pipeline: 'video', modelId: 'model-a' }],

@@ -75,12 +75,28 @@ function defaultPlanId(slug: string): string {
   return `naap-default-${slug}`;
 }
 
+async function backfillLegacyBillingProviderSlugs(
+  prisma: PrismaClient,
+): Promise<number> {
+  const result = await prisma.discoveryPlan.updateMany({
+    where: { billingProviderSlug: null },
+    data: { billingProviderSlug: 'pymthouse' },
+  });
+  if (result.count > 0) {
+    console.log(
+      `[seed-plans] Backfilled billingProviderSlug=pymthouse on ${result.count} legacy plan(s)`,
+    );
+  }
+  return result.count;
+}
+
 async function main() {
   console.log('[seed-plans] Seeding public default discovery plans...');
 
   const prisma = new PrismaClient();
 
   try {
+    await backfillLegacyBillingProviderSlugs(prisma);
     let ownerUserId = SYSTEM_OWNER_ID;
     const existingUser = await prisma.user.findFirst({
       orderBy: { createdAt: 'asc' },

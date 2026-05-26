@@ -62,7 +62,9 @@ Base path: `/api/v1/orchestrator-leaderboard`. Full host comes from the user
 | `PUT`    | `/plans/{id}`                 | JWT or `gw_`            | Partial update (incl. `enabled`).               |
 | `DELETE` | `/plans/{id}`                 | JWT or `gw_`            | Permanently delete.                             |
 | `GET`    | `/plans/{id}/results`         | JWT or `gw_`            | **Poll** ranked orchestrator URLs.              |
-| `POST`   | `/plans/seed`                 | JWT or `gw_`            | Seed 4 demo plans (idempotent). Onboarding.     |
+| `GET`    | `/plans/{id}/python-gateway`  | JWT or `gw_`            | Bare `[{ address }]` for plan-scoped discovery. |
+| `GET`    | `/python-gateway`             | JWT or `gw_`            | Default discovery (no saved plan).              |
+| `GET`    | `/capability-catalog`         | JWT or `gw_`            | Provider-scoped pipeline/model tags for UI.     |
 | `POST`   | `/rank`                       | JWT or `gw_`            | Stateless 1-capability rank (avoid in runtime). |
 | `GET`    | `/dataset`                    | JWT or `gw_`            | Cached global dataset snapshot.                 |
 | `GET`    | `/dataset/config`             | JWT or `gw_`            | Read refresh interval.                          |
@@ -99,6 +101,9 @@ Building admin tooling?
 └── /dataset/refresh (admin)
 └── /sources (read = any auth, write = admin)
 └── /audits (read = any auth)
+
+Seeding public demo plans (deploy-time, not a public API)?
+└── `npm run seed:discovery-plans` → `bin/seed-discovery-plans.ts` (idempotent)
 ```
 
 ---
@@ -111,6 +116,8 @@ Building admin tooling?
 type CreatePlanInput = {
   /** Globally unique. Immutable. Use a stable slug or your billing SKU. */
   billingPlanId: string;            // 1..255
+  /** Defaults to `pymthouse` when omitted. */
+  billingProviderSlug?: 'pymthouse' | 'daydream';
   name: string;                     // 1..255
   description?: string;             // ≤ 1000
   /** 1..50 items, each `^[a-zA-Z0-9_-]+$`, ≤ 128 chars. */
