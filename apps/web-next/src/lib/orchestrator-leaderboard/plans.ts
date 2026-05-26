@@ -71,6 +71,14 @@ function billingProviderWhere(
     return null;
   }
 
+  if (typeof billingProviderSlug === 'string' && billingProviderSlug.trim() === '') {
+    throw new Error('Invalid billingProviderSlug');
+  }
+
+  if (billingProviderSlug === 'pymthouse') {
+    return { OR: [{ billingProviderSlug: 'pymthouse' }, { billingProviderSlug: null }] };
+  }
+
   return { billingProviderSlug };
 }
 
