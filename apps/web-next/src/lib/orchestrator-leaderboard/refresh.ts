@@ -97,13 +97,10 @@ async function evaluate(plan: DiscoveryPlan): Promise<PlanResults> {
  * Lazy evaluation with cache. Returns cached results if fresh, otherwise
  * evaluates and caches. Stale-while-revalidate: returns stale data while
  * triggering async refresh if within TTL but past refresh interval.
+ *
+ * Reads exclusively from the persistent DB dataset — no auth context needed.
  */
-export async function evaluateAndCache(
-  plan: DiscoveryPlan,
-  authToken: string,
-  requestUrl?: string,
-  cookieHeader?: string | null,
-): Promise<PlanResults> {
+export async function evaluateAndCache(plan: DiscoveryPlan): Promise<PlanResults> {
   const planForEval: DiscoveryPlan = {
     ...plan,
     capabilities: resolvePlanCapabilitiesForProvider(plan),
@@ -145,12 +142,11 @@ async function refreshSingle(plan: DiscoveryPlan): Promise<PlanResults> {
 
 /**
  * Bulk refresh all enabled plans. Called by Vercel Cron.
+ *
+ * Plan evaluation reads from the persistent DB dataset (populated by the
+ * dataset refresh cron) — no auth/request context is required here.
  */
-export async function refreshAllPlans(
-  authToken?: string,
-  requestUrl?: string,
-  cookieHeader?: string | null,
-): Promise<{ refreshed: number; failed: number }> {
+export async function refreshAllPlans(): Promise<{ refreshed: number; failed: number }> {
   const plans = await listEnabledPlans();
   let refreshed = 0;
   let failed = 0;
@@ -212,7 +208,7 @@ export function clearPlanCache(): void {
 
 let localInterval: ReturnType<typeof setInterval> | null = null;
 
-export function startLocalRefreshLoop(authToken: string, requestUrl?: string): void {
+export function startLocalRefreshLoop(): void {
   if (process.env.VERCEL) return;
   if (localInterval) return;
   localInterval = setInterval(() => {

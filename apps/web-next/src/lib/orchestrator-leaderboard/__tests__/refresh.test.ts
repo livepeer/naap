@@ -64,7 +64,7 @@ describe('evaluateAndCache', () => {
   });
 
   it('evaluates plan and returns results', async () => {
-    const results = await evaluateAndCache(mockPlan, 'test-token');
+    const results = await evaluateAndCache(mockPlan);
     expect(results.planId).toBe('plan-1');
     expect(results.capabilities['image-to-image']).toBeDefined();
     expect(results.capabilities['image-to-image'].length).toBeGreaterThan(0);
@@ -72,7 +72,7 @@ describe('evaluateAndCache', () => {
   });
 
   it('caches results on first call', async () => {
-    await evaluateAndCache(mockPlan, 'test-token');
+    await evaluateAndCache(mockPlan);
     const cached = getCachedPlanResults('plan-1');
     expect(cached).not.toBeNull();
     expect(cached!.planId).toBe('plan-1');
@@ -81,16 +81,16 @@ describe('evaluateAndCache', () => {
   it('returns cached results on second call without re-querying DB', async () => {
     const mockedGetRows = vi.mocked(getRowsForCapability);
     mockedGetRows.mockClear();
-    const first = await evaluateAndCache(mockPlan, 'test-token');
+    const first = await evaluateAndCache(mockPlan);
     expect(mockedGetRows).toHaveBeenCalledTimes(1);
-    const second = await evaluateAndCache(mockPlan, 'test-token');
+    const second = await evaluateAndCache(mockPlan);
     expect(mockedGetRows).toHaveBeenCalledTimes(1);
     expect(second.refreshedAt).toBe(first.refreshedAt);
     expect(second.meta.cacheAgeMs).toBeGreaterThanOrEqual(0);
   });
 
   it('clearPlanCache removes all entries', async () => {
-    await evaluateAndCache(mockPlan, 'test-token');
+    await evaluateAndCache(mockPlan);
     expect(getCachedPlanResults('plan-1')).not.toBeNull();
     clearPlanCache();
     expect(getCachedPlanResults('plan-1')).toBeNull();
@@ -102,7 +102,7 @@ describe('evaluateAndCache', () => {
       id: 'plan-multi',
       capabilities: ['cap-a', 'cap-b'],
     };
-    const results = await evaluateAndCache(multiPlan, 'test-token');
+    const results = await evaluateAndCache(multiPlan);
     expect(Object.keys(results.capabilities)).toEqual(['cap-a', 'cap-b']);
   });
 
@@ -116,7 +116,7 @@ describe('evaluateAndCache', () => {
       capabilities: ['live-video-to-video/streamdiffusion-sdxl'],
     };
 
-    const results = await evaluateAndCache(pathPlan, 'test-token');
+    const results = await evaluateAndCache(pathPlan);
     expect(mockedGetRows).toHaveBeenCalledWith('streamdiffusion-sdxl');
     expect(results.capabilities['live-video-to-video/streamdiffusion-sdxl']).toBeDefined();
   });
@@ -128,9 +128,9 @@ describe('evaluateAndCache', () => {
       const planB: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c2'] };
 
       vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
-      await evaluateAndCache(planA, 'test-token');
+      await evaluateAndCache(planA);
       vi.setSystemTime(new Date('2026-01-01T00:00:01.000Z'));
-      await evaluateAndCache(planB, 'test-token');
+      await evaluateAndCache(planB);
 
       const cached = getCachedPlanResults('plan-x');
       expect(Object.keys(cached?.capabilities ?? {})).toEqual(['c2']);
@@ -142,8 +142,8 @@ describe('evaluateAndCache', () => {
   it('invalidatePlanCache removes all composite-key entries for a plan id', async () => {
     const planA: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c1'] };
     const planB: DiscoveryPlan = { ...mockPlan, id: 'plan-x', capabilities: ['c2'] };
-    await evaluateAndCache(planA, 'test-token');
-    await evaluateAndCache(planB, 'test-token');
+    await evaluateAndCache(planA);
+    await evaluateAndCache(planB);
     expect(getCachedPlanResults('plan-x')).not.toBeNull();
     invalidatePlanCache('plan-x');
     expect(getCachedPlanResults('plan-x')).toBeNull();

@@ -12,7 +12,6 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { authorize } from '@/lib/gateway/authorize';
-import { getAuthToken } from '@/lib/api/response';
 import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/orchestrator-leaderboard/discovery-constants';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
@@ -79,8 +78,6 @@ export async function GET(
     });
   }
 
-  const authToken = getAuthToken(request) || '';
-
   const allowedCaps = resolvePlanCapabilitiesForProvider(plan);
   if (allowedCaps.length === 0) {
     return NextResponse.json([], {
@@ -94,12 +91,7 @@ export async function GET(
   const planForEval = { ...plan, capabilities: allowedCaps };
 
   try {
-    const results = await evaluateAndCache(
-      planForEval,
-      authToken,
-      request.url,
-      request.headers.get('cookie'),
-    );
+    const results = await evaluateAndCache(planForEval);
 
     const out: { address: string }[] = [];
     const seen = new Set<string>();

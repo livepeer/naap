@@ -94,24 +94,25 @@ async function writeAudit(input: AuditWriteInput): Promise<void> {
 // Public API — preserved signature
 // ---------------------------------------------------------------------------
 
-let startupRefreshPromise: Promise<{
+type StartupRefreshResult = {
   refreshed: boolean;
   capabilities: number;
   orchestrators: number;
   skipped?: boolean;
   reason?: string;
-}> | null = null;
+};
 
-export function refreshGlobalDatasetOnStartup(): Promise<{
-  refreshed: boolean;
-  capabilities: number;
-  orchestrators: number;
-  skipped?: boolean;
-  reason?: string;
-}> {
+let startupRefreshPromise: Promise<StartupRefreshResult> | null = null;
+
+// Cooldown before a rejected startup promise is cleared, so that a burst of
+// concurrent cold-start callers all observe the same rejection instead of
+// triggering a thundering-herd of duplicate full-dataset refreshes.
+const STARTUP_REJECT_COOLDOWN_MS = 30_000;
+
+export function refreshGlobalDatasetOnStartup(): Promise<StartupRefreshResult> {
   if (startupRefreshPromise) return startupRefreshPromise;
 
-  startupRefreshPromise = (async () => {
+  const inflight: Promise<StartupRefreshResult> = (async () => {
     const [stats, intervalMs] = await Promise.all([
       getGlobalDatasetStats(),
       getRefreshIntervalMs(),
@@ -135,10 +136,27 @@ export function refreshGlobalDatasetOnStartup(): Promise<{
       null,
       { internal: true },
     );
-  })().catch((err) => {
-    startupRefreshPromise = null;
-    throw err;
-  });
+  })();
+
+  // Swallow unhandled-rejection warnings while keeping the original rejection
+  // observable to awaiting callers.
+  inflight.catch(() => undefined);
+
+  startupRefreshPromise = inflight;
+
+  inflight.then(
+    () => undefined,
+    () => {
+      // On rejection, keep the (rejected) cached promise around briefly so
+      // concurrent cold-start callers share the failure, then clear it so a
+      // later attempt (e.g., cron, the next cold start) can retry cleanly.
+      setTimeout(() => {
+        if (startupRefreshPromise === inflight) {
+          startupRefreshPromise = null;
+        }
+      }, STARTUP_REJECT_COOLDOWN_MS).unref?.();
+    },
+  );
 
   return startupRefreshPromise;
 }
