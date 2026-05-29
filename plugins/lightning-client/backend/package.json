@@ -9,7 +9,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
+    "express": "^4.22.2",
     "ws": "^8.16.0"
   },
   "devDependencies": {

@@ -15,7 +15,7 @@
     "@pymthouse/builder-sdk": "0.1.0",
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
-    "express": "^4.21.0",
+    "express": "^4.22.2",
     "uuid": "^11.0.0"
   },
   "devDependencies": {
