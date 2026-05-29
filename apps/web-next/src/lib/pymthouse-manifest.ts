@@ -16,7 +16,6 @@ import {
 } from '@pymthouse/builder-sdk';
 import { readPymthouseEnv } from '@pymthouse/builder-sdk/config';
 
-import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
 import { getPymthouseApiV1Base } from '@/lib/pymthouse-device-initiate';
 
 export type PymthouseManifestCapability = AppManifestCapability;
@@ -110,6 +109,11 @@ export async function syncPymthouseManifestSnapshot(opts?: {
     const unavailable = applyManifestSnapshot(null, null);
     return { revision: 'unavailable', revisionChanged: unavailable.revisionChanged };
   }
+
+  // Deferred import: `@/lib/pymthouse-client` pulls in the server-only
+  // `@pymthouse/builder-sdk/env` module, which throws if loaded in a non-server
+  // (e.g. jsdom test) environment. Only load it once PymtHouse env is configured.
+  const { getPmtHouseServerClient } = await import('@/lib/pymthouse-client');
 
   try {
     const result = await getPmtHouseServerClient().getAppManifest({

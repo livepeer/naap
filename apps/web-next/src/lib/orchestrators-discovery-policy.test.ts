@@ -9,6 +9,7 @@ import {
 import { mergeDiscoveryPolicies } from '@/lib/pymthouse-discovery-plans';
 import {
   resetPymthouseManifestCacheForTests,
+  seedPymthouseManifestForTests,
   syncPymthouseManifestSnapshot,
 } from '@/lib/pymthouse-manifest';
 import type { DashboardOrchestrator } from '@naap/plugin-sdk';
@@ -102,21 +103,13 @@ describe('orchestrators-discovery-policy', () => {
   });
 
   it('applyPymthouseDiscoveryToOrchestrators passes when pair is on allowlist and applies user topN', async () => {
-    vi.stubEnv('PYMTHOUSE_ISSUER_URL', 'http://localhost:9/api/v1/oidc');
-    vi.stubEnv('PYMTHOUSE_PUBLIC_CLIENT_ID', 'pub');
-    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_ID', 'm2m');
-    vi.stubEnv('PYMTHOUSE_M2M_CLIENT_SECRET', 'secret');
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Promise.resolve({
-          ok: true,
-          headers: new Headers(),
-          json: async () => ({ capabilities: [{ pipeline: 'llm', modelId: 'm1' }] }),
-        } as Response),
-      ),
-    );
-    await syncPymthouseManifestSnapshot();
+    // Seed the snapshot directly: the SDK client is a process-wide singleton that
+    // binds `fetch` on first construction, so routing this case through a stubbed
+    // fetch is not deterministic across the suite.
+    seedPymthouseManifestForTests({
+      capabilities: [{ pipeline: 'llm', modelId: 'm1' }],
+      excludedCapabilities: [],
+    });
     const rows = [
       baseRow({ address: '0xa', slaScore: 60 }),
       baseRow({ address: '0xb', slaScore: 90 }),
