@@ -90,11 +90,11 @@ async function backfillBillingProviderSlugs(
 
   const nullResult = await prisma.discoveryPlan.updateMany({
     where: { billingProviderSlug: null },
-    data: { billingProviderSlug: 'daydream' },
+    data: { billingProviderSlug: 'pymthouse' },
   });
   if (nullResult.count > 0) {
     console.log(
-      `[seed-plans] Backfilled billingProviderSlug=daydream on ${nullResult.count} legacy plan(s)`,
+      `[seed-plans] Backfilled billingProviderSlug=pymthouse on ${nullResult.count} legacy plan(s)`,
     );
   }
 
@@ -145,7 +145,7 @@ async function main() {
       await prisma.discoveryPlan.create({
         data: {
           billingPlanId,
-          billingProviderSlug: 'daydream',
+          billingProviderSlug: 'pymthouse',
           name: tpl.name,
           description: tpl.description,
           visibility: 'public',

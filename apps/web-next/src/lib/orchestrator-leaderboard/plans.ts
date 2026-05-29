@@ -75,6 +75,10 @@ function billingProviderWhere(
     throw new Error('Invalid billingProviderSlug');
   }
 
+  if (billingProviderSlug === 'pymthouse') {
+    return { OR: [{ billingProviderSlug: 'pymthouse' }, { billingProviderSlug: null }] };
+  }
+
   return { billingProviderSlug };
 }
 
@@ -107,7 +111,7 @@ export async function createPlan(
   const row = await prisma.discoveryPlan.create({
     data: {
       billingPlanId: input.billingPlanId,
-      billingProviderSlug: input.billingProviderSlug ?? 'daydream',
+      billingProviderSlug: input.billingProviderSlug ?? 'pymthouse',
       name: input.name,
       description: input.description ?? undefined,
       visibility: 'personal',

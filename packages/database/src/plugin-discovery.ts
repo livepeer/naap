@@ -121,6 +121,8 @@ export interface DiscoveredPlugin {
   isCore?: boolean;
   /** When true, plugin defaults to hidden (visibleToUsers: false) on first registration */
   experimental?: boolean;
+  /** Override marketplace visibility (from plugin.json when set) */
+  visibleToUsers?: boolean;
 }
 
 /**
@@ -172,6 +174,8 @@ export function discoverFromDir(rootDir: string, subDir: string): DiscoveredPlug
         repository: manifest.repository,
         isCore: manifest.isCore === true ? true : undefined,
         experimental: manifest.experimental === true ? true : undefined,
+        visibleToUsers:
+          typeof manifest.visibleToUsers === 'boolean' ? manifest.visibleToUsers : undefined,
       };
     })
     .sort((a, b) => a.order - b.order);
@@ -280,7 +284,7 @@ export function toPluginPackageData(
     icon: plugin.icon,
     isCore: plugin.isCore ?? false,
     publishStatus: 'published',
-    visibleToUsers: true,
+    visibleToUsers: plugin.visibleToUsers ?? (plugin.experimental ? false : true),
   } as Record<string, unknown>;
 }
 

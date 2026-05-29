@@ -319,11 +319,7 @@ paths:
         - name: capability
           in: query
           required: false
-          style: form
-          explode: true
-          schema:
-            type: array
-            items: { type: string }
+          schema: { type: string }
         - name: model
           in: query
           required: false
@@ -886,7 +882,7 @@ components:
 
     BillingProviderSlug:
       type: string
-      enum: [daydream]
+      enum: [pymthouse, daydream]
       description: Billing provider that scopes manifest-based capability filtering.
 
     PythonGatewayAddress:
@@ -957,7 +953,7 @@ components:
             **Globally unique** across the platform.
         billingProviderSlug:
           $ref: "#/components/schemas/BillingProviderSlug"
-          default: daydream
+          default: pymthouse
         name:
           type: string
           minLength: 1

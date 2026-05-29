@@ -1,8 +1,11 @@
 import type { BillingProviderSlug, DiscoveryPlan } from './types';
+import {
+  filterPlanCapabilitiesForManifest,
+  getPymthouseManifestSnapshot,
+  isLeaderboardCapabilityAllowed,
+} from '@/lib/pymthouse-manifest';
 
-// Daydream-only discovery-plan gating. No PymtHouse manifest filtering happens in PR #337.
-// PymtHouse support (manifest sync, capability filtering) lands in PR #338.
-const SUPPORTED_PROVIDER_SLUGS: ReadonlySet<string> = new Set(['daydream']);
+const SUPPORTED_PROVIDER_SLUGS: ReadonlySet<string> = new Set(['pymthouse', 'daydream']);
 
 export function normalizeBillingProviderSlug(
   slug?: string | null,
@@ -14,10 +17,12 @@ export function normalizeBillingProviderSlug(
   return normalized as BillingProviderSlug;
 }
 
-export function providerRestrictionRevision(): string {
-  // Stable revision for caching. Daydream has no allowlist/manifest dependency.
-  // When PymtHouse is added (#338), this will return a manifest-based hash.
-  return 'na';
+export function providerRestrictionRevision(
+  billingProviderSlug?: string | null,
+): string {
+  return normalizeBillingProviderSlug(billingProviderSlug) === 'pymthouse'
+    ? getPymthouseManifestSnapshot().revision
+    : 'na';
 }
 
 export function resolvePlanCapabilitiesForProvider(
@@ -30,14 +35,22 @@ export function filterCapabilitiesForProvider(
   capabilities: string[],
   billingProviderSlug?: string | null,
 ): string[] {
-  // Daydream does not filter capabilities (no manifest gating).
-  return capabilities;
+  if (normalizeBillingProviderSlug(billingProviderSlug) !== 'pymthouse') {
+    return capabilities;
+  }
+  const manifest = getPymthouseManifestSnapshot().data;
+  return filterPlanCapabilitiesForManifest(capabilities, manifest);
 }
 
 export function isCapabilityAllowedForProvider(
   capability: string,
   billingProviderSlug?: string | null,
 ): boolean {
-  // Daydream allows all capabilities by default (no manifest allowlist intersection).
-  return true;
+  if (normalizeBillingProviderSlug(billingProviderSlug) !== 'pymthouse') {
+    return true;
+  }
+  return isLeaderboardCapabilityAllowed(
+    getPymthouseManifestSnapshot().data,
+    capability,
+  );
 }

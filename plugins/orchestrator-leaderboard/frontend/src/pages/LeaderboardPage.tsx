@@ -69,6 +69,8 @@ export const LeaderboardPage: React.FC = () => {
       <div className="flex items-center justify-end gap-2">
         <button
           onClick={() => setAutoRefresh(!autoRefresh)}
+          aria-pressed={autoRefresh}
+          aria-label={autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
             autoRefresh
               ? 'bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/30'

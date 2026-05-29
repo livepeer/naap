@@ -6,9 +6,9 @@ import { useCapabilityCatalog } from '../hooks/useCapabilityCatalog';
 import { CapabilityGroupPicker } from '../components/CapabilityGroupPicker';
 import { FormLabel } from '../components/FormLabel';
 import { SectionLabel } from '../components/SectionLabel';
+import { StyledCheckbox } from '../components/StyledCheckbox';
 
-// Only Daydream is supported right now; extend this union when PymtHouse is added.
-type BillingProviderSlug = 'daydream';
+type BillingProviderSlug = 'daydream' | 'pymthouse';
 
 function slugify(input: string): string {
   return input
@@ -22,7 +22,7 @@ function slugify(input: string): string {
 export const PlanCreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [name, setName] = useState('');
-  const [billingProviderSlug] = useState<BillingProviderSlug>('daydream');
+  const [billingProviderSlug, setBillingProviderSlug] = useState<BillingProviderSlug>('pymthouse');
   const [topN, setTopN] = useState(10);
   const [selectedCaps, setSelectedCaps] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -33,7 +33,13 @@ export const PlanCreatePage: React.FC = () => {
       : Date.now().toString(36),
   );
   const { pipelines, loading, error: catalogError, meta } = useCapabilityCatalog(billingProviderSlug);
+  const pymthouseConfigured = meta?.pymthouseConfigured ?? true;
   const capabilityCatalogReady = !loading && meta !== null;
+  const manifestUnavailable =
+    capabilityCatalogReady &&
+    billingProviderSlug === 'pymthouse' &&
+    meta.manifestChecked &&
+    !meta.manifestAvailable;
 
   const generatedBillingPlanId = useMemo(() => {
     const trimmedName = name.trim();
@@ -59,6 +65,12 @@ export const PlanCreatePage: React.FC = () => {
     }
     setSelectedCaps((prev) => prev.filter((cap) => availableCapabilities.has(cap)));
   }, [availableCapabilities, capabilityCatalogReady]);
+
+  React.useEffect(() => {
+    if (!pymthouseConfigured && billingProviderSlug === 'pymthouse') {
+      setBillingProviderSlug('daydream');
+    }
+  }, [pymthouseConfigured, billingProviderSlug]);
 
   function toggleCapability(capability: string) {
     setSelectedCaps((prev) =>
@@ -185,7 +197,30 @@ export const PlanCreatePage: React.FC = () => {
               isSelected={(capability) => effectiveSelectedCaps.includes(capability)}
               onToggle={toggleCapability}
               onBulkToggle={bulkToggleCapabilities}
+              toolbarEnd={
+                <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer shrink-0">
+                  <StyledCheckbox
+                    checked={billingProviderSlug === 'pymthouse'}
+                    disabled={!pymthouseConfigured}
+                    aria-label="Use PymtHouse allowlist filtering"
+                    onChange={(isChecked) =>
+                      setBillingProviderSlug(isChecked ? 'pymthouse' : 'daydream')
+                    }
+                  />
+                  <span>Use PymtHouse allowlist filtering</span>
+                </label>
+              }
             />
+            {!pymthouseConfigured && (
+              <p className="text-[11px] text-accent-amber">
+                PymtHouse credentials are not configured in NaaP; showing unfiltered capability catalog.
+              </p>
+            )}
+            {manifestUnavailable && (
+              <p className="text-[11px] text-accent-amber">
+                PymtHouse manifest is currently unavailable; capability filtering is restricted until the manifest syncs.
+              </p>
+            )}
           </div>
         </div>
 

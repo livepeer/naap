@@ -9,6 +9,23 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
+import { computeSignerSessionExpiry } from '@pymthouse/builder-sdk/tokens';
+
+const PYMTHOUSE_PROVIDER_SLUG = 'pymthouse';
+
+/**
+ * Strip credential-derived material (`keyHash`, `keyLookupId`) before
+ * returning a DevApiKey to the client. See `route.ts` for rationale.
+ */
+function toSafeDevApiKey<
+  T extends {
+    keyHash?: unknown;
+    keyLookupId?: unknown;
+  },
+>(key: T): Omit<T, 'keyHash' | 'keyLookupId'> {
+  const { keyHash: _keyHash, keyLookupId: _keyLookupId, ...rest } = key;
+  return rest;
+}
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -33,13 +50,41 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
         id,
         userId: user.id, // Ensure user owns this key
       },
+      include: {
+        billingProvider: {
+          select: {
+            slug: true,
+          },
+        },
+      },
     });
 
     if (!apiKey) {
       return errors.notFound('API key');
     }
 
-    return success({ key: apiKey });
+    if (apiKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG) {
+      const expiredByAge =
+        apiKey.status === 'ACTIVE' &&
+        computeSignerSessionExpiry(apiKey.createdAt).getTime() <= Date.now();
+      const alreadyExpired = apiKey.status === 'EXPIRED';
+      if (expiredByAge || alreadyExpired) {
+        await prisma.devApiKey.deleteMany({
+          where: { id: apiKey.id },
+        });
+        return errors.notFound('API key');
+      }
+    }
+
+    return success({
+      key: {
+        ...toSafeDevApiKey(apiKey),
+        expiresAt:
+          apiKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
+            ? computeSignerSessionExpiry(apiKey.createdAt).toISOString()
+            : null,
+      },
+    });
   } catch (err) {
     console.error('API key detail error:', err);
     return errors.internal('Failed to get API key');
@@ -55,8 +100,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
       return errors.unauthorized('No auth token provided');
     }
 
-    // Validate CSRF token
-    const csrfError = validateCSRF(request, { shadowMode: true });
+    const csrfError = validateCSRF(request);
     if (csrfError) {
       return csrfError;
     }
@@ -86,7 +130,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
 
     return success({
       message: 'API key revoked',
-      key: revokedKey,
+      key: toSafeDevApiKey(revokedKey),
     });
   } catch (err) {
     console.error('Revoke API key error:', err);

@@ -85,13 +85,13 @@ describe('CreatePlanSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('defaults topN to 10 and billingProviderSlug to daydream', () => {
+  it('defaults topN to 10 and billingProviderSlug to pymthouse', () => {
     const { topN, ...rest } = validInput;
     const result = CreatePlanSchema.safeParse(rest);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.topN).toBe(10);
-      expect(result.data.billingProviderSlug).toBe('daydream');
+      expect(result.data.billingProviderSlug).toBe('pymthouse');
     }
   });
 });
