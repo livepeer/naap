@@ -61,14 +61,27 @@ describe('orchestrators-discovery-policy', () => {
     expect(out[0].address).toBe('0xb');
   });
 
-  it('sortBy latency orders by slaScore not knownSessions', () => {
+  it('sortBy latency preserves input order (metric unavailable, no slaScore fallback)', () => {
+    // DashboardOrchestrator exposes no per-row latency/price metric, so these
+    // sort modes are treated as "metric unavailable" and must NOT silently
+    // reorder by slaScore — the input order is preserved instead.
     const rows = [
       baseRow({ address: '0xa', knownSessions: 100, slaScore: 50 }),
       baseRow({ address: '0xb', knownSessions: 1, slaScore: 90 }),
     ];
     const out = applyDiscoveryPolicyToOrchestrators(rows, { sortBy: 'latency', topN: 2 });
-    expect(out[0].address).toBe('0xb');
-    expect(out[1].address).toBe('0xa');
+    expect(out[0].address).toBe('0xa');
+    expect(out[1].address).toBe('0xb');
+  });
+
+  it('sortBy price preserves input order (metric unavailable, no slaScore fallback)', () => {
+    const rows = [
+      baseRow({ address: '0xa', slaScore: 50 }),
+      baseRow({ address: '0xb', slaScore: 90 }),
+    ];
+    const out = applyDiscoveryPolicyToOrchestrators(rows, { sortBy: 'price', topN: 2 });
+    expect(out[0].address).toBe('0xa');
+    expect(out[1].address).toBe('0xb');
   });
 
   it('mergeDiscoveryPolicies does not let user widen priceMax', () => {
