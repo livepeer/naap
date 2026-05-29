@@ -234,15 +234,16 @@ export interface AIModel {
   badges: string[];
 }
 
-export type ApiKeyStatus = 'active' | 'revoked';
+export type ApiKeyStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED';
 
 export interface DeveloperApiKey {
   id: string;
   projectName: string;
   providerDisplayName: string;
-  keyHash: string;
+  keyHash?: string;
   status: ApiKeyStatus;
   createdAt: string;
+  expiresAt?: string | null;
   lastUsedAt: string | null;
 }
 

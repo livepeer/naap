@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { z } from 'zod';
+import {
+  NAAP_DEVICE_LOGIN_HINT_COOKIE,
+  NAAP_PMTH_DEVICE_APPROVAL_COOKIE,
+  encodeDeviceApprovalCookiePayload,
+  extractDeviceApprovalTupleFromTargetLink,
+  validatePymthouseDeviceInitiateQuery,
+} from '@/lib/pymthouse-device-initiate';
 
 // Plugin route mapping: path prefix → plugin name (camelCase DB name).
 // Maps custom route prefixes to their plugin so the middleware can rewrite
@@ -99,6 +107,7 @@ const protectedRoutes = [
   '/marketplace',
   '/treasury',
   '/governance',
+  '/oidc/device-approved',
   // Add plugin routes as protected
   ...Object.keys(PLUGIN_ROUTE_MAP),
 ];
@@ -132,7 +141,7 @@ function getPluginForPath(pathname: string): string | null {
   return null;
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // --- Observability: inject request-id and trace-id on every request ---
@@ -151,6 +160,86 @@ export function middleware(request: NextRequest) {
 
   // Get the auth token from cookies
   const token = request.cookies.get('naap_auth_token')?.value;
+
+  // PymtHouse OIDC device-flow third-party initiate → NAAP login → /oidc/device-approved (server approve)
+  if (pathname === '/login' && request.method === 'GET') {
+    const iss = request.nextUrl.searchParams.get('iss');
+    const targetLinkUri = request.nextUrl.searchParams.get('target_link_uri');
+    if (iss && targetLinkUri) {
+      const validated = validatePymthouseDeviceInitiateQuery(iss, targetLinkUri);
+      if (!validated.ok) {
+        const u = new URL('/login', request.url);
+        u.searchParams.set('error', 'pymthouse_device_invalid');
+        u.searchParams.set('pymth_err', validated.reason);
+        const res = NextResponse.redirect(u);
+        res.headers.set('x-request-id', requestId);
+        res.headers.set('x-trace-id', traceId);
+        return res;
+      }
+      const tuple = extractDeviceApprovalTupleFromTargetLink(validated.returnUrl);
+      if ('error' in tuple) {
+        const u = new URL('/login', request.url);
+        u.searchParams.set('error', 'pymthouse_device_invalid');
+        u.searchParams.set('pymth_err', tuple.error);
+        const res = NextResponse.redirect(u);
+        res.headers.set('x-request-id', requestId);
+        res.headers.set('x-trace-id', traceId);
+        return res;
+      }
+      let cookiePayload: string;
+      try {
+        cookiePayload = await encodeDeviceApprovalCookiePayload({
+          userCode: tuple.userCode,
+          publicClientId: tuple.publicClientId,
+        });
+      } catch (err) {
+        // Cookie-signing secret misconfigured: degrade gracefully to the same
+        // user-facing error redirect instead of letting a 500 bubble up.
+        console.error('[middleware] Failed to encode device approval cookie', err);
+        const u = new URL('/login', request.url);
+        u.searchParams.set('error', 'pymthouse_device_invalid');
+        u.searchParams.set('pymth_err', 'server_not_configured');
+        const res = NextResponse.redirect(u);
+        res.headers.set('x-request-id', requestId);
+        res.headers.set('x-trace-id', traceId);
+        return res;
+      }
+      const deviceCookieOpts = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax' as const,
+        maxAge: 600,
+        path: '/',
+      };
+
+      if (token) {
+        const approved = new URL('/oidc/device-approved', request.url);
+        const res = NextResponse.redirect(approved);
+        res.cookies.set(NAAP_PMTH_DEVICE_APPROVAL_COOKIE, cookiePayload, deviceCookieOpts);
+        res.headers.set('x-request-id', requestId);
+        res.headers.set('x-trace-id', traceId);
+        return res;
+      }
+      const loginHint = request.nextUrl.searchParams.get('login_hint')?.trim() ?? '';
+      const clean = new URL('/login', request.url);
+      clean.searchParams.set('callbackUrl', '/oidc/device-approved');
+      const res = NextResponse.redirect(clean);
+      res.cookies.set(NAAP_PMTH_DEVICE_APPROVAL_COOKIE, cookiePayload, deviceCookieOpts);
+      const validEmail = z.string().email().max(254).safeParse(loginHint);
+      if (validEmail.success) {
+        res.cookies.set(NAAP_DEVICE_LOGIN_HINT_COOKIE, validEmail.data, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 600,
+          path: '/',
+        });
+      }
+      res.headers.set('x-request-id', requestId);
+      res.headers.set('x-trace-id', traceId);
+      return res;
+    }
+  }
 
   // Check if this is a plugin route that needs rewriting
   const pluginName = getPluginForPath(pathname);
@@ -207,8 +296,11 @@ export function middleware(request: NextRequest) {
   // when there's no valid cookie (after logout clears it)
   if (authRoutes.some(route => pathname === route || pathname.startsWith(`${route}/`))) {
     if (token) {
-      // User has a cookie - redirect to dashboard (they should use logout first)
-      return NextResponse.redirect(new URL('/dashboard', request.url));
+      const devicePending = request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value;
+      const allowLoginForDeviceReturn = pathname === '/login' && Boolean(devicePending);
+      if (!allowLoginForDeviceReturn) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
     }
     // No cookie - allow access to login/register pages
   }

@@ -18,7 +18,10 @@ import {
   isCapabilityAllowedForProvider,
   normalizeBillingProviderSlug,
 } from '@/lib/orchestrator-leaderboard/provider-restrictions';
-import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/orchestrator-leaderboard/discovery-constants';
+import {
+  DISCOVERY_RESPONSE_CACHE_CONTROL,
+  ensurePymthouseManifestFresh,
+} from '@/lib/pymthouse-manifest';
 
 const DEFAULT_CAPABILITY = 'noop';
 const DEFAULT_TOP_N = 100;
@@ -82,6 +85,10 @@ export async function GET(request: NextRequest): Promise<Response> {
   const authToken = getAuthToken(request) || '';
 
   try {
+    if (billingProvider === 'pymthouse') {
+      await ensurePymthouseManifestFresh();
+    }
+
     const ordered: string[] = [];
     const seen = new Set<string>();
     let cacheAgeMs = 0;

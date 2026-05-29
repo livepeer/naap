@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  resetPymthouseManifestCacheForTests,
+  seedPymthouseManifestForTests,
+} from '@/lib/pymthouse-manifest';
 import {
   filterCapabilitiesForProvider,
   isCapabilityAllowedForProvider,
@@ -8,40 +12,70 @@ import {
 } from '../provider-restrictions';
 
 describe('provider-restrictions', () => {
+  afterEach(() => {
+    resetPymthouseManifestCacheForTests();
+  });
+
   it('normalizes supported slugs and rejects unknown values', () => {
-    expect(normalizeBillingProviderSlug(' PYMTHOUSE ')).toBeNull();
+    expect(normalizeBillingProviderSlug(' PYMTHOUSE ')).toBe('pymthouse');
     expect(normalizeBillingProviderSlug('daydream')).toBe('daydream');
     expect(normalizeBillingProviderSlug('stripe')).toBeNull();
     expect(normalizeBillingProviderSlug(null)).toBeNull();
   });
 
-  it('uses a stable restriction revision for caching', () => {
-    expect(providerRestrictionRevision()).toBe('na');
+  it('uses pymthouse manifest revision when provider is pymthouse', () => {
+    seedPymthouseManifestForTests({
+      capabilities: [{ pipeline: 'video', modelId: 'model-a' }],
+      excludedCapabilities: [],
+    });
+
+    expect(providerRestrictionRevision('pymthouse')).not.toBe('na');
+    expect(providerRestrictionRevision('daydream')).toBe('na');
   });
 
-  it('does not filter capabilities for Daydream', () => {
+  it('filters capabilities by provider exclusion rules', () => {
+    seedPymthouseManifestForTests({
+      capabilities: [{ pipeline: 'video', modelId: 'model-a' }],
+      excludedCapabilities: [{ pipeline: 'video', modelId: 'model-b' }],
+    });
+
     const caps = ['video/model-a', 'video/model-b', 'future/model-c'];
-    expect(filterCapabilitiesForProvider(caps, 'daydream')).toEqual(caps);
+    expect(filterCapabilitiesForProvider(caps, 'pymthouse')).toEqual(['video/model-a', 'future/model-c']);
     expect(filterCapabilitiesForProvider(caps, 'daydream')).toEqual(caps);
   });
 
-  it('resolves plan capabilities without manifest filtering', () => {
+  it('resolves plan capabilities with provider-aware filtering', () => {
+    seedPymthouseManifestForTests({
+      capabilities: [{ pipeline: 'video', modelId: 'model-a' }],
+      excludedCapabilities: [{ pipeline: 'video', modelId: 'model-z' }],
+    });
+
     expect(resolvePlanCapabilitiesForProvider({
-      billingProviderSlug: 'daydream',
+      billingProviderSlug: 'pymthouse',
       capabilities: ['video/model-a', 'video/model-z', 'future/model-c'],
-    } as const)).toEqual(['video/model-a', 'video/model-z', 'future/model-c']);
+    } as const)).toEqual(['video/model-a', 'future/model-c']);
   });
 
-  it('does not filter capabilities when billingProviderSlug is null', () => {
+  it('does not apply manifest filter when billingProviderSlug is null (backfill target)', () => {
+    seedPymthouseManifestForTests({
+      capabilities: [{ pipeline: 'video', modelId: 'model-a' }],
+      excludedCapabilities: [{ pipeline: 'video', modelId: 'model-b' }],
+    });
+
     const caps = ['video/model-a', 'video/model-b'];
     expect(filterCapabilitiesForProvider(caps, null)).toEqual(caps);
-    expect(filterCapabilitiesForProvider(caps, 'pymthouse')).toEqual(caps);
+    expect(filterCapabilitiesForProvider(caps, 'pymthouse')).toEqual(['video/model-a']);
   });
 
-  it('allows capabilities under Daydream semantics', () => {
-    expect(isCapabilityAllowedForProvider('video/model-a', 'daydream')).toBe(true);
+  it('checks capability allow decision via provider semantics', () => {
+    seedPymthouseManifestForTests({
+      capabilities: [{ pipeline: 'video', modelId: 'model-a' }],
+      excludedCapabilities: [{ pipeline: 'video', modelId: 'model-b' }],
+    });
+
+    expect(isCapabilityAllowedForProvider('video/model-a', 'pymthouse')).toBe(true);
+    expect(isCapabilityAllowedForProvider('video/model-b', 'pymthouse')).toBe(false);
+    expect(isCapabilityAllowedForProvider('future/model-c', 'pymthouse')).toBe(true);
     expect(isCapabilityAllowedForProvider('video/model-b', 'daydream')).toBe(true);
-    // Unknown/invalid providers do not deny capabilities in PR #337.
-    expect(isCapabilityAllowedForProvider('video/model-b', 'pymthouse')).toBe(true);
   });
 });

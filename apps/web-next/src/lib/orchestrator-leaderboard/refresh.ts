@@ -16,8 +16,12 @@ import type { DiscoveryPlan, OrchestratorRow, PlanResults } from './types';
 import { evaluatePlan } from './ranking';
 import { listEnabledPlans } from './plans';
 import { getRowsForCapability } from './global-dataset';
-import { fingerprintCapabilityList } from './discovery-constants';
 import {
+  ensurePymthouseManifestFresh,
+  fingerprintCapabilityList,
+} from '@/lib/pymthouse-manifest';
+import {
+  normalizeBillingProviderSlug,
   providerRestrictionRevision,
   resolvePlanCapabilitiesForProvider,
 } from './provider-restrictions';
@@ -30,7 +34,7 @@ const PLAN_CACHE_KEY_SEP = '\0';
 /** Composite key: plan id, billing provider, allowlist revision (PymtHouse), capability-set fingerprint. */
 export function buildPlanEvaluationCacheKey(plan: DiscoveryPlan): string {
   const slug = plan.billingProviderSlug ?? 'null';
-  const rev = providerRestrictionRevision();
+  const rev = providerRestrictionRevision(plan.billingProviderSlug);
   const capFp = fingerprintCapabilityList(plan.capabilities);
   return `${plan.id}${PLAN_CACHE_KEY_SEP}${slug}${PLAN_CACHE_KEY_SEP}${rev}${PLAN_CACHE_KEY_SEP}${capFp}`;
 }
@@ -101,6 +105,12 @@ async function evaluate(plan: DiscoveryPlan): Promise<PlanResults> {
  * Reads exclusively from the persistent DB dataset — no auth context needed.
  */
 export async function evaluateAndCache(plan: DiscoveryPlan): Promise<PlanResults> {
+  if (normalizeBillingProviderSlug(plan.billingProviderSlug) === 'pymthouse') {
+    await ensurePymthouseManifestFresh({
+      onRevisionChanged: () => invalidatePlanCache(plan.id),
+    });
+  }
+
   const planForEval: DiscoveryPlan = {
     ...plan,
     capabilities: resolvePlanCapabilitiesForProvider(plan),
@@ -147,6 +157,7 @@ async function refreshSingle(plan: DiscoveryPlan): Promise<PlanResults> {
  * dataset refresh cron) — no auth/request context is required here.
  */
 export async function refreshAllPlans(): Promise<{ refreshed: number; failed: number }> {
+  await ensurePymthouseManifestFresh({ onRevisionChanged: clearPlanCache });
   const plans = await listEnabledPlans();
   let refreshed = 0;
   let failed = 0;

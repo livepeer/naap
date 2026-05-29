@@ -5,6 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { handleOAuthCallback } from '@/lib/api/auth';
+import {
+  NAAP_PMTH_DEVICE_APPROVAL_COOKIE,
+  tryParseDeviceApprovalCookie,
+} from '@/lib/pymthouse-device-initiate';
 
 interface RouteParams {
   params: Promise<{ provider: string }>;
@@ -43,8 +47,14 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     // Handle the callback
     const result = await handleOAuthCallback(provider, code);
 
-    // Redirect to dashboard with auth cookie
-    const response = NextResponse.redirect(new URL('/dashboard', request.url));
+    const deviceApproval = await tryParseDeviceApprovalCookie(
+      request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value,
+    );
+    const redirectUrl = deviceApproval
+      ? new URL('/oidc/device-approved', request.url)
+      : new URL('/dashboard', request.url);
+
+    const response = NextResponse.redirect(redirectUrl);
 
     // Set auth cookie
     response.cookies.set('naap_auth_token', result.token, {
@@ -71,8 +81,9 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     if (typedErr.code === 'ACCOUNT_SUSPENDED') {
       return NextResponse.redirect(new URL('/login?error=account_suspended', request.url));
     }
-    const message = err instanceof Error ? encodeURIComponent(err.message) : 'oauth_failed';
-    return NextResponse.redirect(new URL(`/login?error=${message}`, request.url));
+    // Never echo raw error text into the redirect URL — log it server-side
+    // (above) and surface only a fixed, safe error code to the client.
+    return NextResponse.redirect(new URL('/login?error=oauth_failed', request.url));
   }
 }
 
@@ -141,9 +152,9 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
         { status: 403 }
       );
     }
-    const message = err instanceof Error ? err.message : 'OAuth authentication failed';
+    // Do not surface raw error text to the client; logged in full above.
     return NextResponse.json(
-      { success: false, error: { code: 'OAUTH_FAILED', message } },
+      { success: false, error: { code: 'OAUTH_FAILED', message: 'OAuth authentication failed' } },
       { status: 400 }
     );
   }

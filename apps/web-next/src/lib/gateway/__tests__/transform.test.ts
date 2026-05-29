@@ -328,9 +328,8 @@ describe('buildUpstreamRequest', () => {
       });
       const result = buildUpstreamRequest(request, config, secrets, null, '/query');
 
-      expect(result.headers.get('Authorization')).toBe(
-        'Basic ' + btoa('admin:secret')
-      );
+      const expected = `Basic ${Buffer.from('admin:secret').toString('base64')}`;
+      expect(result.headers.get('Authorization')).toBe(expected);
     });
   });
 });
