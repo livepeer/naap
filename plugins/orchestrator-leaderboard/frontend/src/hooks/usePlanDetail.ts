@@ -36,6 +36,11 @@ export function usePlanDetail(planId: string): UsePlanDetailResult {
   const [resultsKey, setResultsKey] = useState(0);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>();
 
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = undefined;
+  }, []);
+
   const setDraft = useCallback((updates: Partial<PlanUpdatePayload>) => {
     setDraftState((prev) => ({ ...prev, ...updates }));
     setDirty(true);
@@ -59,11 +64,13 @@ export function usePlanDetail(planId: string): UsePlanDetailResult {
           return;
         }
         setDraftState({
+          capabilities: found.capabilities,
           topN: found.topN,
-          slaWeights: found.slaWeights,
-          slaMinScore: found.slaMinScore,
-          sortBy: found.sortBy,
-          filters: found.filters,
+          slaWeights: found.slaWeights ?? undefined,
+          slaMinScore: found.slaMinScore ?? undefined,
+          sortBy: found.sortBy ?? undefined,
+          filters: found.filters ?? undefined,
+          billingProviderSlug: 'daydream',
         });
         setDirty(false);
       } catch (err) {
@@ -104,7 +111,10 @@ export function usePlanDetail(planId: string): UsePlanDetailResult {
     setSaving(true);
     setError(null);
     try {
-      const updated = await apiUpdatePlan(plan.id, draft);
+      const payload: PlanUpdatePayload = { ...draft };
+      if (payload.filters === null) delete payload.filters;
+      if (payload.slaWeights === null) delete payload.slaWeights;
+      const updated = await apiUpdatePlan(plan.id, payload);
       setPlan(updated);
       setDirty(false);
       setSavedFlash(true);

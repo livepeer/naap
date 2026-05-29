@@ -139,7 +139,7 @@ the switches to enable/disable.
 
 ## Architecture
 
-```
+```text
 Cron / Admin POST /dataset/refresh
          │
          ▼

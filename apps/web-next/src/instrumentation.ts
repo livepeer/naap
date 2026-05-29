@@ -67,5 +67,18 @@ export async function register() {
         .then((n) => console.log('[naap] Background cache re-warm:', n))
         .catch((err) => console.warn('[naap] Background re-warm failed:', err));
     }, rewarmMs);
+
+    const { refreshGlobalDatasetOnStartup } = await import('@/lib/orchestrator-leaderboard/global-refresh');
+    refreshGlobalDatasetOnStartup()
+      .then((result) => {
+        if (result.skipped) {
+          console.log('[naap] Orchestrator discovery startup refresh skipped:', result);
+          return;
+        }
+        console.log('[naap] Orchestrator discovery refreshed on startup:', result);
+      })
+      .catch((err) => {
+        console.warn('[naap] Orchestrator discovery startup refresh failed (non-fatal):', err);
+      });
   }
 }

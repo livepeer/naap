@@ -13,11 +13,13 @@
  * Mutations on public plans require isAdmin.
  */
 
+import { Prisma } from '@naap/database';
 import { prisma } from '@/lib/db';
 import type {
   CreatePlanInput,
   UpdatePlanInput,
   DiscoveryPlan,
+  BillingProviderSlug,
   LeaderboardFilters,
   SLAWeights,
   PlanVisibility,
@@ -39,19 +41,48 @@ function readScopeWhere(scope: PlanScope) {
 /**
  * Build a where clause that matches ONLY the caller's own plans (for mutations).
  */
-function writeScopeWhere(scope: PlanScope) {
+function writeScopeWhere(
+  scope: PlanScope,
+): Record<string, string> | { OR: Record<string, string>[] } | null {
   const conditions: Record<string, string>[] = [];
   if (scope.teamId) conditions.push({ teamId: scope.teamId });
   if (scope.ownerUserId) conditions.push({ ownerUserId: scope.ownerUserId });
-  if (conditions.length === 0) return {};
+  if (conditions.length === 0) return null;
   if (conditions.length === 1) return conditions[0];
   return { OR: conditions };
+}
+
+function listPlansWhere(
+  scope: PlanScope,
+  billingProviderSlug?: BillingProviderSlug | null,
+): Prisma.DiscoveryPlanWhereInput {
+  const base = readScopeWhere(scope) as Prisma.DiscoveryPlanWhereInput;
+  const slugPart = billingProviderWhere(billingProviderSlug);
+  if (!slugPart) {
+    return base;
+  }
+  return { AND: [base, slugPart] };
+}
+
+function billingProviderWhere(
+  billingProviderSlug?: BillingProviderSlug | null,
+): Prisma.DiscoveryPlanWhereInput | null {
+  if (billingProviderSlug === null || billingProviderSlug === undefined) {
+    return null;
+  }
+
+  if (typeof billingProviderSlug === 'string' && billingProviderSlug.trim() === '') {
+    throw new Error('Invalid billingProviderSlug');
+  }
+
+  return { billingProviderSlug };
 }
 
 function toPlan(row: Record<string, unknown>): DiscoveryPlan {
   return {
     id: row.id as string,
     billingPlanId: row.billingPlanId as string,
+    billingProviderSlug: (row.billingProviderSlug as DiscoveryPlan['billingProviderSlug']) ?? null,
     name: row.name as string,
     description: (row.description as string) ?? null,
     visibility: (row.visibility as PlanVisibility) ?? 'personal',
@@ -76,6 +107,7 @@ export async function createPlan(
   const row = await prisma.discoveryPlan.create({
     data: {
       billingPlanId: input.billingPlanId,
+      billingProviderSlug: input.billingProviderSlug ?? 'daydream',
       name: input.name,
       description: input.description ?? undefined,
       visibility: 'personal',
@@ -92,9 +124,12 @@ export async function createPlan(
   return toPlan(row as unknown as Record<string, unknown>);
 }
 
-export async function listPlans(scope: PlanScope): Promise<DiscoveryPlan[]> {
+export async function listPlans(
+  scope: PlanScope,
+  billingProviderSlug?: BillingProviderSlug | null,
+): Promise<DiscoveryPlan[]> {
   const rows = await prisma.discoveryPlan.findMany({
-    where: readScopeWhere(scope),
+    where: listPlansWhere(scope, billingProviderSlug),
     orderBy: { createdAt: 'desc' },
   });
   return rows.map((r) => toPlan(r as unknown as Record<string, unknown>));
@@ -103,9 +138,11 @@ export async function listPlans(scope: PlanScope): Promise<DiscoveryPlan[]> {
 export async function getPlan(
   id: string,
   scope: PlanScope,
+  billingProviderSlug?: BillingProviderSlug | null,
 ): Promise<DiscoveryPlan | null> {
+  const where = listPlansWhere(scope, billingProviderSlug);
   const row = await prisma.discoveryPlan.findFirst({
-    where: { id, ...readScopeWhere(scope) },
+    where: { AND: [{ id }, where] },
   });
   return row ? toPlan(row as unknown as Record<string, unknown>) : null;
 }
@@ -122,9 +159,14 @@ export async function updatePlan(
   if (!existing) return null;
   if (existing.visibility === 'public' && !scope.isAdmin) return 'forbidden';
 
-  const mutationWhere = existing.visibility === 'public'
-    ? { id }
-    : { id, ...writeScopeWhere(scope) };
+  const scopeWhere = writeScopeWhere(scope);
+  const mutationWhere =
+    existing.visibility === 'public'
+      ? { id }
+      : scopeWhere
+        ? { id, ...scopeWhere }
+        : null;
+  if (!mutationWhere) return 'forbidden';
 
   const result = await prisma.discoveryPlan.updateMany({
     where: mutationWhere,
@@ -133,10 +175,11 @@ export async function updatePlan(
       ...(input.description !== undefined && { description: input.description }),
       ...(input.capabilities !== undefined && { capabilities: input.capabilities }),
       ...(input.topN !== undefined && { topN: input.topN }),
-      ...(input.slaWeights !== undefined && { slaWeights: input.slaWeights }),
+      ...(input.slaWeights !== undefined && { slaWeights: input.slaWeights ?? Prisma.JsonNull }),
       ...(input.slaMinScore !== undefined && { slaMinScore: input.slaMinScore }),
       ...(input.sortBy !== undefined && { sortBy: input.sortBy }),
-      ...(input.filters !== undefined && { filters: input.filters }),
+      ...(input.filters !== undefined && { filters: input.filters ?? Prisma.JsonNull }),
+      ...(input.billingProviderSlug !== undefined && { billingProviderSlug: input.billingProviderSlug }),
     },
   });
   if (result.count === 0) return null;
@@ -154,9 +197,14 @@ export async function deletePlan(
   if (!existing) return false;
   if (existing.visibility === 'public' && !scope.isAdmin) return 'forbidden';
 
-  const mutationWhere = existing.visibility === 'public'
-    ? { id }
-    : { id, ...writeScopeWhere(scope) };
+  const scopeWhere = writeScopeWhere(scope);
+  const mutationWhere =
+    existing.visibility === 'public'
+      ? { id }
+      : scopeWhere
+        ? { id, ...scopeWhere }
+        : null;
+  if (!mutationWhere) return 'forbidden';
 
   const result = await prisma.discoveryPlan.deleteMany({
     where: mutationWhere,

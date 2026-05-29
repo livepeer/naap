@@ -15,6 +15,7 @@ import { success } from '@/lib/api/response';
 import { getAuthToken } from '@/lib/api/response';
 import { resolveClickhouseGatewayQueryUrl } from '@/lib/orchestrator-leaderboard/query';
 import { getDatasetCapabilities } from '@/lib/orchestrator-leaderboard/global-dataset';
+import { verifyCronAuth } from '@/lib/orchestrator-leaderboard/cron-auth';
 
 const FILTERS_SQL = `SELECT DISTINCT capability_name
 FROM semantic.network_capabilities
@@ -23,13 +24,31 @@ WHERE timestamp_ts >= now() - INTERVAL 1 HOUR
 ORDER BY capability_name
 FORMAT JSON`;
 
-function isCronAuth(request: NextRequest): boolean {
-  const auth = request.headers.get('authorization');
-  return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
+function sanitizeCapabilityRows(rows: unknown[]): Array<{ capability_name: string }> {
+  const out: Array<{ capability_name: string }> = [];
+  for (const row of rows) {
+    if (row === null || typeof row !== 'object') continue;
+    if (!Object.prototype.hasOwnProperty.call(row, 'capability_name')) continue;
+    const name = (row as { capability_name: unknown }).capability_name;
+    if (typeof name !== 'string') continue;
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    out.push({ capability_name: trimmed });
+  }
+  return out;
+}
+
+function parseCapabilityRows(json: unknown): Array<{ capability_name: string }> {
+  if (Array.isArray(json)) return sanitizeCapabilityRows(json);
+  const data = (json as { data?: unknown }).data;
+  if (Array.isArray(data)) return sanitizeCapabilityRows(data);
+  const nested = (data as { data?: unknown } | undefined)?.data;
+  if (Array.isArray(nested)) return sanitizeCapabilityRows(nested);
+  return [];
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse | Response> {
-  const cronAuthed = isCronAuth(request);
+  const cronAuthed = verifyCronAuth(request);
   if (!cronAuthed) {
     const auth = await authorize(request);
     if (!auth) {
@@ -45,8 +64,10 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
 
   const headers: Record<string, string> = {
     'Content-Type': 'text/plain',
-    'Authorization': `Bearer ${authToken}`,
   };
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
 
   const incomingCookie = request.headers.get('cookie');
   if (incomingCookie) {
@@ -70,8 +91,7 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
 
     if (res.ok) {
       const json = await res.json();
-      const chData = (json.data ?? json) as { data?: Array<{ capability_name: string }> };
-      chCapabilities = (chData.data ?? []).map((row: { capability_name: string }) => row.capability_name);
+      chCapabilities = parseCapabilityRows(json).map((row) => row.capability_name);
     }
   } catch {
     // ClickHouse unavailable — proceed with DB capabilities only

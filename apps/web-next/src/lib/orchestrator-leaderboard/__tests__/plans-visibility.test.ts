@@ -84,6 +84,35 @@ describe('listPlans', () => {
     expect(plans[0].visibility).toBe('public');
     expect(plans[1].visibility).toBe('personal');
   });
+
+  it('filters by billingProviderSlug=daydream when requested', async () => {
+    mockFindMany.mockResolvedValue([]);
+
+    const scope = { teamId: 'personal:user-b', ownerUserId: 'user-b' };
+    await listPlans(scope, 'daydream');
+
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          {
+            OR: [
+              { visibility: 'public' },
+              { teamId: 'personal:user-b' },
+              { ownerUserId: 'user-b' },
+            ],
+          },
+          { billingProviderSlug: 'daydream' },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  });
+
+  it('rejects blank billingProviderSlug values', async () => {
+    const scope = { teamId: 'personal:user-b', ownerUserId: 'user-b' };
+    await expect(listPlans(scope, ' ' as never)).rejects.toThrow('Invalid billingProviderSlug');
+    expect(mockFindMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('getPlan', () => {
@@ -95,15 +124,51 @@ describe('getPlan', () => {
 
     expect(mockFindFirst).toHaveBeenCalledWith({
       where: {
-        id: 'pub-1',
-        OR: [
-          { visibility: 'public' },
-          { ownerUserId: 'user-b' },
+        AND: [
+          { id: 'pub-1' },
+          {
+            OR: [
+              { visibility: 'public' },
+              { ownerUserId: 'user-b' },
+            ],
+          },
         ],
       },
     });
     expect(plan).not.toBeNull();
     expect(plan!.id).toBe('pub-1');
+  });
+
+  it('applies provider scope in getPlan when provided', async () => {
+    mockFindFirst.mockResolvedValue(publicPlan);
+
+    await getPlan('pub-1', { ownerUserId: 'user-b' }, 'daydream');
+
+    expect(mockFindFirst).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          { id: 'pub-1' },
+          {
+            AND: [
+              {
+                OR: [
+                  { visibility: 'public' },
+                  { ownerUserId: 'user-b' },
+                ],
+              },
+              { billingProviderSlug: 'daydream' },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  it('rejects blank billingProviderSlug values in getPlan', async () => {
+    await expect(getPlan('pub-1', { ownerUserId: 'user-b' }, ' ' as never)).rejects.toThrow(
+      'Invalid billingProviderSlug',
+    );
+    expect(mockFindFirst).not.toHaveBeenCalled();
   });
 });
 

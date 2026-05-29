@@ -33,15 +33,17 @@ dataset, lazily refreshed and server-cached.
 2. **`billingPlanId` is globally unique and immutable.** `POST /plans` with a
    duplicate returns `400`. Use the upsert pattern below.
 3. **Response envelope is `{ success, data, error? }`.** For
-   `/plans/{id}/results` the payload is **double-nested**:
-   `body.data.data.capabilities[<cap>][]`. This is intentional, not a bug.
+   `/plans/{id}/results` the payload is **single-wrapped**: `body.data`
+   is the `PlanResults` object directly — `body.data.capabilities[<cap>][]`.
+   There is no second `.data` nesting.
 4. **Plan results are scoped to the caller** (`teamId` + `ownerUserId`).
    Cross-team reads return `404`, never the plan.
 5. **Do not poll faster than every 10 seconds per process.** Honour
    `Cache-Control: max-age=10` and the response `meta.refreshIntervalMs`.
 6. **Disabled plans return `400 Plan is disabled`** on `/results`. Re-enable
    via `PUT /plans/{id}` with `{ "enabled": true }`.
-7. **`capability` strings must match `^[a-zA-Z0-9_-]+$`** and be ≤ 128 chars.
+7. **`capability` strings must match `^[a-zA-Z0-9_.:\-/]+$`** and be ≤ 128 chars.
+   Dots, colons, and slashes are valid (e.g. `video/model-a`).
    Always validate against `GET /filters` before creating a plan.
 8. **Never call `/plans/refresh` from app code.** It is `CRON_SECRET`-only and
    used by Vercel Cron. Use `/plans/{id}/results` (lazy refresh) instead.
@@ -62,7 +64,9 @@ Base path: `/api/v1/orchestrator-leaderboard`. Full host comes from the user
 | `PUT`    | `/plans/{id}`                 | JWT or `gw_`            | Partial update (incl. `enabled`).               |
 | `DELETE` | `/plans/{id}`                 | JWT or `gw_`            | Permanently delete.                             |
 | `GET`    | `/plans/{id}/results`         | JWT or `gw_`            | **Poll** ranked orchestrator URLs.              |
-| `POST`   | `/plans/seed`                 | JWT or `gw_`            | Seed 4 demo plans (idempotent). Onboarding.     |
+| `GET`    | `/plans/{id}/python-gateway`  | JWT or `gw_`            | Bare `[{ address }]` for plan-scoped discovery. |
+| `GET`    | `/python-gateway`             | JWT or `gw_`            | Default discovery (no saved plan).              |
+| `GET`    | `/capability-catalog`         | JWT or `gw_`            | Provider-scoped pipeline/model tags for UI.     |
 | `POST`   | `/rank`                       | JWT or `gw_`            | Stateless 1-capability rank (avoid in runtime). |
 | `GET`    | `/dataset`                    | JWT or `gw_`            | Cached global dataset snapshot.                 |
 | `GET`    | `/dataset/config`             | JWT or `gw_`            | Read refresh interval.                          |
@@ -99,6 +103,9 @@ Building admin tooling?
 └── /dataset/refresh (admin)
 └── /sources (read = any auth, write = admin)
 └── /audits (read = any auth)
+
+Seeding public demo plans (deploy-time, not a public API)?
+└── `npm run seed:discovery-plans` → `bin/seed-discovery-plans.ts` (idempotent)
 ```
 
 ---
@@ -111,6 +118,8 @@ Building admin tooling?
 type CreatePlanInput = {
   /** Globally unique. Immutable. Use a stable slug or your billing SKU. */
   billingPlanId: string;            // 1..255
+  /** Defaults to `daydream` when omitted. */
+  billingProviderSlug?: 'daydream';
   name: string;                     // 1..255
   description?: string;             // ≤ 1000
   /** 1..50 items, each `^[a-zA-Z0-9_-]+$`, ≤ 128 chars. */
@@ -255,10 +264,10 @@ async function upsertPlan(input: CreatePlanInput): Promise<DiscoveryPlan> {
   return out.plan;
 }
 
-// 3. Poll results (handles the double-nested envelope).
+// 3. Poll results (body.data is PlanResults directly — single-wrapped).
 async function getResults(planId: string): Promise<PlanResults> {
-  const out = await call<{ data: PlanResults }>(`/plans/${planId}/results`);
-  return out.data;
+  const out = await call<PlanResults>(`/plans/${planId}/results`);
+  return out;
 }
 
 // 4. Pick orchestrator URLs for a single capability.
@@ -299,7 +308,7 @@ async function pollLoop(planId: string, capability: string, onUrls: (u: string[]
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Hard-coding capability strings that aren't warm.                          | Validate against `GET /filters` and warn on missing.                         |
 | Using `POST /plans` on every restart and getting 400s.                    | Implement `upsertPlan()` (list → find → POST or PUT).                        |
-| Reading `body.data.capabilities` on `/results` and getting `undefined`.   | Path is `body.data.data.capabilities` — double `.data`.                      |
+| Reading `body.data.data.capabilities` on `/results` and getting `undefined`. | Path is `body.data.capabilities` — single `.data`. There is no second nesting.   |
 | Including `billingPlanId` in `PUT` body.                                  | It's immutable; strip it. Server may 400 or silently ignore.                 |
 | Polling once per second.                                                  | Honour `Cache-Control: max-age=10` and `meta.refreshIntervalMs`.             |
 | Using `POST /rank` in a runtime loop.                                     | Stateless, less cacheable, less auditable. Use plans instead.                |

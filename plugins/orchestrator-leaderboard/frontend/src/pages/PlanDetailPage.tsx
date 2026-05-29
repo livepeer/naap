@@ -6,7 +6,13 @@ import {
   Check,
 } from 'lucide-react';
 import { usePlanDetail } from '../hooks/usePlanDetail';
+import { useCapabilityCatalog } from '../hooks/useCapabilityCatalog';
+import { CapabilityGroupPicker } from '../components/CapabilityGroupPicker';
+import { CapabilityTag } from '../components/CapabilityTag';
 import { EndpointGuide } from '../components/EndpointGuide';
+import { FormLabel } from '../components/FormLabel';
+import { SectionLabel } from '../components/SectionLabel';
+import { StyledCheckbox } from '../components/StyledCheckbox';
 import type { SLAWeights, LeaderboardFilters, PlanSortBy, OrchestratorRow } from '../lib/api';
 
 const TOP_N_OPTIONS = [5, 10, 20, 50];
@@ -18,6 +24,11 @@ const SORT_OPTIONS: { value: PlanSortBy; label: string }[] = [
   { value: 'avail', label: 'Availability' },
 ];
 
+const capabilityAliasMap: Record<string, string[]> = {
+  sdxl: ['streamdiffusion-sdxl'],
+  'streamdiffusion-sdxl': ['sdxl'],
+};
+
 export const PlanDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -27,6 +38,105 @@ export const PlanDetailPage: React.FC = () => {
   } = usePlanDetail(id!);
 
   const [showFilters, setShowFilters] = React.useState(false);
+  // Only Daydream is supported as a billing provider right now.
+  // When PymtHouse is added, restore the draft/plan value here.
+  const effectiveBillingProvider = 'daydream' as const;
+  const selectedCapabilities = React.useMemo(
+    () => draft.capabilities ?? plan?.capabilities ?? [],
+    [draft.capabilities, plan?.capabilities],
+  );
+  const {
+    pipelines: capabilityPipelines,
+    loading: capabilityLoading,
+    meta: capabilityMeta,
+  } = useCapabilityCatalog(effectiveBillingProvider);
+  const capabilityCatalogReady = !capabilityLoading && capabilityMeta !== null;
+
+  const availableCapabilitySet = React.useMemo(
+    () => new Set(capabilityPipelines.flatMap((pipeline) => pipeline.models.map((model) => model.capability))),
+    [capabilityPipelines],
+  );
+
+  const isCapabilityInCatalog = React.useCallback((cap: string) => {
+    if (availableCapabilitySet.has(cap)) {
+      return true;
+    }
+    if (!cap.includes('/')) {
+      for (const allowed of availableCapabilitySet) {
+        if (allowed.endsWith(`/${cap}`)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }, [availableCapabilitySet]);
+
+  const effectiveSelectedCapabilities = React.useMemo(() => {
+    if (!capabilityCatalogReady) {
+      return selectedCapabilities;
+    }
+    return selectedCapabilities.filter(isCapabilityInCatalog);
+  }, [capabilityCatalogReady, isCapabilityInCatalog, selectedCapabilities]);
+
+  React.useEffect(() => {
+    const desiredCapabilities = capabilityCatalogReady
+      ? (effectiveSelectedCapabilities ?? [])
+      : (selectedCapabilities ?? []);
+    const currentCapabilities = selectedCapabilities ?? [];
+    const isSame =
+      desiredCapabilities.length === currentCapabilities.length &&
+      desiredCapabilities.every((capability, index) => capability === currentCapabilities[index]);
+    if (!isSame) {
+      setDraft({ capabilities: desiredCapabilities });
+    }
+  }, [
+    capabilityCatalogReady,
+    effectiveSelectedCapabilities,
+    selectedCapabilities,
+    setDraft,
+  ]);
+
+  const isCapabilitySelected = React.useCallback((capability: string) => {
+    if (effectiveSelectedCapabilities.includes(capability)) {
+      return true;
+    }
+    const modelId = capability.slice(capability.lastIndexOf('/') + 1);
+    return effectiveSelectedCapabilities.includes(modelId);
+  }, [effectiveSelectedCapabilities]);
+
+  const toggleCapability = (capability: string) => {
+    const current = draft.capabilities ?? plan?.capabilities ?? [];
+    const modelId = capability.slice(capability.lastIndexOf('/') + 1);
+    const next = isCapabilitySelected(capability)
+      ? current.filter((cap) => cap !== capability && cap !== modelId)
+      : [...current.filter((cap) => cap !== modelId), capability];
+    setDraft({ capabilities: next });
+  };
+
+  const bulkToggleCapabilities = (capabilities: string[], select: boolean) => {
+    const current = draft.capabilities ?? plan?.capabilities ?? [];
+    let next: string[];
+    if (select) {
+      const toAdd = capabilities.filter((cap) => !current.includes(cap));
+      next = [...current, ...toAdd];
+    } else {
+      const removeSet = new Set(capabilities);
+      for (const capability of capabilities) {
+        const modelId = capability.slice(capability.lastIndexOf('/') + 1);
+        removeSet.add(modelId);
+        for (const alias of capabilityAliasMap[capability] ?? []) {
+          removeSet.add(alias);
+        }
+        for (const alias of capabilityAliasMap[modelId] ?? []) {
+          removeSet.add(alias);
+        }
+      }
+      next = current.filter((cap) => !removeSet.has(cap));
+    }
+    setDraft({ capabilities: next });
+  };
+
+  // PR #337 is Daydream-only: no manifest-based provider toggling.
 
   const handleWeightChange = (key: keyof SLAWeights, value: number) => {
     const current = draft.slaWeights ?? { latency: 0.4, swapRate: 0.3, price: 0.3 };
@@ -66,7 +176,7 @@ export const PlanDetailPage: React.FC = () => {
 
   if (!plan) {
     return (
-      <div className="p-6 max-w-[1400px] mx-auto">
+      <div className="px-4 pb-6 pt-3 max-w-[1400px] mx-auto">
         <button onClick={() => navigate('/plans')} className="flex items-center gap-1 text-sm text-text-muted hover:text-text-primary mb-4 transition-colors">
           <ArrowLeft size={16} /> Back to Plans
         </button>
@@ -80,44 +190,70 @@ export const PlanDetailPage: React.FC = () => {
   }
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto space-y-5">
+    <div className="px-4 pb-6 pt-3 max-w-[1400px] mx-auto space-y-5">
       {/* Back + Header */}
       <button onClick={() => navigate('/plans')} className="flex items-center gap-1 text-sm text-text-muted hover:text-text-primary transition-colors">
         <ArrowLeft size={16} /> Back to Plans
       </button>
 
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-text-primary tracking-tight">{plan.name}</h1>
-            {plan.enabled ? (
-              <span className="flex items-center gap-1 text-[11px] text-accent-emerald bg-accent-emerald/10 px-2 py-0.5 rounded-full">
-                <Power size={10} /> Enabled
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-[11px] text-text-muted bg-bg-tertiary px-2 py-0.5 rounded-full">
-                <PowerOff size={10} /> Disabled
-              </span>
-            )}
+      <div className="glass-card p-4">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 xl:gap-6">
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-2xl font-bold text-text-primary tracking-tight">{plan.name}</h1>
+                  {plan.enabled ? (
+                    <span className="status-pill-emerald">
+                      <Power size={10} /> Enabled
+                    </span>
+                  ) : (
+                    <CapabilityTag size="sm" className="gap-1">
+                      <PowerOff size={10} /> Disabled
+                    </CapabilityTag>
+                  )}
+                </div>
+                <p className="text-xs text-text-muted font-mono mt-1 truncate">{plan.billingPlanId}</p>
+                <div className="flex items-center gap-4 text-xs text-text-muted mt-1 flex-wrap">
+                  <span className="flex items-center gap-1">
+                    <Clock size={10} /> Created {new Date(plan.createdAt).toLocaleDateString()}
+                  </span>
+                  <span>Updated {new Date(plan.updatedAt).toLocaleDateString()}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 xl:hidden">
+                {dirty && (
+                  <span className="status-pill-amber">Unsaved changes</span>
+                )}
+                {savedFlash && (
+                  <span className="status-pill-emerald">
+                    <Check size={10} /> Saved
+                  </span>
+                )}
+                <button
+                  onClick={applyChanges}
+                  disabled={!dirty || saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-emerald hover:bg-accent-emerald/90 disabled:bg-bg-tertiary disabled:text-text-disabled text-white text-xs font-medium rounded-lg transition-colors"
+                >
+                  {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                  Apply
+                </button>
+              </div>
+            </div>
           </div>
-          <p className="text-[12px] text-text-muted font-mono mt-1">{plan.billingPlanId}</p>
-          <div className="flex items-center gap-4 text-[11px] text-text-muted mt-1">
-            <span className="flex items-center gap-1">
-              <Clock size={10} /> Created {new Date(plan.createdAt).toLocaleDateString()}
-            </span>
-            <span>Updated {new Date(plan.updatedAt).toLocaleDateString()}</span>
+
+          <div className="min-w-0 xl:border-l xl:border-[var(--border-color)] xl:pl-6">
+            <SectionLabel className="mb-3">Discovery API</SectionLabel>
+            <EndpointGuide planId={plan.id} />
           </div>
         </div>
 
-        {/* Save button + status badges */}
-        <div className="flex items-center gap-2">
+        <div className="hidden xl:flex items-center justify-end gap-2 mt-4 pt-4 border-t border-[var(--border-color)]">
           {dirty && (
-            <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-accent-amber/15 text-accent-amber border border-accent-amber/30">
-              Unsaved changes
-            </span>
+            <span className="status-pill-amber">Unsaved changes</span>
           )}
           {savedFlash && (
-            <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-accent-emerald/15 text-accent-emerald border border-accent-emerald/30 flex items-center gap-1">
+            <span className="status-pill-emerald">
               <Check size={10} /> Results updated
             </span>
           )}
@@ -140,27 +276,47 @@ export const PlanDetailPage: React.FC = () => {
       )}
 
       {/* Capabilities */}
-      <div className="glass-card p-4">
-        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Capabilities</span>
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {plan.capabilities.map((c) => (
-            <span key={c} className="pill-btn pill-btn-active text-[10px] px-2 py-0.5 cursor-default">{c}</span>
-          ))}
-        </div>
+      <div className="glass-card p-4 space-y-3">
+        <SectionLabel className="mb-0">
+          {`Capabilities (${effectiveSelectedCapabilities.length} selected)`}
+        </SectionLabel>
+
+        <CapabilityGroupPicker
+          title="Capabilities"
+          showSectionHeader={false}
+          pipelines={capabilityPipelines}
+          loading={capabilityLoading}
+          selectedCapabilities={effectiveSelectedCapabilities}
+          isSelected={isCapabilitySelected}
+          onToggle={toggleCapability}
+          onBulkToggle={bulkToggleCapabilities}
+          toolbarEnd={
+            <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer shrink-0">
+              <StyledCheckbox
+                checked={true}
+                disabled={true}
+                aria-label="Billing provider is fixed to Daydream in this PR"
+                onChange={() => {}}
+              />
+              <span>Billing provider: Daydream</span>
+            </label>
+          }
+        />
       </div>
 
       {/* Interactive Configuration Panel */}
       <div className="glass-card p-5 space-y-5">
-        <div className="flex items-center gap-2">
-          <SlidersHorizontal size={14} className="text-accent-blue" />
-          <span className="text-xs font-semibold text-accent-blue uppercase tracking-wider">Configuration</span>
-          <span className="text-[10px] text-text-muted ml-2">Edit to see how results change</span>
-        </div>
+        <SectionLabel
+          icon={SlidersHorizontal}
+          trailing={<span className="text-xs text-text-muted">Edit to see how results change</span>}
+        >
+          Configuration
+        </SectionLabel>
 
         {/* Top N + Sort By row */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Top N</label>
+            <FormLabel>Top N</FormLabel>
             <div className="flex items-center gap-1 bg-bg-secondary border border-[var(--border-color)] rounded-lg p-1">
               {TOP_N_OPTIONS.map((n) => (
                 <button
@@ -176,7 +332,7 @@ export const PlanDetailPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <label className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Sort By</label>
+            <FormLabel>Sort By</FormLabel>
             <select
               value={draft.sortBy ?? 'slaScore'}
               onChange={(e) => setDraft({ sortBy: e.target.value as PlanSortBy })}
@@ -221,11 +377,13 @@ export const PlanDetailPage: React.FC = () => {
 
         {/* SLA Weights */}
         <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Gauge size={14} className="text-accent-emerald" />
-            <span className="text-xs font-semibold text-accent-emerald uppercase tracking-wider">SLA Weights</span>
-            <span className="text-[10px] text-text-muted ml-2">Auto-normalize to 100%</span>
-          </div>
+          <SectionLabel
+            icon={Gauge}
+            className="mb-3"
+            trailing={<span className="text-xs text-text-muted">Auto-normalize to 100%</span>}
+          >
+            SLA Weights
+          </SectionLabel>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <WeightSlider label="Latency" value={(draft.slaWeights?.latency) ?? 0.4}
               onChange={(v) => handleWeightChange('latency', v)} color="blue" />
@@ -270,14 +428,6 @@ export const PlanDetailPage: React.FC = () => {
 
       {/* Results Section */}
       <ResultsSection results={results} loading={resultsLoading} />
-
-      {/* Endpoint & Integration */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Endpoint & Integration</span>
-        </div>
-        <EndpointGuide planId={plan.id} />
-      </div>
 
       {/* Meta Footer */}
       {results && (
@@ -337,9 +487,13 @@ const ResultsSection: React.FC<{ results: import('../lib/api').PlanResults | nul
               onClick={() => setCollapsed((p) => ({ ...p, [capability]: !isCollapsed }))}
               className="w-full px-4 py-3 border-b border-[var(--border-color)] flex items-center justify-between hover:bg-bg-secondary transition-colors"
             >
-              <span className="text-xs font-medium text-text-secondary">
-                <span className="text-accent-blue">{capability}</span>
-                {' '}&mdash; {rows.length} orchestrator{rows.length !== 1 ? 's' : ''}
+              <span className="flex items-center gap-2 text-xs font-medium text-text-secondary">
+                <CapabilityTag size="sm" title={capability}>
+                  {capability}
+                </CapabilityTag>
+                <span>
+                  &mdash; {rows.length} orchestrator{rows.length !== 1 ? 's' : ''}
+                </span>
               </span>
               {isCollapsed ? <ChevronDown size={14} className="text-text-muted" /> : <ChevronUp size={14} className="text-text-muted" />}
             </button>
@@ -474,7 +628,7 @@ const FilterInput: React.FC<{
   const id = useId();
   return (
     <div className="min-w-[130px]">
-      <label htmlFor={id} className="block text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">{label}</label>
+      <FormLabel htmlFor={id}>{label}</FormLabel>
       <input
         id={id}
         {...inputProps}
