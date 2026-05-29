@@ -70,7 +70,7 @@ export const KeyDetailPanel: React.FC<KeyDetailPanelProps> = ({
           </button>
         </div>
         <div className="flex items-center gap-3">
-          <Badge variant={apiKey.status === 'active' ? 'emerald' : 'rose'}>
+          <Badge variant={apiKey.status === 'ACTIVE' ? 'emerald' : 'rose'}>
             {apiKey.status.toUpperCase()}
           </Badge>
           <span className="text-xs text-text-secondary">
@@ -167,7 +167,7 @@ export const KeyDetailPanel: React.FC<KeyDetailPanelProps> = ({
             </button>
             <button
               onClick={onRotate}
-              disabled={apiKey.status === 'revoked'}
+              disabled={apiKey.status === 'REVOKED'}
               className="w-full flex items-center gap-3 p-4 bg-bg-tertiary/50 rounded-xl hover:bg-bg-tertiary transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCw size={18} className="text-accent-amber" />
@@ -188,7 +188,7 @@ export const KeyDetailPanel: React.FC<KeyDetailPanelProps> = ({
             </button>
             <button
               onClick={onRevoke}
-              disabled={apiKey.status === 'revoked'}
+              disabled={apiKey.status === 'REVOKED'}
               className="w-full flex items-center gap-3 p-4 bg-accent-rose/5 border border-accent-rose/20 rounded-xl hover:bg-accent-rose/10 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Trash2 size={18} className="text-accent-rose" />

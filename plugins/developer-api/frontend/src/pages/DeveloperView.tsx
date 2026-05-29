@@ -1513,7 +1513,7 @@ result = [...result].sort((a, b) => {
                             </td>
                             <td className="py-3">
                               <div className="flex items-center justify-end gap-2">
-                                <Badge variant={key.status === 'ACTIVE' || key.status === 'active' ? 'emerald' : 'rose'}>{key.status}</Badge>
+                                <Badge variant={key.status === 'ACTIVE' ? 'emerald' : 'rose'}>{key.status}</Badge>
                                 {(key.status || '').toUpperCase() !== 'REVOKED' && (
                                   <button onClick={() => setRevokeKeyId(key.id)}
                                     className="p-1.5 hover:bg-white/5 rounded-md text-accent-rose">
