@@ -22,7 +22,7 @@ const tabs: Tab[] = [
 ];
 
 export const DeveloperView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabId>('models');
+  const [activeTab, setActiveTab] = useState<TabId>('api-keys');
 
   return (
     <div className="space-y-6">

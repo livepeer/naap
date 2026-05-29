@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   extractDeviceApprovalTupleFromTargetLink,
   getExpectedPymthouseIssuer,
@@ -78,12 +78,20 @@ describe('pymthouse-device-initiate', () => {
   });
 
   it('tryParseDeviceApprovalCookie rejects expired payload', async () => {
-    const raw = JSON.stringify({
-      userCode: 'ABCD-EFGH',
-      publicClientId: 'app_x',
-      exp: Date.now() - 1000,
-    });
-    await expect(tryParseDeviceApprovalCookie(raw)).resolves.toBeNull();
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      // Encode a legitimately signed cookie so it survives the signature check,
+      // then advance time past the 10-minute exp to exercise the expiry branch.
+      const raw = await encodeDeviceApprovalCookiePayload({
+        userCode: 'ABCD-EFGH',
+        publicClientId: 'app_testpublic123',
+      });
+      vi.setSystemTime(new Date('2026-01-01T00:11:00.000Z'));
+      await expect(tryParseDeviceApprovalCookie(raw)).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('encode + tryParse round-trips', async () => {

@@ -121,22 +121,36 @@ export const PlanDetailPage: React.FC = () => {
 
   const bulkToggleCapabilities = (capabilities: string[], select: boolean) => {
     const current = draft.capabilities ?? plan?.capabilities ?? [];
+    const modelIdOf = (cap: string) => cap.slice(cap.lastIndexOf('/') + 1);
     let next: string[];
     if (select) {
-      const toAdd = capabilities.filter((cap) => !current.includes(cap));
-      next = [...current, ...toAdd];
+      // Mirror toggleCapability: drop the bare model-id alias before adding the
+      // full capability, and avoid adding a duplicate that is already present.
+      next = [...current];
+      for (const cap of capabilities) {
+        const modelId = modelIdOf(cap);
+        next = next.filter((existing) => existing !== modelId);
+        if (!next.includes(cap)) {
+          next.push(cap);
+        }
+      }
     } else {
-      const removeSet = new Set(capabilities);
-      next = current.filter((cap) => !removeSet.has(cap));
+      // Alias-aware removal: drop entries matching either the full capability or
+      // its bare model id so legacy/alias IDs do not linger after deselect.
+      const removeAliases = new Set<string>();
+      for (const cap of capabilities) {
+        removeAliases.add(cap);
+        removeAliases.add(modelIdOf(cap));
+      }
+      next = current.filter((existing) => !removeAliases.has(existing));
     }
     setDraft({ capabilities: next });
   };
 
-  React.useEffect(() => {
-    if (!pymthouseConfigured && effectiveBillingProvider === 'pymthouse') {
-      setDraft({ billingProviderSlug: 'daydream' });
-    }
-  }, [pymthouseConfigured, effectiveBillingProvider, setDraft]);
+  // Note: we intentionally do NOT force billingProviderSlug to 'daydream' when
+  // PymtHouse is unconfigured. Doing so would mark an existing PymtHouse plan
+  // dirty and silently persist the wrong provider on save. The provider toggle
+  // below is disabled with a warning when PymtHouse is unavailable instead.
 
   const handleWeightChange = (key: keyof SLAWeights, value: number) => {
     const current = draft.slaWeights ?? { latency: 0.4, swapRate: 0.3, price: 0.3 };

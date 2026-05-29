@@ -84,7 +84,17 @@ export async function GET(
 ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>' : ''}
 </head>
 <body><div class="card"><h1>${safeTitle}</h1><p>${safeMessage}</p></div></body></html>`,
-      { status: isError ? 400 : 200, headers: { 'Content-Type': 'text/html' } }
+      {
+        status: isError ? 400 : 200,
+        // no-store: callback URLs carry bearer tokens in the query string and
+        // must never be cached by the browser or intermediaries.
+        headers: {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-store',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
     );
   };
 

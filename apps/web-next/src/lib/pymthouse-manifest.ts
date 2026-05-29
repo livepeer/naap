@@ -198,7 +198,13 @@ function capabilityRuleMatchesCapability(
     return false;
   }
   if (pipeline === '*') {
-    return modelId === '*' || normalizedCapability.endsWith(`/${modelId}`);
+    // Treat a bare "whisper-large-v3" the same as "*/whisper-large-v3" so a
+    // pipeline-wildcard rule matches capabilities expressed without a pipeline.
+    return (
+      modelId === '*' ||
+      normalizedCapability === modelId ||
+      normalizedCapability.endsWith(`/${modelId}`)
+    );
   }
   if (modelId === '*') {
     return normalizedCapability === pipeline || normalizedCapability.startsWith(`${pipeline}/`);

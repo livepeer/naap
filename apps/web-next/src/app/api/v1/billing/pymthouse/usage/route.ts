@@ -28,9 +28,13 @@ function stripCryptoUnitFields(value: unknown): unknown {
   if (!value || typeof value !== 'object') {
     return value;
   }
+  const cryptoUnits = ['wei', 'eth', 'gwei'];
   const output: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (/(wei|eth|gwei)/i.test(key)) {
+    const lowerKey = key.toLowerCase();
+    // Only drop keys that are exactly a crypto unit or end with one (e.g.
+    // "amountWei"), not keys that merely contain the substring (e.g. "method").
+    if (cryptoUnits.some((unit) => lowerKey === unit || lowerKey.endsWith(unit))) {
       continue;
     }
     output[key] = stripCryptoUnitFields(entry);
@@ -64,7 +68,7 @@ function mapUpstreamUsageFailure(e: unknown): NextResponse {
   if (err.status >= 500) {
     return errors.serviceUnavailable('Usage data is temporarily unavailable');
   }
-  return error(err.code || 'UPSTREAM_ERROR', err.message, err.status);
+  return error(err.code || 'UPSTREAM_ERROR', 'Upstream service error', err.status ?? 502);
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

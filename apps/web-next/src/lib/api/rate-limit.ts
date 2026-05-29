@@ -54,6 +54,12 @@ export function enforceRateLimit(
   const windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
   const maxRequests = options.maxRequests ?? DEFAULT_MAX_REQUESTS;
   const ip = getClientIP(request);
+  let pathname = '/';
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch {
+    /* keep default */
+  }
   const key = ip
     ? `${options.keyPrefix}:${ip}`
     : `${options.keyPrefix}:anon:${createHash('sha256')
@@ -62,7 +68,7 @@ export function enforceRateLimit(
             request.headers.get('user-agent') ?? '',
             request.headers.get('accept') ?? '',
             request.method,
-            request.url,
+            pathname,
           ].join('|'),
         )
         .digest('hex')

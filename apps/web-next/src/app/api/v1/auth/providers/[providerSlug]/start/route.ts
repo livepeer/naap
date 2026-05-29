@@ -77,8 +77,13 @@ export async function POST(
     }
 
     const body = await request.json().catch(() => ({}));
-    const gatewayNonce = (body.gateway_nonce as string) || crypto.randomBytes(32).toString('hex');
-    const gatewayInstanceId = (body.gateway_instance_id as string) || null;
+    // Validate runtime types so malformed client input never reaches Prisma.
+    const gatewayNonce =
+      typeof body.gateway_nonce === 'string'
+        ? body.gateway_nonce
+        : crypto.randomBytes(32).toString('hex');
+    const gatewayInstanceId =
+      typeof body.gateway_instance_id === 'string' ? body.gateway_instance_id : null;
 
     const authToken = getAuthToken(request);
     const authenticatedUser = authToken ? await validateSession(authToken) : null;
@@ -170,11 +175,15 @@ export async function POST(
 
     console.log(`[billing-auth:${providerSlug}] Started login session ${loginSessionId.slice(0, 8)}...`);
 
-    return success({
+    const startRes = success({
       login_session_id: loginSessionId,
       expires_in: Math.floor(LOGIN_SESSION_TTL_MS / 1000),
       poll_after_ms: 1500,
     });
+    // no-store: login_session_id is a redirect-flow continuation handle, mirror
+    // the PymtHouse token branch above.
+    startRes.headers.set('Cache-Control', 'no-store');
+    return startRes;
   } catch (err) {
     console.error('[billing-auth] Error starting login:', err);
     return errors.internal('Failed to start billing provider login');

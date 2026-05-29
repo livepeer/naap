@@ -24,7 +24,11 @@ export function formatFeeWeiStringToEthDisplay(
   }
   if (value < 0n) return '—';
 
-  const cappedDigits = Math.min(Math.max(0, maxFractionDigits), 18);
+  // Normalize to a finite integer in [0, 18] before any BigInt exponent math:
+  // fractional or non-finite inputs would otherwise reach BigInt() and throw.
+  const requestedDigits = Number(maxFractionDigits);
+  const normalizedDigits = Number.isFinite(requestedDigits) ? Math.floor(requestedDigits) : 0;
+  const cappedDigits = Math.min(Math.max(0, normalizedDigits), 18);
   if (cappedDigits <= 0) {
     const roundWei = WEI_PER_ETH;
     value = (value + roundWei / 2n) / roundWei * roundWei;

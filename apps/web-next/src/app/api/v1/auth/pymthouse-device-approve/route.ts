@@ -20,6 +20,11 @@ import {
   tryParseDeviceApprovalCookie,
 } from '@/lib/pymthouse-device-initiate';
 
+function withNoStore(res: NextResponse): NextResponse {
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
+
 function withClearedDeviceCookie(res: NextResponse): NextResponse {
   res.cookies.set(NAAP_PMTH_DEVICE_APPROVAL_COOKIE, '', {
     httpOnly: true,
@@ -32,24 +37,25 @@ function withClearedDeviceCookie(res: NextResponse): NextResponse {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  // Responses expose per-session device data; never cache or replay them.
   const token = getAuthToken(request);
   if (!token) {
-    return errors.unauthorized('Not authenticated');
+    return withNoStore(errors.unauthorized('Not authenticated'));
   }
 
   const session = await validateSessionWithExpiry(token);
   if (!session) {
-    return errors.unauthorized('Invalid or expired session');
+    return withNoStore(errors.unauthorized('Invalid or expired session'));
   }
 
   const payload = await tryParseDeviceApprovalCookie(
     request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value,
   );
   if (!payload) {
-    return errors.badRequest('No pending device approval found');
+    return withNoStore(errors.badRequest('No pending device approval found'));
   }
 
-  return success({ userCode: payload.userCode });
+  return withNoStore(success({ userCode: payload.userCode }));
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {

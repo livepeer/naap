@@ -81,8 +81,9 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     if (typedErr.code === 'ACCOUNT_SUSPENDED') {
       return NextResponse.redirect(new URL('/login?error=account_suspended', request.url));
     }
-    const message = err instanceof Error ? encodeURIComponent(err.message) : 'oauth_failed';
-    return NextResponse.redirect(new URL(`/login?error=${message}`, request.url));
+    // Never echo raw error text into the redirect URL — log it server-side
+    // (above) and surface only a fixed, safe error code to the client.
+    return NextResponse.redirect(new URL('/login?error=oauth_failed', request.url));
   }
 }
 
@@ -151,9 +152,9 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
         { status: 403 }
       );
     }
-    const message = err instanceof Error ? err.message : 'OAuth authentication failed';
+    // Do not surface raw error text to the client; logged in full above.
     return NextResponse.json(
-      { success: false, error: { code: 'OAUTH_FAILED', message } },
+      { success: false, error: { code: 'OAUTH_FAILED', message: 'OAuth authentication failed' } },
       { status: 400 }
     );
   }

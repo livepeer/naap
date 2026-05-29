@@ -45,8 +45,10 @@ export function resolveBillingOAuthAppUrl(request: NextRequest): string {
     return `${protocol}://${resolvedHost}`;
   }
 
-  if (forwardedHost && isLocalHost(forwardedHost)) {
-    const protocol = forwardedProto || 'http';
+  if (forwardedHost) {
+    // Honor a proxy-provided host even when it is public, so proxy-hosted
+    // origins are used instead of defaulting to localhost.
+    const protocol = isLocalHost(forwardedHost) ? (forwardedProto || 'http') : 'https';
     return `${protocol}://${forwardedHost}`;
   }
 

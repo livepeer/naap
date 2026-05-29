@@ -186,10 +186,24 @@ export async function middleware(request: NextRequest) {
         res.headers.set('x-trace-id', traceId);
         return res;
       }
-      const cookiePayload = await encodeDeviceApprovalCookiePayload({
-        userCode: tuple.userCode,
-        publicClientId: tuple.publicClientId,
-      });
+      let cookiePayload: string;
+      try {
+        cookiePayload = await encodeDeviceApprovalCookiePayload({
+          userCode: tuple.userCode,
+          publicClientId: tuple.publicClientId,
+        });
+      } catch (err) {
+        // Cookie-signing secret misconfigured: degrade gracefully to the same
+        // user-facing error redirect instead of letting a 500 bubble up.
+        console.error('[middleware] Failed to encode device approval cookie', err);
+        const u = new URL('/login', request.url);
+        u.searchParams.set('error', 'pymthouse_device_invalid');
+        u.searchParams.set('pymth_err', 'server_not_configured');
+        const res = NextResponse.redirect(u);
+        res.headers.set('x-request-id', requestId);
+        res.headers.set('x-trace-id', traceId);
+        return res;
+      }
       const deviceCookieOpts = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',

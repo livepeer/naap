@@ -687,7 +687,14 @@ app.get('/api/v1/developer/keys', async (req, res) => {
           model: { select: { id: true, name: true } },
         },
       });
-      const formatted = keys.map((k: any) => ({
+      const nowMs = Date.now();
+      const visibleKeys = keys.filter((k: any) => {
+        if (k.billingProvider?.slug !== PYMTHOUSE_PROVIDER_SLUG) return true;
+        if (String(k.status).toUpperCase() === 'EXPIRED') return false;
+        if (String(k.status).toUpperCase() !== 'ACTIVE') return true;
+        return computeSignerSessionExpiry(k.createdAt).getTime() > nowMs;
+      });
+      const formatted = visibleKeys.map((k: any) => ({
         id: k.id,
         project: k.project,
         billingProvider: k.billingProvider,
@@ -929,6 +936,14 @@ app.post('/api/v1/developer/keys', async (req, res) => {
       fallbackProvider?.slug === PYMTHOUSE_PROVIDER_SLUG && isLikelyOidcJwt(rawApiKey)
         ? decodeJwtExp(rawApiKey)
         : null;
+
+    if (
+      fallbackProvider?.slug === PYMTHOUSE_PROVIDER_SLUG &&
+      fallbackPymthouseTokenExpiry &&
+      fallbackPymthouseTokenExpiry.getTime() <= Date.now()
+    ) {
+      return res.status(400).json({ error: 'PymtHouse token is already expired. Please create a new key.' });
+    }
 
     const newKey = {
       id: `key-${Date.now()}`,

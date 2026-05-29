@@ -341,7 +341,17 @@ async function attachPluginStylesheet(url: string, timeout: number): Promise<voi
   if (existing) {
     existing.refCount += 1;
     if (existing.loadingPromise) {
-      await existing.loadingPromise;
+      try {
+        await existing.loadingPromise;
+      } catch (error) {
+        // The shared load failed: undo the refCount we just added and drop the
+        // record if no other consumers remain, mirroring the creator path.
+        existing.refCount -= 1;
+        if (existing.refCount <= 0) {
+          managedStylesheets.delete(url);
+        }
+        throw error;
+      }
     }
     return;
   }
@@ -351,9 +361,8 @@ async function attachPluginStylesheet(url: string, timeout: number): Promise<voi
     link: null,
     loadingPromise: null,
   };
-  let didCreateRecord = false;
   managedStylesheets.set(url, record);
-  didCreateRecord = true;
+  const didCreateRecord = true;
 
   record.loadingPromise = loadStylesheet(url, timeout)
     .then((link) => {

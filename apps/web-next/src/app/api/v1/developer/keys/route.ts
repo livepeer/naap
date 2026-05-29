@@ -11,6 +11,7 @@ import { success, errors, getAuthToken, parsePagination } from '@/lib/api/respon
 import { validateCSRF } from '@/lib/api/csrf';
 import {
   DevApiProjectResolutionError,
+  Prisma,
   resolveDevApiProjectId,
   deriveKeyLookupId,
   formatBillingKeyPublicPrefix,
@@ -61,17 +62,6 @@ async function maybeCleanupExpiredPymthouseKeys(userId: string): Promise<void> {
   }
 }
 
-function isExpiredPymthouseKey(key: {
-  status: string;
-  createdAt: Date;
-  billingProvider?: { slug?: string | null } | null;
-}): boolean {
-  if (key.billingProvider?.slug !== PYMTHOUSE_PROVIDER_SLUG) return false;
-  if (key.status === 'EXPIRED') return true;
-  if (key.status !== 'ACTIVE') return false;
-  return computeSignerSessionExpiry(key.createdAt).getTime() <= Date.now();
-}
-
 /**
  * Strip credential-derived material before returning a DevApiKey to the
  * client. `keyHash` is a scrypt hash of the raw API key and `keyLookupId`
@@ -117,9 +107,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const searchParams = request.nextUrl.searchParams;
     const { page, pageSize, skip } = parsePagination(searchParams);
 
+    // Exclude expired PymtHouse keys at the DB layer (mirrors
+    // isExpiredPymthouseKey) so total/totalPages stay aligned with the rows
+    // actually returned, instead of filtering after pagination.
+    const expiryCutoff = new Date(Date.now() - SIGNER_SESSION_TTL_MS);
+    const listWhere: Prisma.DevApiKeyWhereInput = {
+      userId: user.id,
+      NOT: {
+        billingProvider: { slug: PYMTHOUSE_PROVIDER_SLUG },
+        OR: [
+          { status: 'EXPIRED' },
+          { status: 'ACTIVE', createdAt: { lte: expiryCutoff } },
+        ],
+      },
+    };
+
     const [keys, total] = await Promise.all([
       prisma.devApiKey.findMany({
-        where: { userId: user.id },
+        where: listWhere,
         orderBy: { createdAt: 'desc' },
         take: pageSize,
         skip,
@@ -135,13 +140,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         },
       }),
       prisma.devApiKey.count({
-        where: { userId: user.id },
+        where: listWhere,
       }),
     ]);
 
-    const visibleKeys = keys
-      .filter((key) => !isExpiredPymthouseKey(key))
-      .map((key) => toSafeDevApiKey(key));
+    const visibleKeys = keys.map((key) => toSafeDevApiKey(key));
 
     return success(
       { keys: visibleKeys },

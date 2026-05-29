@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, ShieldCheck, ShieldX } from 'lucide-react';
 import { csrfFetch } from '@/lib/api/csrf-client';
@@ -11,24 +11,25 @@ export default function DeviceApprovedPage() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [userCode, setUserCode] = useState<string>('');
   const [message, setMessage] = useState<string>('');
-  const started = useRef(false);
 
-  // Step 1: fetch the pending user_code for display
+  // Step 1: fetch the pending user_code for display.
+  // Use an AbortController (not a persistent ref guard) so React Strict Mode's
+  // mount/unmount/remount cycle re-runs the fetch instead of deadlocking on a
+  // ref that stays set after the first effect is torn down.
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    let cancelled = false;
+    const controller = new AbortController();
     void (async () => {
       try {
         const r = await fetch('/api/v1/auth/pymthouse-device-approve', {
           method: 'GET',
           credentials: 'include',
+          signal: controller.signal,
         });
         const json = (await r.json().catch(() => ({}))) as {
           data?: { userCode?: string };
           error?: { message?: string };
         };
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         if (r.ok && json.data?.userCode) {
           setUserCode(json.data.userCode);
           setPhase('consent');
@@ -37,14 +38,13 @@ export default function DeviceApprovedPage() {
         setPhase('err');
         setMessage(json.error?.message || `Request failed (${r.status})`);
       } catch (e) {
-        if (!cancelled) {
-          setPhase('err');
-          setMessage(e instanceof Error ? e.message : 'Unknown error');
-        }
+        if (controller.signal.aborted) return;
+        setPhase('err');
+        setMessage(e instanceof Error ? e.message : 'Unknown error');
       }
     })();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, []);
 

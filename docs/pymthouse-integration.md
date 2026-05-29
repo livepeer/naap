@@ -87,7 +87,13 @@ This keeps token auth explicit: the signer remains a PymtHouse-issued billing se
 
 ### Network Price discovery allowlist (PymtHouse → NaaP)
 
-For billing provider **`pymthouse`**, NaaP periodically syncs **`GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/manifest`** with the same **M2M Basic** credentials as other Builder routes. The manifest’s **`excludedCapabilities`** array is authoritative: NaaP denies explicitly excluded pipeline/model rules and allows every other NaaP catalog capability. The JSON **`capabilities`** array is treated as an informational PymtHouse-local resolved set, not as a complete NaaP allowlist, because PymtHouse can know fewer capabilities than NaaP. **`manifestVersion`** is used for cache busting when present. A missing manifest **denies discovery by default**; set **`PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1`** only in controlled environments to restore legacy fail-open behavior (high-severity audit log).
+For billing provider **`pymthouse`**, NaaP periodically syncs the Builder manifest:
+
+- **Fetch:** `GET {PYMTHOUSE_ISSUER_URL without /oidc}/apps/{publicClientId}/manifest` using the same **M2M Basic** credentials as other Builder routes (see `createPmtHouseClientFromEnv` in `@pymthouse/builder-sdk`).
+- **Allow/deny:** `excludedCapabilities` is authoritative — NaaP denies explicitly excluded pipeline/model rules and allows every other NaaP catalog capability.
+- **Informational only:** the JSON `capabilities` array is a PymtHouse-local resolved set, not a complete NaaP allowlist (PymtHouse may know fewer capabilities than NaaP).
+- **Cache busting:** `manifestVersion` invalidates the synced snapshot when present.
+- **Default deny:** a missing manifest blocks discovery. Set **`PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN=1`** only in controlled environments to restore legacy fail-open behavior (emits a high-severity audit log).
 
 NaaP applies the synced denylist snapshot (`syncPymthouseManifestSnapshot` in `apps/web-next/src/lib/pymthouse-manifest.ts`) to python-gateway discovery and orchestrator-leaderboard evaluation. Minimal app metadata is available via **`GET …/apps/{publicClientId}`** (M2M). Legacy per-plan policy rows for the UI still come from **`GET …/apps/{id}/plans`**.
 
@@ -155,3 +161,29 @@ Requires: **`PYMTHOUSE_ISSUER_URL`** (must match the `iss` query param, e.g. `ht
 ## Database
 
 `BillingProviderOAuthSession` is still created for audit purposes on each link but the opaque API key itself is never stored in this row: `accessToken` is always `null` for PymtHouse, `redeemedAt` is set immediately, and the row `expiresAt` follows the returned signer session TTL (~90 days). PymtHouse does not use browser OAuth redirect on this path (no PKCE verifier column).
+
+## Troubleshooting
+
+### M2M authentication fails
+
+- Verify **`PYMTHOUSE_M2M_CLIENT_ID`**, **`PYMTHOUSE_M2M_CLIENT_SECRET`**, and **`PYMTHOUSE_ISSUER_URL`** (must end with `/api/v1/oidc`).
+- Confirm the M2M client is enabled in PymtHouse **Auth & Scopes** and matches `createPmtHouseClientFromEnv` expectations.
+- Check NaaP logs for `[billing-auth:pymthouse]` or Builder API 401/403 responses on provider start / usage routes.
+
+### Device approval returns 400
+
+- Confirm **`PYMTHOUSE_PUBLIC_CLIENT_ID`** matches the `client_id` in the device `target_link_uri`.
+- Ensure **`PYMTHOUSE_ISSUER_URL`** origin matches PymtHouse’s `iss` query param; **`PMTHOUSE_BASE_URL`** should point at the PymtHouse site (not NaaP) when used for marketplace links.
+- Walk the RFC 8628 flow: device initiate → NaaP login → `/oidc/device-approved` → `POST /api/v1/auth/pymthouse-device-approve`.
+- Inspect middleware logs for `pymthouse_device_invalid` / `server_not_configured` (cookie signing requires **`PYMTHOUSE_DEVICE_COOKIE_SECRET`** or **`NEXTAUTH_SECRET`**).
+
+### Usage API returns “not configured”
+
+- Ensure all required M2M env vars are set; incomplete config returns **`PYMTHOUSE_NOT_CONFIGURED_MESSAGE`** from `GET /api/v1/billing/pymthouse/usage`.
+- For `scope=app`, the caller needs **`system:admin`**; otherwise use `scope=me`.
+
+### Manifest / allowlist issues
+
+- Trigger or inspect **`syncPymthouseManifestSnapshot`** (`apps/web-next/src/lib/pymthouse-manifest.ts`).
+- Compare upstream **`GET …/apps/{publicClientId}/manifest`** with NaaP’s cached snapshot; bump **`manifestVersion`** on the PymtHouse side to force refresh.
+- Remember: only **`excludedCapabilities`** restricts discovery — do not treat manifest `capabilities` as the full NaaP catalog.

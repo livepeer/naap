@@ -122,7 +122,7 @@ type CreatePlanInput = {
   billingProviderSlug?: 'pymthouse' | 'daydream';
   name: string;                     // 1..255
   description?: string;             // ≤ 1000
-  /** 1..50 items, each `^[a-zA-Z0-9_-]+$`, ≤ 128 chars. */
+  /** 1..50 items, each matching `^[a-zA-Z0-9_.:\-/]+$` (alphanumerics, `_`, `-`, `.`, `:`, `/`), ≤ 128 chars — e.g. `video/model-a`, `gemma3:4b`. */
   capabilities: string[];
   topN?: number;                    // 1..1000, default 10
   sortBy?: 'slaScore' | 'latency' | 'price' | 'swapRate' | 'avail';

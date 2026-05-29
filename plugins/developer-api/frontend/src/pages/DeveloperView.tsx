@@ -145,7 +145,15 @@ function resolveApiKeyExpiresAt(key: ApiKey): string | null {
     return key.expiresAt;
   }
   if (key.billingProvider?.slug === 'pymthouse') {
-    return computeSignerSessionExpiry(key.createdAt).toISOString();
+    try {
+      const created = new Date(key.createdAt);
+      if (Number.isNaN(created.getTime())) return null;
+      const expiry = computeSignerSessionExpiry(created);
+      if (Number.isNaN(expiry.getTime())) return null;
+      return expiry.toISOString();
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -1668,7 +1676,7 @@ result = [...result].sort((a, b) => {
                           <div className="mt-5 overflow-x-auto">
                             <table className="w-full text-sm border-collapse">
                               <thead>
-                                <tr className="border-b border-white/8">
+                                <tr className="border-b border-white/10">
                                   <th className="py-2 pr-4 text-left text-xs font-medium text-text-secondary uppercase tracking-wide whitespace-nowrap">Pipeline</th>
                                   <th className="py-2 pr-4 text-left text-xs font-medium text-text-secondary uppercase tracking-wide whitespace-nowrap">Model</th>
                                   <th className="py-2 pr-4 text-right text-xs font-medium text-text-secondary uppercase tracking-wide whitespace-nowrap">Requests</th>
@@ -1681,7 +1689,7 @@ result = [...result].sort((a, b) => {
                                   .map((row) => (
                                     <tr
                                       key={`${row.pipeline}:${row.modelId}`}
-                                      className="border-b border-white/5 hover:bg-white/3 transition-colors"
+                                      className="border-b border-white/5 hover:bg-white/5 transition-colors"
                                     >
                                       <td className="py-2.5 pr-4 text-text-secondary font-mono text-xs whitespace-nowrap">
                                         {row.pipeline}

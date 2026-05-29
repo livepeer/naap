@@ -57,6 +57,109 @@ export function resetPymthouseDiscoveryPlansCacheForTests(): void {
   cache = { at: 0, data: null, ttlMs: 45_000 };
 }
 
+const DISCOVERY_SORT_BY = new Set<DiscoverySortBy>([
+  'slaScore',
+  'latency',
+  'price',
+  'swapRate',
+  'avail',
+]);
+
+const DISCOVERY_FILTER_KEYS: readonly (keyof DiscoveryPolicyFilters)[] = [
+  'gpuRamGbMin',
+  'gpuRamGbMax',
+  'priceMax',
+  'maxAvgLatencyMs',
+  'maxSwapRatio',
+];
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isScoreFraction(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0 && value <= 1;
+}
+
+/** Validate slaWeights; returns the sanitized weights, or undefined when invalid. */
+function validateSlaWeights(value: unknown): NonNullable<DiscoveryPolicy['slaWeights']> | undefined {
+  if (!isRecord(value)) return undefined;
+  const weights: NonNullable<DiscoveryPolicy['slaWeights']> = {};
+  for (const k of ['latency', 'swapRate', 'price'] as const) {
+    if (value[k] === undefined) continue;
+    if (!isFiniteNumber(value[k])) return undefined;
+    weights[k] = value[k];
+  }
+  return weights;
+}
+
+/** Validate filters; returns the sanitized filters, or undefined when invalid. */
+function validateFilters(value: unknown): DiscoveryPolicyFilters | undefined {
+  if (!isRecord(value)) return undefined;
+  const filters: DiscoveryPolicyFilters = {};
+  for (const k of DISCOVERY_FILTER_KEYS) {
+    if (value[k] === undefined) continue;
+    if (!isNonNegativeFiniteNumber(value[k])) return undefined;
+    filters[k] = value[k];
+  }
+  return filters;
+}
+
+/** Validate the scalar policy fields into `out`; returns false when any is malformed. */
+function assignScalarPolicyFields(policy: Record<string, unknown>, out: DiscoveryPolicy): boolean {
+  if (policy.topN !== undefined) {
+    if (!isPositiveInteger(policy.topN)) return false;
+    out.topN = policy.topN;
+  }
+  if (policy.sortBy !== undefined) {
+    if (!DISCOVERY_SORT_BY.has(policy.sortBy as DiscoverySortBy)) return false;
+    out.sortBy = policy.sortBy as DiscoverySortBy;
+  }
+  if (policy.slaMinScore !== undefined) {
+    if (!isScoreFraction(policy.slaMinScore)) return false;
+    out.slaMinScore = policy.slaMinScore;
+  }
+  return true;
+}
+
+/**
+ * Validate/sanitize a discovery policy parsed from untrusted external JSON.
+ * Returns a clean DiscoveryPolicy or null when the shape is malformed, so bad
+ * policies are dropped rather than cast straight through into discovery logic.
+ */
+export function validateDiscoveryPolicy(policy: unknown): DiscoveryPolicy | null {
+  if (!isRecord(policy)) return null;
+  const out: DiscoveryPolicy = {};
+
+  if (!assignScalarPolicyFields(policy, out)) return null;
+
+  if (policy.slaWeights !== undefined) {
+    const weights = validateSlaWeights(policy.slaWeights);
+    if (!weights) return null;
+    out.slaWeights = weights;
+  }
+
+  if (policy.filters !== undefined) {
+    const filters = validateFilters(policy.filters);
+    if (!filters) return null;
+    out.filters = filters;
+  }
+
+  return out;
+}
+
 /**
  * Map Builder `GET /api/v1/apps/{id}/plans` JSON to the legacy discovery-plans shape.
  * Drops the Network Price default row (`isNetworkDefault`) and inactive plans.
@@ -79,10 +182,7 @@ export function mapPymthousePlansResponse(raw: unknown): PymthouseDiscoveryPlans
     const status = typeof r.status === "string" ? r.status : "active";
     if (!id) continue;
 
-    const discoveryPolicy =
-      r.discoveryPolicy === null || r.discoveryPolicy === undefined
-        ? null
-        : (r.discoveryPolicy as DiscoveryPolicy);
+    const discoveryPolicy = validateDiscoveryPolicy(r.discoveryPolicy);
 
     const capabilities: PymthouseDiscoveryCapability[] = [];
     const capsRaw = r.capabilities;
@@ -93,10 +193,7 @@ export function mapPymthousePlansResponse(raw: unknown): PymthouseDiscoveryPlans
         const pipeline = typeof cc.pipeline === "string" ? cc.pipeline : "";
         const modelId = typeof cc.modelId === "string" ? cc.modelId : "";
         if (!pipeline || !modelId) continue;
-        const capPolicy =
-          cc.discoveryPolicy === null || cc.discoveryPolicy === undefined
-            ? null
-            : (cc.discoveryPolicy as DiscoveryPolicy);
+        const capPolicy = validateDiscoveryPolicy(cc.discoveryPolicy);
         capabilities.push({ pipeline, modelId, discoveryPolicy: capPolicy });
       }
     }

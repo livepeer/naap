@@ -34,7 +34,10 @@ function passesFilters(row: DashboardOrchestrator, policy: DiscoveryPolicy): boo
   return true;
 }
 
-function sortValue(row: DashboardOrchestrator, sortBy: NonNullable<DiscoveryPolicy['sortBy']>): number {
+function sortValue(
+  row: DashboardOrchestrator,
+  sortBy: NonNullable<DiscoveryPolicy['sortBy']>,
+): number | undefined {
   switch (sortBy) {
     case 'slaScore':
       return row.slaScore ?? -1;
@@ -44,10 +47,12 @@ function sortValue(row: DashboardOrchestrator, sortBy: NonNullable<DiscoveryPoli
       return row.gpuCount;
     case 'latency':
     case 'price':
-      // DashboardOrchestrator has no per-row latency/price; fall back to slaScore
-      return row.slaScore ?? -1;
+      // DashboardOrchestrator exposes no per-row latency/price metric, so this
+      // sort mode is unavailable. Return undefined (instead of silently using
+      // slaScore) so the caller can detect it and preserve input order.
+      return undefined;
     default:
-      return row.slaScore ?? -1;
+      return undefined;
   }
 }
 
@@ -66,7 +71,14 @@ export function applyDiscoveryPolicyToOrchestrators(
 
   if (policy.sortBy) {
     const dir = -1;
-    out = [...out].sort((a, b) => dir * (sortValue(a, policy.sortBy!) - sortValue(b, policy.sortBy!)));
+    out = [...out].sort((a, b) => {
+      const av = sortValue(a, policy.sortBy!);
+      const bv = sortValue(b, policy.sortBy!);
+      // Metric unavailable for this sort mode: leave input order untouched
+      // rather than reordering by an unrelated metric.
+      if (av === undefined || bv === undefined) return 0;
+      return dir * (av - bv);
+    });
   }
 
   if (policy.topN !== undefined) {

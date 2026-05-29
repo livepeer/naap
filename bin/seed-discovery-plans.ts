@@ -78,16 +78,10 @@ function defaultPlanId(slug: string): string {
 async function backfillBillingProviderSlugs(
   prisma: PrismaClient,
 ): Promise<number> {
-  const pymthouseResult = await prisma.discoveryPlan.updateMany({
-    where: { billingProviderSlug: 'pymthouse' },
-    data: { billingProviderSlug: 'daydream' },
-  });
-  if (pymthouseResult.count > 0) {
-    console.log(
-      `[seed-plans] Migrated billingProviderSlug pymthouse → daydream on ${pymthouseResult.count} plan(s)`,
-    );
-  }
-
+  // Backfill legacy null slugs to pymthouse so they align with newly seeded
+  // defaults (also pymthouse). We intentionally do NOT blanket-convert
+  // existing pymthouse plans to daydream — that would fight operator intent and
+  // diverge from default plan creation below.
   const nullResult = await prisma.discoveryPlan.updateMany({
     where: { billingProviderSlug: null },
     data: { billingProviderSlug: 'pymthouse' },
@@ -98,7 +92,7 @@ async function backfillBillingProviderSlugs(
     );
   }
 
-  return pymthouseResult.count + nullResult.count;
+  return nullResult.count;
 }
 
 async function main() {
