@@ -362,7 +362,6 @@ async function attachPluginStylesheet(url: string, timeout: number): Promise<voi
     loadingPromise: null,
   };
   managedStylesheets.set(url, record);
-  const didCreateRecord = true;
 
   record.loadingPromise = loadStylesheet(url, timeout)
     .then((link) => {
@@ -380,7 +379,7 @@ async function attachPluginStylesheet(url: string, timeout: number): Promise<voi
     }
   } catch (error) {
     record.refCount -= 1;
-    if (didCreateRecord && record.refCount <= 0) {
+    if (record.refCount <= 0) {
       managedStylesheets.delete(url);
     }
     throw error;
