@@ -4,7 +4,7 @@
  * Returns a bare JSON array for python-gateway discovery:
  * `[{ "address": "<orchUri>" }, ...]`
  *
- * Auth: same as plan results (NaaP `gw_…` gateway API key or NaaP session token).
+ * Auth: NaaP `gw_…` gateway API key, NaaP session token, or CRON_SECRET (warm cron).
  */
 
 export const runtime = 'nodejs';
@@ -12,14 +12,27 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { authorize } from '@/lib/gateway/authorize';
+import { ensurePymthouseManifestFresh } from '@/lib/pymthouse-manifest';
+import { verifyCronAuth } from '@/lib/orchestrator-leaderboard/cron-auth';
 import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/orchestrator-leaderboard/discovery-constants';
-import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
-import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
+import { getGlobalDatasetStats } from '@/lib/orchestrator-leaderboard/global-dataset';
+import { refreshGlobalDatasetOnStartup } from '@/lib/orchestrator-leaderboard/global-refresh';
+import { getPlan, getPlanById } from '@/lib/orchestrator-leaderboard/plans';
+import {
+  countPlanOrchestrators,
+  evaluateAndCache,
+  invalidatePlanCache,
+} from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
-import { resolvePlanCapabilitiesForProvider } from '@/lib/orchestrator-leaderboard/provider-restrictions';
+import {
+  normalizeBillingProviderSlug,
+  resolvePlanCapabilitiesForProvider,
+} from '@/lib/orchestrator-leaderboard/provider-restrictions';
 import {
   type BillingProviderSlug,
   BillingProviderSlugSchema,
+  type DiscoveryPlan,
+  type PlanResults,
 } from '@/lib/orchestrator-leaderboard/types';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -42,12 +55,53 @@ function parseBillingProviderSlugParam(
   return { value: parsed.data, error: null };
 }
 
+function buildAddressList(
+  allowedCaps: string[],
+  results: PlanResults,
+): { address: string }[] {
+  const out: { address: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const capability of allowedCaps) {
+    const rows = results.capabilities[capability] ?? [];
+    for (const row of rows) {
+      const u = row.orchUri?.trim();
+      if (!u || seen.has(u)) {
+        continue;
+      }
+      seen.add(u);
+      out.push({ address: u });
+    }
+  }
+
+  const addresses = tieredShuffleDiscoveryAddresses(out.map((o) => o.address));
+  return addresses.map((address) => ({ address }));
+}
+
+async function evaluatePlanDiscovery(planForEval: DiscoveryPlan): Promise<PlanResults> {
+  let results = await evaluateAndCache(planForEval);
+
+  if (countPlanOrchestrators(results) > 0) {
+    return results;
+  }
+
+  const stats = await getGlobalDatasetStats();
+  if (stats.populated) {
+    return results;
+  }
+
+  await refreshGlobalDatasetOnStartup();
+  results = await evaluateAndCache(planForEval);
+  return results;
+}
+
 export async function GET(
   request: NextRequest,
   context: RouteContext,
 ): Promise<Response> {
-  const auth = await authorize(request);
-  if (!auth) {
+  const cronAuthed = verifyCronAuth(request);
+  const auth = cronAuthed ? null : await authorize(request);
+  if (!cronAuthed && !auth) {
     return new NextResponse('Unauthorized', {
       status: 401,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
@@ -63,7 +117,9 @@ export async function GET(
   }
 
   const { id } = await context.params;
-  const plan = await getPlan(id, scopeFromAuth(auth), parsedSlug.value);
+  const plan = cronAuthed
+    ? await getPlanById(id)
+    : await getPlan(id, scopeFromAuth(auth), parsedSlug.value);
   if (!plan) {
     return new NextResponse('Not found', {
       status: 404,
@@ -75,6 +131,12 @@ export async function GET(
     return new NextResponse('Plan is disabled', {
       status: 400,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+
+  if (normalizeBillingProviderSlug(plan.billingProviderSlug) === 'pymthouse') {
+    await ensurePymthouseManifestFresh({
+      onRevisionChanged: () => invalidatePlanCache(plan.id),
     });
   }
 
@@ -91,25 +153,8 @@ export async function GET(
   const planForEval = { ...plan, capabilities: allowedCaps };
 
   try {
-    const results = await evaluateAndCache(planForEval);
-
-    const out: { address: string }[] = [];
-    const seen = new Set<string>();
-
-    for (const capability of allowedCaps) {
-      const rows = results.capabilities[capability] ?? [];
-      for (const row of rows) {
-        const u = row.orchUri?.trim();
-        if (!u || seen.has(u)) {
-          continue;
-        }
-        seen.add(u);
-        out.push({ address: u });
-      }
-    }
-
-    const addresses = tieredShuffleDiscoveryAddresses(out.map((o) => o.address));
-    const randomized = addresses.map((address) => ({ address }));
+    const results = await evaluatePlanDiscovery(planForEval);
+    const randomized = buildAddressList(allowedCaps, results);
 
     return NextResponse.json(randomized, {
       headers: {

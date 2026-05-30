@@ -12,10 +12,11 @@
  * sub-minute refresh in long-running dev servers (skipped on Vercel).
  */
 
-import type { DiscoveryPlan, OrchestratorRow, PlanResults } from './types';
+import type { DiscoveryPlan, OrchestratorRow, PlanResults, UpdatePlanInput } from './types';
 import { evaluatePlan } from './ranking';
 import { listEnabledPlans } from './plans';
-import { getRowsForCapability } from './global-dataset';
+import { getGlobalDatasetStats, getRowsForCapability } from './global-dataset';
+import { refreshGlobalDatasetOnStartup } from './global-refresh';
 import {
   ensurePymthouseManifestFresh,
   fingerprintCapabilityList,
@@ -148,6 +149,89 @@ async function refreshSingle(plan: DiscoveryPlan): Promise<PlanResults> {
     expiresAt: now + CACHE_TTL_MS,
   });
   return results;
+}
+
+const DEFAULT_WARM_TIMEOUT_MS = 25_000;
+
+/**
+ * Force-evaluate a plan now: sync manifest, ensure global dataset exists,
+ * then populate the in-memory plan cache via refreshSingle.
+ */
+export async function warmDiscoveryPlan(plan: DiscoveryPlan): Promise<void> {
+  if (normalizeBillingProviderSlug(plan.billingProviderSlug) === 'pymthouse') {
+    await ensurePymthouseManifestFresh({
+      onRevisionChanged: () => invalidatePlanCache(plan.id),
+    });
+  }
+
+  const stats = await getGlobalDatasetStats();
+  if (!stats.populated) {
+    await refreshGlobalDatasetOnStartup();
+  }
+
+  const planForEval: DiscoveryPlan = {
+    ...plan,
+    capabilities: resolvePlanCapabilitiesForProvider(plan),
+  };
+  if (planForEval.capabilities.length === 0) {
+    return;
+  }
+
+  await refreshSingle(planForEval);
+}
+
+/** warmDiscoveryPlan with a wall-clock timeout; rejects on timeout. */
+export async function warmDiscoveryPlanWithTimeout(
+  plan: DiscoveryPlan,
+  timeoutMs: number = DEFAULT_WARM_TIMEOUT_MS,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`warmDiscoveryPlan timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  try {
+    await Promise.race([warmDiscoveryPlan(plan), timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+export function countPlanOrchestrators(results: PlanResults): number {
+  let total = 0;
+  for (const rows of Object.values(results.capabilities)) {
+    total += rows.length;
+  }
+  return total;
+}
+
+export function planUpdateRequiresWarm(input: UpdatePlanInput): boolean {
+  return (
+    input.capabilities !== undefined ||
+    input.filters !== undefined ||
+    input.slaWeights !== undefined ||
+    input.slaMinScore !== undefined ||
+    input.sortBy !== undefined ||
+    input.topN !== undefined
+  );
+}
+
+/** warmDiscoveryPlan with timeout; logs and swallows errors (create/update must not fail). */
+export async function warmDiscoveryPlanFailOpen(
+  plan: DiscoveryPlan,
+  context: string,
+  timeoutMs: number = DEFAULT_WARM_TIMEOUT_MS,
+): Promise<void> {
+  try {
+    await warmDiscoveryPlanWithTimeout(plan, timeoutMs);
+  } catch (err) {
+    console.warn(
+      `[leaderboard] ${context} warm failed for plan ${plan.id}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 /**

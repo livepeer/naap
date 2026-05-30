@@ -24,15 +24,45 @@ vi.mock('../global-dataset', () => ({
       avg_avail: 3.2,
     },
   ]),
+  getGlobalDatasetStats: vi.fn().mockResolvedValue({
+    populated: true,
+    refreshedAt: Date.now(),
+    refreshedBy: 'test',
+    totalOrchestrators: 1,
+    capabilityCount: 1,
+  }),
 }));
+
+vi.mock('../global-refresh', () => ({
+  refreshGlobalDatasetOnStartup: vi.fn().mockResolvedValue({
+    refreshed: true,
+    capabilities: 1,
+    orchestrators: 1,
+  }),
+}));
+
+vi.mock('@/lib/pymthouse-manifest', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/pymthouse-manifest')>();
+  return {
+    ...actual,
+    ensurePymthouseManifestFresh: vi.fn().mockResolvedValue({
+      revision: 'test',
+      revisionChanged: false,
+    }),
+  };
+});
 
 import {
   evaluateAndCache,
   clearPlanCache,
   getCachedPlanResults,
   invalidatePlanCache,
+  warmDiscoveryPlan,
+  planUpdateRequiresWarm,
 } from '../refresh';
-import { getRowsForCapability } from '../global-dataset';
+import { getRowsForCapability, getGlobalDatasetStats } from '../global-dataset';
+import { refreshGlobalDatasetOnStartup } from '../global-refresh';
+import { ensurePymthouseManifestFresh } from '@/lib/pymthouse-manifest';
 
 const mockPlan: DiscoveryPlan = {
   id: 'plan-1',
@@ -147,5 +177,61 @@ describe('evaluateAndCache', () => {
     expect(getCachedPlanResults('plan-x')).not.toBeNull();
     invalidatePlanCache('plan-x');
     expect(getCachedPlanResults('plan-x')).toBeNull();
+  });
+});
+
+describe('warmDiscoveryPlan', () => {
+  beforeEach(() => {
+    clearPlanCache();
+    vi.clearAllMocks();
+    vi.mocked(getGlobalDatasetStats).mockResolvedValue({
+      populated: true,
+      refreshedAt: Date.now(),
+      refreshedBy: 'test',
+      totalOrchestrators: 1,
+      capabilityCount: 1,
+    });
+  });
+
+  afterEach(() => {
+    clearPlanCache();
+  });
+
+  it('populates plan cache via refreshSingle', async () => {
+    await warmDiscoveryPlan(mockPlan);
+    expect(getCachedPlanResults('plan-1')).not.toBeNull();
+  });
+
+  it('triggers startup dataset refresh when global dataset is empty', async () => {
+    vi.mocked(getGlobalDatasetStats).mockResolvedValue({
+      populated: false,
+      refreshedAt: null,
+      refreshedBy: null,
+      totalOrchestrators: 0,
+      capabilityCount: 0,
+    });
+
+    await warmDiscoveryPlan(mockPlan);
+    expect(refreshGlobalDatasetOnStartup).toHaveBeenCalled();
+  });
+
+  it('syncs pymthouse manifest for pymthouse plans', async () => {
+    const pymthousePlan: DiscoveryPlan = {
+      ...mockPlan,
+      billingProviderSlug: 'pymthouse',
+    };
+    await warmDiscoveryPlan(pymthousePlan);
+    expect(ensurePymthouseManifestFresh).toHaveBeenCalled();
+  });
+});
+
+describe('planUpdateRequiresWarm', () => {
+  it('returns true when evaluation fields change', () => {
+    expect(planUpdateRequiresWarm({ capabilities: ['noop'] })).toBe(true);
+    expect(planUpdateRequiresWarm({ topN: 5 })).toBe(true);
+  });
+
+  it('returns false for name-only updates', () => {
+    expect(planUpdateRequiresWarm({ name: 'Renamed' })).toBe(false);
   });
 });

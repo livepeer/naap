@@ -151,6 +151,14 @@ export async function getPlan(
   return row ? toPlan(row as unknown as Record<string, unknown>) : null;
 }
 
+/** Load an enabled plan by id (cron warm / internal use; no visibility scope). */
+export async function getPlanById(id: string): Promise<DiscoveryPlan | null> {
+  const row = await prisma.discoveryPlan.findFirst({
+    where: { id, enabled: true },
+  });
+  return row ? toPlan(row as unknown as Record<string, unknown>) : null;
+}
+
 /**
  * Returns 'forbidden' if the caller is not allowed to mutate the plan.
  */

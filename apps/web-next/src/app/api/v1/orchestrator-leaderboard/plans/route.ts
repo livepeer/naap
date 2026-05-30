@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/gateway/authorize';
 import { success, errors } from '@/lib/api/response';
 import { createPlan, listPlans } from '@/lib/orchestrator-leaderboard/plans';
+import { warmDiscoveryPlanFailOpen } from '@/lib/orchestrator-leaderboard/refresh';
 import {
   type BillingProviderSlug,
   BillingProviderSlugSchema,
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
 
   try {
     const plan = await createPlan(parsed.data, scopeFromAuth(auth));
+    await warmDiscoveryPlanFailOpen(plan, 'createPlan');
     return NextResponse.json({ success: true, data: plan }, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to create plan';

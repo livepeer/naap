@@ -5,12 +5,54 @@ vi.mock('@/lib/gateway/authorize', () => ({
   authorize: vi.fn(),
 }));
 
+vi.mock('@/lib/orchestrator-leaderboard/cron-auth', () => ({
+  verifyCronAuth: vi.fn(),
+}));
+
+vi.mock('@/lib/pymthouse-manifest', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/pymthouse-manifest')>();
+  return {
+    ...actual,
+    ensurePymthouseManifestFresh: vi.fn().mockResolvedValue({
+      revision: 'test',
+      revisionChanged: false,
+    }),
+  };
+});
+
 vi.mock('@/lib/orchestrator-leaderboard/plans', () => ({
   getPlan: vi.fn(),
+  getPlanById: vi.fn(),
 }));
 
 vi.mock('@/lib/orchestrator-leaderboard/refresh', () => ({
   evaluateAndCache: vi.fn(),
+  invalidatePlanCache: vi.fn(),
+  countPlanOrchestrators: vi.fn((results: { capabilities: Record<string, unknown[]> }) => {
+    let n = 0;
+    for (const rows of Object.values(results.capabilities)) {
+      n += rows.length;
+    }
+    return n;
+  }),
+}));
+
+vi.mock('@/lib/orchestrator-leaderboard/global-dataset', () => ({
+  getGlobalDatasetStats: vi.fn().mockResolvedValue({
+    populated: true,
+    refreshedAt: Date.now(),
+    refreshedBy: 'test',
+    totalOrchestrators: 1,
+    capabilityCount: 1,
+  }),
+}));
+
+vi.mock('@/lib/orchestrator-leaderboard/global-refresh', () => ({
+  refreshGlobalDatasetOnStartup: vi.fn().mockResolvedValue({
+    refreshed: true,
+    capabilities: 1,
+    orchestrators: 1,
+  }),
 }));
 
 vi.mock('@/lib/orchestrator-leaderboard/discovery-order', () => ({
@@ -18,49 +60,106 @@ vi.mock('@/lib/orchestrator-leaderboard/discovery-order', () => ({
 }));
 
 import { authorize } from '@/lib/gateway/authorize';
-import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
+import { verifyCronAuth } from '@/lib/orchestrator-leaderboard/cron-auth';
+import {
+  ensurePymthouseManifestFresh,
+  seedPymthouseManifestForTests,
+} from '@/lib/pymthouse-manifest';
+import { getPlan, getPlanById } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
+
+const basePlan = {
+  id: 'plan-1',
+  billingPlanId: 'bp-1',
+  billingProviderSlug: 'daydream' as const,
+  name: 'Test',
+  description: null,
+  teamId: null,
+  ownerUserId: 'user-1',
+  capabilities: ['cap-a', 'cap-b'],
+  topN: 10,
+  slaWeights: null,
+  slaMinScore: null,
+  sortBy: null,
+  filters: null,
+  enabled: true,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+const mockResults = {
+  planId: 'plan-1',
+  refreshedAt: new Date().toISOString(),
+  capabilities: {
+    'cap-a': [
+      {
+        orchUri: 'https://dup.test',
+        gpuName: 'x',
+        gpuGb: 1,
+        avail: 1,
+        totalCap: 1,
+        pricePerUnit: 1,
+        bestLatMs: null,
+        avgLatMs: null,
+        swapRatio: null,
+        avgAvail: null,
+      },
+      {
+        orchUri: 'https://dup.test',
+        gpuName: 'x',
+        gpuGb: 1,
+        avail: 1,
+        totalCap: 1,
+        pricePerUnit: 1,
+        bestLatMs: null,
+        avgLatMs: null,
+        swapRatio: null,
+        avgAvail: null,
+      },
+      {
+        orchUri: 'https://orch-b.test',
+        gpuName: 'x',
+        gpuGb: 1,
+        avail: 1,
+        totalCap: 1,
+        pricePerUnit: 1,
+        bestLatMs: null,
+        avgLatMs: null,
+        swapRatio: null,
+        avgAvail: null,
+      },
+    ],
+    'cap-b': [
+      {
+        orchUri: 'https://orch-a.test',
+        gpuName: 'x',
+        gpuGb: 1,
+        avail: 1,
+        totalCap: 1,
+        pricePerUnit: 1,
+        bestLatMs: null,
+        avgLatMs: null,
+        swapRatio: null,
+        avgAvail: null,
+      },
+    ],
+  },
+  meta: { totalOrchestrators: 3, refreshIntervalMs: 60_000, cacheAgeMs: 0 },
+};
 
 describe('GET /api/v1/orchestrator-leaderboard/plans/:id/python-gateway', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (verifyCronAuth as ReturnType<typeof vi.fn>).mockReturnValue(false);
     (authorize as ReturnType<typeof vi.fn>).mockResolvedValue({
       authenticated: true,
       teamId: 'personal:user-1',
       callerType: 'jwt',
       callerId: 'user-1',
     });
-    (getPlan as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'plan-1',
-      billingPlanId: 'bp-1',
-      billingProviderSlug: 'daydream',
-      name: 'Test',
-      description: null,
-      teamId: null,
-      ownerUserId: 'user-1',
-      capabilities: ['cap-a', 'cap-b'],
-      topN: 10,
-      slaWeights: null,
-      slaMinScore: null,
-      sortBy: null,
-      filters: null,
-      enabled: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    (evaluateAndCache as ReturnType<typeof vi.fn>).mockResolvedValue({
-      planId: 'plan-1',
-      refreshedAt: new Date().toISOString(),
-      capabilities: {
-        'cap-a': [
-          { orchUri: 'https://dup.test', gpuName: 'x', gpuGb: 1, avail: 1, totalCap: 1, pricePerUnit: 1, bestLatMs: null, avgLatMs: null, swapRatio: null, avgAvail: null },
-          { orchUri: 'https://dup.test', gpuName: 'x', gpuGb: 1, avail: 1, totalCap: 1, pricePerUnit: 1, bestLatMs: null, avgLatMs: null, swapRatio: null, avgAvail: null },
-          { orchUri: 'https://orch-b.test', gpuName: 'x', gpuGb: 1, avail: 1, totalCap: 1, pricePerUnit: 1, bestLatMs: null, avgLatMs: null, swapRatio: null, avgAvail: null },
-        ],
-        'cap-b': [{ orchUri: 'https://orch-a.test', gpuName: 'x', gpuGb: 1, avail: 1, totalCap: 1, pricePerUnit: 1, bestLatMs: null, avgLatMs: null, swapRatio: null, avgAvail: null }],
-      },
-      meta: { totalOrchestrators: 3, refreshIntervalMs: 60_000, cacheAgeMs: 0 },
-    });
+    (getPlan as ReturnType<typeof vi.fn>).mockResolvedValue(basePlan);
+    (getPlanById as ReturnType<typeof vi.fn>).mockResolvedValue(basePlan);
+    (evaluateAndCache as ReturnType<typeof vi.fn>).mockResolvedValue(mockResults);
   });
 
   it('returns a bare array of { address } in capability order, de-duplicated', async () => {
@@ -79,6 +178,47 @@ describe('GET /api/v1/orchestrator-leaderboard/plans/:id/python-gateway', () => 
       { address: 'https://orch-b.test' },
       { address: 'https://orch-a.test' },
     ]);
+  });
+
+  it('syncs pymthouse manifest before evaluation for pymthouse plans', async () => {
+    seedPymthouseManifestForTests({
+      manifestVersion: 'test-v1',
+      excludedCapabilities: [],
+    });
+    (getPlan as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...basePlan,
+      billingProviderSlug: 'pymthouse',
+      capabilities: ['cap-a', 'cap-b'],
+    });
+
+    const { GET } = await import('./route');
+    const req = new NextRequest(
+      'http://localhost/api/v1/orchestrator-leaderboard/plans/plan-1/python-gateway?billingProviderSlug=pymthouse',
+      { headers: { Authorization: 'Bearer pmth_test' } },
+    );
+    await GET(req, { params: Promise.resolve({ id: 'plan-1' }) });
+
+    expect(ensurePymthouseManifestFresh).toHaveBeenCalled();
+    const manifestOrder = (ensurePymthouseManifestFresh as ReturnType<typeof vi.fn>).mock
+      .invocationCallOrder[0];
+    const evalOrder = (evaluateAndCache as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(manifestOrder).toBeLessThan(evalOrder);
+  });
+
+  it('allows cron auth and loads plan by id without user scope', async () => {
+    (verifyCronAuth as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (authorize as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { GET } = await import('./route');
+    const req = new NextRequest(
+      'http://localhost/api/v1/orchestrator-leaderboard/plans/plan-1/python-gateway?billingProviderSlug=pymthouse',
+      { headers: { Authorization: 'Bearer cron-secret' } },
+    );
+    const res = await GET(req, { params: Promise.resolve({ id: 'plan-1' }) });
+
+    expect(res.status).toBe(200);
+    expect(getPlanById).toHaveBeenCalledWith('plan-1');
+    expect(getPlan).not.toHaveBeenCalled();
   });
 
   it('returns 400 when billingProviderSlug query param is empty', async () => {

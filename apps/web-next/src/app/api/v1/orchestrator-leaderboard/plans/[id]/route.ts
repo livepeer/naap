@@ -19,7 +19,11 @@ import {
   BillingProviderSlugSchema,
   UpdatePlanSchema,
 } from '@/lib/orchestrator-leaderboard/types';
-import { invalidatePlanCache } from '@/lib/orchestrator-leaderboard/refresh';
+import {
+  invalidatePlanCache,
+  planUpdateRequiresWarm,
+  warmDiscoveryPlanFailOpen,
+} from '@/lib/orchestrator-leaderboard/refresh';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -95,6 +99,9 @@ export async function PUT(
   if (!plan) return errors.notFound('Plan not found');
 
   invalidatePlanCache(id);
+  if (planUpdateRequiresWarm(parsed.data)) {
+    await warmDiscoveryPlanFailOpen(plan, 'updatePlan');
+  }
   return success({ plan });
 }
 

@@ -176,6 +176,17 @@ Successful response:
 
 **Persist the `id`** — that's the plan handle you'll use forever after.
 
+NaaP **pre-warms** the plan on create (manifest sync, global dataset check, and
+in-memory evaluation cache) so python-gateway discovery is ready within seconds,
+not after the 60s plan cache interval. The platform cron (`GET /api/internal/bff-warm`,
+every 10 minutes) also hits each enabled plan's `GET /plans/{id}/python-gateway`
+endpoint to reduce cold-start latency on fresh serverless instances. The first
+SDK call on a brand-new instance may still pay a one-time manifest sync (~100–500ms)
+but should not return an empty list solely because the manifest was not loaded yet.
+
+Optional env: `LEADERBOARD_WARM_PLAN_MAX` (default `32`) caps how many plans the
+cron warms per tick.
+
 > Re-posting the same `billingPlanId` returns `400` with
 > `A plan with this billingPlanId already exists`. Treat creates as one-shot
 > and use `PUT /plans/{id}` for changes.
