@@ -40,6 +40,9 @@ export interface PublicDashboardData {
   fees: DashboardFeesInfo | null;
   jobs: JobFeedEntry[];
   jobFeedConnected: boolean;
+  netCapacity: Record<string, number>;
+  liveVideoCapacity: Record<string, number>;
+  modelFpsByPipelineModel: Record<string, number>;
 }
 
 export interface UsePublicDashboardOptions {
@@ -103,6 +106,9 @@ export function usePublicDashboard(
     fees: null,
     jobs: [],
     jobFeedConnected: false,
+    netCapacity: {},
+    liveVideoCapacity: {},
+    modelFpsByPipelineModel: {},
   });
 
   const [lbLoading, setLbLoading] = useState(!skip);
@@ -121,20 +127,18 @@ export function usePublicDashboard(
     setError(errorsRef.current.length > 0 ? errorsRef.current.join('; ') : null);
   }, []);
 
-  // Group 1: KPI, pipelines, catalog, orchestrators
+  // Group 1: KPI, pipelines, catalog (fast critical path — orchestrators fetched separately)
   const fetchLb = useCallback(async () => {
     if (!mountedRef.current) return;
     setLbLoading(true);
 
-    const excludedPaths = ['/kpi', '/pipelines', '/pipeline-catalog', '/orchestrators'];
-    const period = timeframeToPeriod(timeframe);
+    const excludedPaths = ['/kpi', '/pipelines', '/pipeline-catalog'];
     const settled = await Promise.allSettled([
       fetchJson<DashboardKPIWithRequests>(`${API}/kpi?timeframe=${timeframe}`),
       fetchJson<DashboardPipelineUsage[] | DashboardPipelinesWithRequests>(
         `${API}/pipelines?timeframe=${timeframe}&limit=200`,
       ),
       fetchJson<DashboardPipelineCatalogEntry[]>(`${API}/pipeline-catalog`),
-      fetchJson<DashboardOrchestrator[]>(`${API}/orchestrators?period=${period}`),
     ]);
 
     if (!mountedRef.current) return;
@@ -145,7 +149,6 @@ export function usePublicDashboard(
       ? pipelinesRaw
       : (pipelinesRaw?.streaming ?? []);
     const catalog = settledValue(settled[2]);
-    const orchestrators = settledValue(settled[3]);
 
     const failures = settled
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -156,8 +159,24 @@ export function usePublicDashboard(
       kpi,
       pipelines: pipelines ?? [],
       pipelineCatalog: catalog ?? [],
-      orchestrators: orchestrators ?? [],
     }));
+
+    // Kick off live-video capacity now that we have the catalog models.
+    const liveEntry = catalog?.find((e) => e.id === 'live-video-to-video');
+    if (liveEntry?.models.length) {
+      const modelsKey = [...liveEntry.models].sort().join(',');
+      if (liveVideoModelsRef.current !== modelsKey) {
+        liveVideoModelsRef.current = modelsKey;
+        fetchJson<{ capacityByModel?: Record<string, number> }>(
+          `/api/v1/network/live-video-capacity?models=${encodeURIComponent(liveEntry.models.join(','))}`,
+        )
+          .then((body) => {
+            if (mountedRef.current && body?.capacityByModel)
+              setData((prev) => ({ ...prev, liveVideoCapacity: body.capacityByModel! }));
+          })
+          .catch(() => { liveVideoModelsRef.current = ''; });
+      }
+    }
 
     errorsRef.current = [
       ...errorsRef.current.filter((entry) => !excludedPaths.some((path) => entry.includes(path))),
@@ -167,6 +186,53 @@ export function usePublicDashboard(
     setLbHasFetched(true);
     setLbLoading(false);
   }, [timeframe, syncError]);
+
+  // Group 1c: orchestrators — decoupled so slow queries don’t block KPI/pipelines render.
+  const fetchOrchestrators = useCallback(async () => {
+    if (!mountedRef.current) return;
+    const period = timeframeToPeriod(timeframe);
+    try {
+      const orchestrators = await fetchJson<DashboardOrchestrator[]>(`${API}/orchestrators?period=${period}`);
+      if (!mountedRef.current) return;
+      setData((prev) => ({ ...prev, orchestrators: orchestrators ?? [] }));
+      errorsRef.current = errorsRef.current.filter((e) => !e.includes('/orchestrators'));
+    } catch (err) {
+      if (!mountedRef.current) return;
+      errorsRef.current = [
+        ...errorsRef.current.filter((e) => !e.includes('/orchestrators')),
+        (err as Error)?.message ?? 'Orchestrators fetch failed',
+      ];
+    }
+    syncError();
+  }, [timeframe, syncError]);
+
+  // Supplementary capacity — no parameters, 30-min CDN cache, fired in parallel.
+  const fetchNetCapacity = useCallback(async () => {
+    if (!mountedRef.current) return;
+    try {
+      const body = await fetchJson<{ capacityByPipelineModel?: Record<string, number> }>(
+        '/api/v1/network/capacity',
+      );
+      if (mountedRef.current && body?.capacityByPipelineModel)
+        setData((prev) => ({ ...prev, netCapacity: body.capacityByPipelineModel! }));
+    } catch { /* non-critical; suppress */ }
+  }, []);
+
+  // Supplementary FPS performance — timeframe-scoped, fired in parallel with lb refetch.
+  const fetchPerfByModel = useCallback(async (tf: string) => {
+    if (!mountedRef.current) return;
+    const parsed = Number.parseInt(tf, 10);
+    const hours = Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
+    const end = new Date();
+    const start = new Date(end.getTime() - hours * 3_600_000);
+    try {
+      const body = await fetchJson<{ fpsByPipelineModel?: Record<string, number> }>(
+        `/api/v1/network/perf-by-model?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`,
+      );
+      if (mountedRef.current && body?.fpsByPipelineModel)
+        setData((prev) => ({ ...prev, modelFpsByPipelineModel: body.fpsByPipelineModel! }));
+    } catch { /* non-critical; suppress */ }
+  }, []);
 
   // Group 1b: job feed — independent so slow upstream doesn't block KPI/pipelines
   const fetchJobFeed = useCallback(async (options?: { bustCache?: boolean }) => {
@@ -252,15 +318,19 @@ export function usePublicDashboard(
 
   const refetch = useCallback(() => {
     fetchLb();
+    fetchOrchestrators();
     fetchJobFeed({ bustCache: true });
     fetchRt();
     fetchFees();
-  }, [fetchLb, fetchJobFeed, fetchRt, fetchFees]);
+    void fetchNetCapacity();
+    void fetchPerfByModel(timeframe);
+  }, [fetchLb, fetchOrchestrators, fetchJobFeed, fetchRt, fetchFees, fetchNetCapacity, fetchPerfByModel, timeframe]);
 
   // Track whether the component has mounted so the timeframe-change effect can
   // skip its first run (the mount effect handles the initial fetch).
   const hasMountedRef = useRef(false);
   const prevTimeframeRef = useRef(timeframe);
+  const liveVideoModelsRef = useRef<string>('');
 
   // Initial mount — fire all four groups concurrently.
   useEffect(() => {
@@ -271,9 +341,12 @@ export function usePublicDashboard(
       prevTimeframeRef.current = timeframe;
       setJobFeedHasFetched(false);
       fetchLb();
+      fetchOrchestrators();
       fetchJobFeed();
       fetchRt();
       fetchFees();
+      void fetchNetCapacity();
+      void fetchPerfByModel(timeframe);
     }
     return () => {
       mountedRef.current = false;
@@ -290,9 +363,11 @@ export function usePublicDashboard(
     prevTimeframeRef.current = timeframe;
     if (!skip) {
       fetchLb();
+      fetchOrchestrators();
       fetchRt();
+      void fetchPerfByModel(timeframe);
     }
-  }, [timeframe, skip, fetchLb, fetchRt]);
+  }, [timeframe, skip, fetchLb, fetchOrchestrators, fetchRt, fetchPerfByModel]);
 
   // Job feed polling — starts after the initial job feed fetch
   useEffect(() => {

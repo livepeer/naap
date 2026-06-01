@@ -22,7 +22,10 @@
  *   GET /v1/streaming/orchestrators + GET /v1/requests/orchestrators (see net-orchestrators.ts)
  */
 
-import type { DashboardOrchestrator } from '@naap/plugin-sdk';
+import type {
+  DashboardOrchestrator,
+  DashboardOrchestratorPipelineModelSla,
+} from '@naap/plugin-sdk';
 import { OVERVIEW_TIMEFRAME_MAX_HOURS } from '@/lib/dashboard/overview-timeframe';
 import { formatDashboardWindow } from '../dashboard-window.js';
 import { cachedFetch, TTL } from '../cache.js';
@@ -31,12 +34,17 @@ import {
   getNetOrchestratorDataSafe,
   hasNonBlankServiceUri,
 } from './net-orchestrators.js';
+import {
+  resolveStreamingSla,
+  type StreamingSlaAggregate,
+} from './streaming-sla.js';
 
 interface ApiOrchestrator {
   address: string;
   /** OpenAPI `serviceUri` — may be only URI when inventory rows omit `uri`. */
   serviceUri?: string;
   service_uri?: string;
+  serviceUris?: string[];
   knownSessions: number;
   successSessions: number;
   successRatio: number | null;
@@ -74,11 +82,14 @@ function mergeOrchestratorServiceUris(netUris: string[], dash: ApiOrchestrator):
   const normalizedSeen = new Set(
     out.map((u) => normalizeServiceUriKey(u)).filter((k) => k.length > 0),
   );
-  const extra =
-    (typeof dash.serviceUri === 'string' && dash.serviceUri.trim()) ||
-    (typeof dash.service_uri === 'string' && dash.service_uri.trim()) ||
-    '';
-  if (extra) {
+  const extras = [
+    ...(dash.serviceUris ?? []),
+    typeof dash.serviceUri === 'string' ? dash.serviceUri : '',
+    typeof dash.service_uri === 'string' ? dash.service_uri : '',
+  ];
+  for (const extraRaw of extras) {
+    const extra = extraRaw.trim();
+    if (!extra) continue;
     const key = normalizeServiceUriKey(extra);
     if (key.length > 0 && !normalizedSeen.has(key)) {
       normalizedSeen.add(key);
@@ -88,8 +99,103 @@ function mergeOrchestratorServiceUris(netUris: string[], dash: ApiOrchestrator):
   return out;
 }
 
+function dashboardServiceUriCandidates(dash: ApiOrchestrator): string[] {
+  return [
+    ...(dash.serviceUris ?? []),
+    typeof dash.serviceUri === 'string' ? dash.serviceUri : '',
+    typeof dash.service_uri === 'string' ? dash.service_uri : '',
+  ].map((u) => u.trim()).filter(Boolean);
+}
+
+function mergeDashboardRowsForAddress(existing: ApiOrchestrator, incoming: ApiOrchestrator): ApiOrchestrator {
+  const serviceUris: string[] = [];
+  const seenUris = new Set<string>();
+  for (const uri of [
+    ...dashboardServiceUriCandidates(existing),
+    ...dashboardServiceUriCandidates(incoming),
+  ]) {
+    const key = normalizeServiceUriKey(uri);
+    if (!key || seenUris.has(key)) continue;
+    seenUris.add(key);
+    serviceUris.push(uri);
+  }
+
+  return {
+    ...existing,
+    serviceUris,
+    pipelines: [...new Set([...existing.pipelines, ...incoming.pipelines])],
+    pipelineModels: mergePipelineModels(existing.pipelineModels, incoming.pipelineModels),
+    gpuCount: Math.max(existing.gpuCount ?? 0, incoming.gpuCount ?? 0),
+  };
+}
+
 function pct(v: number | null): number | null {
   return v !== null ? Math.round(v * 1000) / 10 : null;
+}
+
+function round1(v: number): number {
+  return Math.round(v * 10) / 10;
+}
+
+type OrchestratorSlaMetrics = {
+  knownSessions: number;
+  successSessions: number;
+  successRatio: number | null;
+  effectiveSuccessRate: number | null;
+  noSwapRatio: number | null;
+  slaScore: number | null;
+};
+
+function dashboardHasUsableSla(dash: ApiOrchestrator): boolean {
+  if (!Number.isFinite(dash.knownSessions) || dash.knownSessions <= 0) return false;
+  return dash.successRatio != null
+    && dash.effectiveSuccessRate != null
+    && dash.noSwapRatio != null
+    && dash.slaScore != null;
+}
+
+function shouldUseStreamingSla(
+  dash: ApiOrchestrator,
+  streaming: StreamingSlaAggregate | undefined,
+): boolean {
+  if (!streaming || streaming.knownSessions <= 0) return false;
+  if (!dashboardHasUsableSla(dash)) return true;
+  return streaming.knownSessions > dash.knownSessions;
+}
+
+function resolveSlaMetrics(
+  dash: ApiOrchestrator,
+  streaming: StreamingSlaAggregate | undefined,
+): OrchestratorSlaMetrics {
+  if (shouldUseStreamingSla(dash, streaming)) {
+    return {
+      knownSessions: streaming!.knownSessions,
+      successSessions: streaming!.successSessions,
+      successRatio: streaming!.successRatio,
+      effectiveSuccessRate: streaming!.effectiveSuccessRate,
+      noSwapRatio: streaming!.noSwapRatio,
+      slaScore: streaming!.slaScore,
+    };
+  }
+  /** No usable telemetry on either side: render '—' across SLA columns instead of '0%'. */
+  if (!dashboardHasUsableSla(dash)) {
+    return {
+      knownSessions: dash.knownSessions ?? 0,
+      successSessions: dash.successSessions ?? 0,
+      successRatio: null,
+      effectiveSuccessRate: null,
+      noSwapRatio: null,
+      slaScore: null,
+    };
+  }
+  return {
+    knownSessions: dash.knownSessions,
+    successSessions: dash.successSessions,
+    successRatio: dash.successRatio != null ? round1(dash.successRatio) : null,
+    effectiveSuccessRate: pct(dash.effectiveSuccessRate),
+    noSwapRatio: pct(dash.noSwapRatio),
+    slaScore: dash.slaScore !== null ? Math.round(dash.slaScore) : null,
+  };
 }
 
 function mergePipelineModels(
@@ -113,30 +219,54 @@ function mergePipelineModels(
   }));
 }
 
+function mergePipelineOffersFromCapabilitySla(
+  existing: { pipelineId: string; modelIds: string[] }[],
+  capabilitySla: DashboardOrchestratorPipelineModelSla[] | undefined,
+): { pipelineId: string; modelIds: string[] }[] {
+  if (!capabilitySla?.length) return existing;
+  const byPipeline = new Map(existing.map((o) => [o.pipelineId, new Set(o.modelIds)]));
+  for (const row of capabilitySla) {
+    const set = byPipeline.get(row.pipelineId) ?? new Set<string>();
+    set.add(row.modelId);
+    byPipeline.set(row.pipelineId, set);
+  }
+  return [...byPipeline.entries()].map(([pipelineId, modelIds]) => ({
+    pipelineId,
+    modelIds: [...modelIds].sort((a, b) => a.localeCompare(b)),
+  }));
+}
+
 function mapDashboardIntoNetRow(
   addressLower: string,
   dash: ApiOrchestrator,
   netData: Awaited<ReturnType<typeof getNetOrchestratorDataSafe>>,
+  streamingSla: StreamingSlaAggregate | undefined,
+  pipelineModelSla: DashboardOrchestratorPipelineModelSla[] | undefined,
 ): DashboardOrchestrator {
   const display = netData.displayAddressByLower.get(addressLower) ?? dash.address;
   const netUris = netData.urisByAddress.get(addressLower) ?? [];
   const uris = mergeOrchestratorServiceUris(netUris, dash);
   const rawOffers = netData.pipelineModelsByAddress.get(addressLower) ?? [];
-  const pipelineModels = mergePipelineModels(dash.pipelineModels, rawOffers);
+  const pipelineModels = mergePipelineOffersFromCapabilitySla(
+    mergePipelineModels(dash.pipelineModels, rawOffers),
+    pipelineModelSla,
+  );
   const pipelineSet = new Set([...dash.pipelines, ...pipelineModels.map((o) => o.pipelineId)]);
   const lastSeenMs = netData.lastSeenMsByAddress.get(addressLower);
+  const sla = resolveSlaMetrics(dash, streamingSla);
   return {
     address: display,
     uris,
     lastSeen: lastSeenMs !== undefined ? new Date(lastSeenMs).toISOString() : null,
-    knownSessions: dash.knownSessions,
-    successSessions: dash.successSessions,
-    successRatio: dash.successRatio != null ? Math.round(dash.successRatio * 10) / 10 : 0,
-    effectiveSuccessRate: pct(dash.effectiveSuccessRate),
-    noSwapRatio: pct(dash.noSwapRatio),
-    slaScore: dash.slaScore !== null ? Math.round(dash.slaScore) : null,
+    knownSessions: sla.knownSessions,
+    successSessions: sla.successSessions,
+    successRatio: sla.successRatio,
+    effectiveSuccessRate: sla.effectiveSuccessRate,
+    noSwapRatio: sla.noSwapRatio,
+    slaScore: sla.slaScore,
     pipelines: [...pipelineSet],
     pipelineModels,
+    pipelineModelSla,
     gpuCount: dash.gpuCount,
   };
 }
@@ -144,21 +274,28 @@ function mapDashboardIntoNetRow(
 function netOnlyPlaceholder(
   addressLower: string,
   netData: Awaited<ReturnType<typeof getNetOrchestratorDataSafe>>,
+  streamingSla: StreamingSlaAggregate | undefined,
+  pipelineModelSla: DashboardOrchestratorPipelineModelSla[] | undefined,
 ): DashboardOrchestrator {
-  const pipelineModels = netData.pipelineModelsByAddress.get(addressLower) ?? [];
+  const pipelineModels = mergePipelineOffersFromCapabilitySla(
+    netData.pipelineModelsByAddress.get(addressLower) ?? [],
+    pipelineModelSla,
+  );
+  const pipelineSet = new Set(pipelineModels.map((o) => o.pipelineId));
   const lastSeenMs = netData.lastSeenMsByAddress.get(addressLower);
   return {
     address: netData.displayAddressByLower.get(addressLower) ?? addressLower,
     uris: netData.urisByAddress.get(addressLower) ?? [],
     lastSeen: lastSeenMs !== undefined ? new Date(lastSeenMs).toISOString() : null,
-    knownSessions: 0,
-    successSessions: 0,
-    successRatio: 0,
-    effectiveSuccessRate: null,
-    noSwapRatio: null,
-    slaScore: null,
-    pipelines: pipelineModels.map((o) => o.pipelineId),
+    knownSessions: streamingSla?.knownSessions ?? 0,
+    successSessions: streamingSla?.successSessions ?? 0,
+    successRatio: streamingSla?.successRatio ?? null,
+    effectiveSuccessRate: streamingSla?.effectiveSuccessRate ?? null,
+    noSwapRatio: streamingSla?.noSwapRatio ?? null,
+    slaScore: streamingSla?.slaScore ?? null,
+    pipelines: [...pipelineSet],
     pipelineModels,
+    pipelineModelSla,
     gpuCount: 0,
   };
 }
@@ -171,13 +308,18 @@ function dashboardServiceUrisEmpty(dash: ApiOrchestrator): boolean {
 
 export async function resolveOrchestrators(opts?: { period?: string }): Promise<DashboardOrchestrator[]> {
   const window = orchestratorUpstreamWindowFromPeriod(opts?.period);
-  return cachedFetch(`facade:orchestrators:${window}`, TTL.ORCHESTRATORS, async () => {
-    const [dashRows, netData] = await Promise.all([
+  // Merged registry + SLA; cached (TTL.ORCHESTRATORS) so the overview table is not recomputed on every dashboard poll.
+  return cachedFetch(`facade:orchestrators:v2:${window}`, TTL.ORCHESTRATORS, async () => {
+    const [dashRows, netData, streamingSla] = await Promise.all([
       naapGet<ApiOrchestrator[]>('dashboard/orchestrators', { window }, {
         cache: 'no-store',
         errorLabel: 'orchestrators',
       }),
       getNetOrchestratorDataSafe(),
+      resolveStreamingSla().catch((err) => {
+        console.warn('[resolveOrchestrators] streaming SLA fetch failed, using empty fallback:', err);
+        return { byOrchestrator: new Map(), byOrchestratorCapability: new Map() } as Awaited<ReturnType<typeof resolveStreamingSla>>;
+      }),
     ]);
 
     const dashboardByLower = new Map<string, ApiOrchestrator>();
@@ -188,6 +330,8 @@ export async function resolveOrchestrators(opts?: { period?: string }): Promise<
       if (!dashboardByLower.has(k)) {
         dashboardByLower.set(k, r);
         dashboardOrder.push(k);
+      } else {
+        dashboardByLower.set(k, mergeDashboardRowsForAddress(dashboardByLower.get(k)!, r));
       }
     }
 
@@ -195,6 +339,8 @@ export async function resolveOrchestrators(opts?: { period?: string }): Promise<
       ...netData.urisByAddress.keys(),
       ...netData.pipelineModelsByAddress.keys(),
       ...netData.lastSeenMsByAddress.keys(),
+      ...streamingSla.byOrchestrator.keys(),
+      ...streamingSla.byOrchestratorCapability.keys(),
     ]);
     const seenDash = new Set(dashboardOrder);
     const extraNetKeys = [...netKeySet].filter((k) => !seenDash.has(k)).sort((a, b) => a.localeCompare(b));
@@ -203,10 +349,24 @@ export async function resolveOrchestrators(opts?: { period?: string }): Promise<
     const mergedPairs: Array<{ addressLower: string; row: DashboardOrchestrator }> = [];
     for (const addressLower of orderedKeys) {
       const dash = dashboardByLower.get(addressLower);
+      const byOrchestratorSla = streamingSla.byOrchestrator.get(addressLower);
+      const byCapabilitySla = streamingSla.byOrchestratorCapability.get(addressLower);
       if (dash) {
-        mergedPairs.push({ addressLower, row: mapDashboardIntoNetRow(addressLower, dash, netData) });
+        mergedPairs.push({
+          addressLower,
+          row: mapDashboardIntoNetRow(
+            addressLower,
+            dash,
+            netData,
+            byOrchestratorSla,
+            byCapabilitySla,
+          ),
+        });
       } else {
-        mergedPairs.push({ addressLower, row: netOnlyPlaceholder(addressLower, netData) });
+        mergedPairs.push({
+          addressLower,
+          row: netOnlyPlaceholder(addressLower, netData, byOrchestratorSla, byCapabilitySla),
+        });
       }
     }
 

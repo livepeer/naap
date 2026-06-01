@@ -184,6 +184,17 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     modelIds: [String!]!
   }
 
+  type OrchestratorPipelineModelSla {
+    pipelineId: String!
+    modelId: String!
+    knownSessions: Int!
+    successRatio: Float
+    effectiveSuccessRate: Float
+    noSwapRatio: Float
+    slaScore: Float
+    avgOutputFps: Float
+  }
+
   type OrchestratorRow {
     address: String!
     uris: [String!]!
@@ -191,12 +202,13 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     lastSeen: String
     knownSessions: Int!
     successSessions: Int!
-    successRatio: Float!
+    successRatio: Float
     effectiveSuccessRate: Float
     noSwapRatio: Float
     slaScore: Float
     pipelines: [String!]!
     pipelineModels: [PipelineModelOffer!]!
+    pipelineModelSla: [OrchestratorPipelineModelSla!]
     gpuCount: Int!
   }
 `;
@@ -409,6 +421,18 @@ export interface DashboardPipelineModelOffer {
   modelIds: string[];
 }
 
+/** Per-(pipeline, model) SLA metrics scoped to a single orchestrator address. */
+export interface DashboardOrchestratorPipelineModelSla {
+  pipelineId: string;
+  modelId: string;
+  knownSessions: number;
+  successRatio: number | null;
+  effectiveSuccessRate: number | null;
+  noSwapRatio: number | null;
+  slaScore: number | null;
+  avgOutputFps: number | null;
+}
+
 /** Single orchestrator row aggregated over a time window */
 export interface DashboardOrchestrator {
   address: string;
@@ -421,12 +445,13 @@ export interface DashboardOrchestrator {
   lastSeen?: string | null;
   knownSessions: number;
   successSessions: number;
-  successRatio: number;
+  successRatio: number | null;
   effectiveSuccessRate: number | null;
   noSwapRatio: number | null;
   slaScore: number | null;
   pipelines: string[];
   pipelineModels: DashboardPipelineModelOffer[];
+  pipelineModelSla?: DashboardOrchestratorPipelineModelSla[];
   gpuCount: number;
 }
 

@@ -216,7 +216,7 @@ function ingestRow(
   }
 
   const ls = parseLastSeenMs(r.last_seen);
-  if (ls !== undefined) {
+  if (uri.length > 0 && ls !== undefined) {
     const prev = lastSeenMsByAddress.get(addr);
     if (prev === undefined || ls > prev) {
       lastSeenMsByAddress.set(addr, ls);

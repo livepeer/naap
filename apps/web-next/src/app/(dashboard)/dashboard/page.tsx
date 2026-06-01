@@ -8,7 +8,7 @@
  * Rendering is delegated to the shared OverviewContent component.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDashboardQuery } from '@/hooks/useDashboardQuery';
 import { useJobFeedStream } from '@/hooks/useJobFeedStream';
 import { OverviewContent } from '@/components/dashboard/overview-content';
@@ -135,6 +135,13 @@ export default function DashboardPage() {
   const [fetchedOrchestratorsTimeframe, setFetchedOrchestratorsTimeframe] = useState<string | null>(null);
   const [orchestratorsLoading, setOrchestratorsLoading] = useState(true);
 
+  // Supplementary enrichment — fired in parallel with main queries so the
+  // presentational OverviewContent component stays data-free.
+  const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
+  const [liveVideoCapacity, setLiveVideoCapacity] = useState<Record<string, number>>({});
+  const [modelFpsByPipelineModel, setModelFpsByPipelineModel] = useState<Record<string, number>>({});
+  const liveVideoCapacityModelsRef = useRef<string>('');
+
   useEffect(() => {
     setJobFeedPollInterval(getStoredJobFeedPollInterval());
     setTimeframe(getStoredTimeframe());
@@ -171,18 +178,7 @@ export default function DashboardPage() {
     };
   }, [prefsReady, timeframe]);
 
-  const handleJobFeedPollIntervalChange = (ms: number) => {
-    setJobFeedPollInterval(ms);
-    localStorage.setItem(POLL_INTERVAL_KEY, String(ms));
-  };
-
-  const handleTimeframeChange = (tf: string) => {
-    if (!OVERVIEW_TIMEFRAME_VALUES.includes(tf as OverviewTimeframe)) return;
-    const next = tf as OverviewTimeframe;
-    setTimeframe(next);
-    localStorage.setItem(TIMEFRAME_KEY, next);
-  };
-
+  // Query hooks must come before any effects that reference their return values.
   const {
     data: lbData,
     loading: lbLoading,
@@ -225,7 +221,71 @@ export default function DashboardPage() {
   } = useJobFeedStream({
     maxItems: 50,
     pollInterval: jobFeedPollInterval,
+    fetchUrl: '/api/v1/dashboard/job-feed',
   });
+
+  // Fetch /capacity immediately — no catalog/pricing dependency, 30-min CDN cache.
+  useEffect(() => {
+    if (!prefsReady) return;
+    let cancelled = false;
+    fetch('/api/v1/network/capacity')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { capacityByPipelineModel?: Record<string, number> } | null) => {
+        if (!cancelled && body?.capacityByPipelineModel) setNetCapacity(body.capacityByPipelineModel);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [prefsReady]);
+
+  // Fetch /live-video-capacity once the catalog models are known.
+  useEffect(() => {
+    if (!prefsReady) return;
+    const catalog = lbData?.pipelineCatalog ?? [];
+    const liveEntry = catalog.find((e) => e.id === 'live-video-to-video');
+    if (!liveEntry?.models.length) return;
+    const modelsKey = [...liveEntry.models].sort().join(',');
+    if (liveVideoCapacityModelsRef.current === modelsKey) return;
+    liveVideoCapacityModelsRef.current = modelsKey;
+    let cancelled = false;
+    fetch(`/api/v1/network/live-video-capacity?models=${encodeURIComponent(liveEntry.models.join(','))}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { capacityByModel?: Record<string, number> } | null) => {
+        if (!cancelled && body?.capacityByModel) setLiveVideoCapacity(body.capacityByModel);
+      })
+      .catch(() => { if (!cancelled) liveVideoCapacityModelsRef.current = ''; });
+    return () => { cancelled = true; };
+  }, [prefsReady, lbData?.pipelineCatalog]);
+
+  // Fetch /perf-by-model whenever timeframe changes — runs in parallel with the lb refetch.
+  useEffect(() => {
+    if (!prefsReady) return;
+    const parsed = Number.parseInt(timeframe, 10);
+    const hours = Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
+    const end = new Date();
+    const start = new Date(end.getTime() - hours * 3_600_000);
+    let cancelled = false;
+    fetch(
+      `/api/v1/network/perf-by-model?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { fpsByPipelineModel?: Record<string, number> } | null) => {
+        if (!cancelled && body?.fpsByPipelineModel) setModelFpsByPipelineModel(body.fpsByPipelineModel);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [prefsReady, timeframe]);
+
+  const handleJobFeedPollIntervalChange = (ms: number) => {
+    setJobFeedPollInterval(ms);
+    localStorage.setItem(POLL_INTERVAL_KEY, String(ms));
+  };
+
+  const handleTimeframeChange = (tf: string) => {
+    if (!OVERVIEW_TIMEFRAME_VALUES.includes(tf as OverviewTimeframe)) return;
+    const next = tf as OverviewTimeframe;
+    setTimeframe(next);
+    localStorage.setItem(TIMEFRAME_KEY, next);
+  };
 
   if (lbError?.type === 'no-provider' && !lbData) {
     return <NoProviderMessage />;
@@ -265,6 +325,9 @@ export default function DashboardPage() {
       rtError={rtError}
       feesError={feesError}
       prefsReady={prefsReady}
+      netCapacity={netCapacity}
+      liveVideoCapacity={liveVideoCapacity}
+      modelFpsByPipelineModel={modelFpsByPipelineModel}
     />
   );
 }

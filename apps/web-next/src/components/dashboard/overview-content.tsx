@@ -9,7 +9,7 @@
  */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { ElementType, ReactNode } from 'react';
+import type { ElementType, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import type {
   DashboardKPI,
   HourlyBucket,
@@ -20,6 +20,7 @@ import type {
   DashboardGPUCapacity,
   DashboardPipelinePricing,
   DashboardOrchestrator,
+  DashboardOrchestratorPipelineModelSla,
   JobFeedEntry,
 } from '@naap/plugin-sdk';
 import type { DashboardError } from '@/hooks/useDashboardQuery';
@@ -44,9 +45,11 @@ import {
   List,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   ChevronsUpDown,
   Copy,
   Check,
+  Search,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { PIPELINE_COLOR, DEFAULT_PIPELINE_COLOR } from '@/lib/dashboard/pipeline-config';
@@ -143,6 +146,20 @@ export interface OverviewContentProps {
   rtError: DashboardError | null;
   feesError: DashboardError | null;
   prefsReady: boolean;
+  /**
+   * Network capacity per `pipeline:model` key — fetched by the parent in parallel
+   * with the main queries so this component remains purely presentational.
+   */
+  netCapacity?: Record<string, number>;
+  /**
+   * Live-video-to-video capacity per model — fetched by the parent after catalog arrives.
+   */
+  liveVideoCapacity?: Record<string, number>;
+  /**
+   * Per-model FPS performance data keyed as `pipeline:model` — fetched by the parent
+   * and updated on timeframe changes in parallel with the main lb query.
+   */
+  modelFpsByPipelineModel?: Record<string, number>;
 }
 
 // ============================================================================
@@ -172,20 +189,6 @@ function pipelinesRowCapacity(
   if (fromNet != null && fromNet >= 0) return fromNet;
   const fallback = pricingRow?.capacity;
   return fallback != null && fallback >= 0 ? fallback : '—';
-}
-
-function catalogNeedsNetCapacityFetch(
-  catalog: DashboardPipelineCatalogEntry[],
-  pricing: DashboardPipelinePricing[],
-): boolean {
-  for (const entry of catalog) {
-    if (entry.id === LIVE_VIDEO_PIPELINE_ID) continue;
-    for (const model of entry.models) {
-      const p = pricing.find((x) => x.pipeline === entry.id && x.model === model);
-      if (!p || p.capacity == null) return true;
-    }
-  }
-  return false;
 }
 
 /** Lossless avg wei for display/sort; GraphQL Float `price` can round to 0 for large wei. */
@@ -1473,6 +1476,107 @@ function formatPipelineLabel(
   return name;
 }
 
+function OrchestratorPipelineFilterMenu({
+  pipelineIds,
+  selectedIds,
+  onToggle,
+  onClearAll,
+  catalog,
+}: {
+  pipelineIds: string[];
+  selectedIds: Set<string>;
+  onToggle: (pipelineId: string) => void;
+  onClearAll: () => void;
+  catalog?: DashboardPipelineCatalogEntry[] | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+    return undefined;
+  }, [open]);
+
+  const nSelected = selectedIds.size;
+  if (pipelineIds.length === 0) return null;
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex h-[calc(1.25rem+0.5rem+2px)] items-center gap-1 rounded border px-2 text-xs font-medium transition-colors sm:h-[calc(1rem+0.25rem+2px)] ${
+          nSelected > 0
+            ? 'border-primary/40 bg-primary/10 text-foreground'
+            : 'border-border bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+        }`}
+        aria-expanded={open}
+        aria-haspopup="true"
+        aria-label={`Filter by pipeline${nSelected > 0 ? `, ${nSelected} selected` : ''}`}
+      >
+        <Layers className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+        <span className="max-w-[5.5rem] truncate sm:max-w-none">Pipelines</span>
+        {nSelected > 0 && (
+          <span className="rounded bg-primary/20 px-1 py-px text-[10px] font-semibold tabular-nums text-primary">
+            {nSelected}
+          </span>
+        )}
+        <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-50" aria-hidden />
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 z-50 mt-1 max-h-56 w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg"
+          role="group"
+          aria-label="Filter pipelines"
+        >
+          <label className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-xs hover:bg-muted/50">
+            <input
+              type="checkbox"
+              className="rounded border-border"
+              checked={nSelected === 0}
+              onChange={() => {
+                onClearAll();
+              }}
+            />
+            <span className="font-medium">All pipelines</span>
+          </label>
+          <div className="mx-1 border-t border-border" />
+          {pipelineIds.map((id) => {
+            const color = PIPELINE_COLOR[id] ?? DEFAULT_PIPELINE_COLOR;
+            const label = formatPipelineLabel(id, catalog ?? null, null);
+            const checked = selectedIds.has(id);
+            return (
+              <label
+                key={id}
+                className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-muted/50"
+              >
+                <input
+                  type="checkbox"
+                  className="rounded border-border"
+                  checked={checked}
+                  onChange={() => {
+                    onToggle(id);
+                  }}
+                />
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
+                <span className="min-w-0 flex-1 truncate" title={id}>
+                  {label}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function stripOrchestratorServiceUri(uri: string): string {
   return uri.replace(/^https?:\/\//, '');
 }
@@ -1488,6 +1592,13 @@ function livepeerOrchestratingExplorerHref(address: string): string | null {
 
 /** Row after merge: stable key for React lists (blank addresses never share a bucket). */
 type OrchestratorTableRow = DashboardOrchestrator & { stableRowKey: string };
+
+type OrchestratorModelMetricRow = {
+  pipelineId: string;
+  pipelineName: string;
+  modelId: string;
+  modelSla?: DashboardOrchestratorPipelineModelSla;
+};
 
 /** One row per orchestrator address; union service URIs if the same address appears more than once. */
 function mergeOrchestratorRowsByAddress(rows: DashboardOrchestrator[]): OrchestratorTableRow[] {
@@ -1509,7 +1620,11 @@ function mergeOrchestratorRowsByAddress(rows: DashboardOrchestrator[]): Orchestr
         mergedUris.push(u);
       }
     }
-    map.set(key, { ...existing, uris: mergedUris });
+    map.set(key, {
+      ...existing,
+      uris: mergedUris,
+      lastSeen: pickNewerOrchestratorLastSeen(existing.lastSeen, row.lastSeen),
+    });
   }
   return [...map.values()];
 }
@@ -1519,6 +1634,33 @@ function formatOrchestratorLastSeenForTooltip(iso: string | null | undefined): s
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return `Last seen: ${iso}`;
   return `Last seen: ${new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
+/** When merging rows for the same address, keep the most recent registry lastSeen. */
+function pickNewerOrchestratorLastSeen(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): string | null {
+  const pa = a?.trim() ? Date.parse(a) : NaN;
+  const pb = b?.trim() ? Date.parse(b) : NaN;
+  if (!Number.isFinite(pa) && !Number.isFinite(pb)) return null;
+  if (!Number.isFinite(pb)) return a?.trim() || null;
+  if (!Number.isFinite(pa)) return b?.trim() || null;
+  return pa >= pb ? (a?.trim() ?? null) : (b?.trim() ?? null);
+}
+
+/** Registry freshness line: today (view context) and oldest lastSeen among visible rows. */
+function formatOrchestratorRegistryFreshnessLine(rows: { lastSeen?: string | null }[]): string | null {
+  let min = Infinity;
+  for (const r of rows) {
+    const t = r.lastSeen?.trim() ? Date.parse(r.lastSeen) : NaN;
+    if (Number.isFinite(t) && t < min) min = t;
+  }
+  if (min === Infinity) return null;
+  const shortDate: Intl.DateTimeFormatOptions = { dateStyle: 'short' };
+  const todayStr = new Date().toLocaleDateString(undefined, shortDate);
+  const oldestStr = new Date(min).toLocaleDateString(undefined, shortDate);
+  return `Including data (${todayStr}) - (${oldestStr})`;
 }
 
 function orchestratorModelPriceForTooltip(
@@ -1531,6 +1673,63 @@ function orchestratorModelPriceForTooltip(
   return 'Price: —';
 }
 
+function orchestratorModelSlaPercentLabel(value: number | null | undefined): string {
+  return value != null ? `${value}%` : '—';
+}
+
+function orchestratorModelSlaScoreLabel(value: number | null | undefined): string {
+  return value != null ? value.toFixed(1).replace(/\.0$/, '') : '—';
+}
+
+function orchestratorModelSlaHealthClasses(value: number | null | undefined): string {
+  if (value == null) return 'border-border bg-muted/60 text-muted-foreground';
+  if (value >= 95) return 'border-emerald-500/35 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+  if (value >= 90) return 'border-amber-500/35 bg-amber-500/15 text-amber-700 dark:text-amber-300';
+  return 'border-red-500/35 bg-red-500/15 text-red-700 dark:text-red-300';
+}
+
+function orchestratorModelSlaHealthDotClasses(value: number | null | undefined): string {
+  if (value == null) return 'bg-muted-foreground/50';
+  if (value >= 95) return 'bg-emerald-400';
+  if (value >= 90) return 'bg-amber-400';
+  return 'bg-red-400';
+}
+
+function orchestratorModelSlaHealthLabel(value: number | null | undefined): string {
+  if (value == null) return 'No SLA sample';
+  if (value >= 95) return 'Strong SLA';
+  if (value >= 90) return 'Borderline SLA';
+  return 'Weak SLA';
+}
+
+function orchestratorModelMetricRows(
+  row: OrchestratorTableRow,
+  catalog: DashboardPipelineCatalogEntry[] | null | undefined,
+): OrchestratorModelMetricRow[] {
+  const rows: OrchestratorModelMetricRow[] = [];
+  for (const pipelineId of row.pipelines) {
+    const offer = row.pipelineModels?.find((o) => o.pipelineId === pipelineId);
+    const modelIds = offer?.modelIds ?? [];
+    const entry = catalog?.find((c) => c.id === pipelineId);
+    const pipelineName = entry?.name ?? pipelineId;
+    if (modelIds.length === 0) {
+      rows.push({ pipelineId, pipelineName, modelId: '—' });
+      continue;
+    }
+    for (const modelId of modelIds) {
+      rows.push({
+        pipelineId,
+        pipelineName,
+        modelId,
+        modelSla: row.pipelineModelSla?.find(
+          (s) => s.pipelineId === pipelineId && s.modelId === modelId,
+        ),
+      });
+    }
+  }
+  return rows;
+}
+
 /** Tooltip for model tags: last seen, network price, URI when unambiguous; else URI list. */
 function orchestratorModelTagTooltip(
   pipelineName: string,
@@ -1539,6 +1738,7 @@ function orchestratorModelTagTooltip(
   opts: {
     lastSeen?: string | null;
     pricing?: DashboardPipelinePricing | undefined;
+    modelSla?: DashboardOrchestratorPipelineModelSla | undefined;
   },
 ): string {
   const lines = [
@@ -1547,6 +1747,15 @@ function orchestratorModelTagTooltip(
     formatOrchestratorLastSeenForTooltip(opts.lastSeen),
     orchestratorModelPriceForTooltip(opts.pricing, modelLabel),
   ];
+  if (opts.modelSla) {
+    lines.push(
+      `Sessions: ${opts.modelSla.knownSessions.toLocaleString()}`,
+      `Startup %: ${orchestratorModelSlaPercentLabel(opts.modelSla.successRatio)}`,
+      `Effective %: ${orchestratorModelSlaPercentLabel(opts.modelSla.effectiveSuccessRate)}`,
+      `SLA: ${opts.modelSla.slaScore ?? '—'}`,
+      `Avg FPS: ${opts.modelSla.avgOutputFps != null ? opts.modelSla.avgOutputFps.toFixed(1) : '—'}`,
+    );
+  }
   if (uris.length === 1) {
     lines.push(`Service URI: ${stripOrchestratorServiceUri(uris[0])}`);
   } else if (uris.length > 1) {
@@ -1574,11 +1783,28 @@ function OrchestratorTableCard({
   };
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [filter, setFilter] = useState('');
+  const [pipelineFilterIds, setPipelineFilterIds] = useState<Set<string>>(() => new Set());
+  const [expandedRowKeys, setExpandedRowKeys] = useState<Set<string>>(() => new Set());
   const { copiedId, copyToClipboard } = useClipboardFlash();
 
   const toggleSort = (col: OrchestratorSortCol) => {
     if (sortCol === col) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); }
     else { setSortCol(col); setSortDir('desc'); }
+  };
+
+  const toggleExpandedRow = (key: string) => {
+    setExpandedRowKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const onOrchestratorDataRowClick = (rowKey: string) => (e: ReactMouseEvent<HTMLTableRowElement>) => {
+    if (!(e.target instanceof Element)) return;
+    if (e.target.closest('button, a, input, textarea, select')) return;
+    toggleExpandedRow(rowKey);
   };
 
   const SortIcon = ({ col }: { col: OrchestratorSortCol }) => {
@@ -1587,6 +1813,37 @@ function OrchestratorTableCard({
   };
 
   const mergedByAddress = useMemo(() => mergeOrchestratorRowsByAddress([...data]), [data]);
+
+  const orchestratorPipelineIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of mergedByAddress) {
+      for (const p of r.pipelines ?? []) ids.add(p);
+    }
+    return [...ids].sort((a, b) => a.localeCompare(b));
+  }, [mergedByAddress]);
+
+  useEffect(() => {
+    const avail = new Set(orchestratorPipelineIds);
+    setPipelineFilterIds((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (avail.has(id)) next.add(id);
+      }
+      if (next.size === prev.size) return prev;
+      return next;
+    });
+  }, [orchestratorPipelineIds]);
+
+  const toggleOrchestratorPipelineFilter = (pipelineId: string) => {
+    setPipelineFilterIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pipelineId)) next.delete(pipelineId);
+      else next.add(pipelineId);
+      return next;
+    });
+  };
+
+  const clearOrchestratorPipelineFilter = () => setPipelineFilterIds(new Set());
 
   const sorted = useMemo(() => {
     let rows = [...mergedByAddress];
@@ -1602,6 +1859,9 @@ function OrchestratorTableCard({
         });
       });
     }
+    if (pipelineFilterIds.size > 0) {
+      rows = rows.filter((r) => (r.pipelines ?? []).some((p) => pipelineFilterIds.has(p)));
+    }
     rows.sort((a, b) => {
       const av = sortCol === 'uri' ? (a.uris[0] ?? '') : (a[sortCol] ?? 0);
       const bv = sortCol === 'uri' ? (b.uris[0] ?? '') : (b[sortCol] ?? 0);
@@ -1609,7 +1869,7 @@ function OrchestratorTableCard({
       return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
     return rows;
-  }, [mergedByAddress, sortCol, sortDir, filter, catalog]);
+  }, [mergedByAddress, sortCol, sortDir, filter, catalog, pipelineFilterIds]);
 
   const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
@@ -1625,6 +1885,11 @@ function OrchestratorTableCard({
 
   const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
 
+  const registryFreshnessLine = useMemo(
+    () => formatOrchestratorRegistryFreshnessLine(sorted),
+    [sorted],
+  );
+
   const pricingByKey = useMemo(
     () => new Map(pricing.map((p) => [`${p.pipeline}:${p.model ?? ''}`, p])),
     [pricing],
@@ -1632,21 +1897,60 @@ function OrchestratorTableCard({
 
   return (
     <div className="p-3 rounded-lg bg-card border border-border min-w-0 sm:p-4">
-      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
-            Orchestrators ({sorted.length}{filter ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
-          </span>
+      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
+                All orchestrators ({sorted.length}
+                {filter.trim() || pipelineFilterIds.size > 0 ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
+              </span>
+              <div className="relative group shrink-0">
+                <button
+                  type="button"
+                  className="p-0 border-0 bg-transparent cursor-help"
+                  aria-label="About the all orchestrators table"
+                >
+                  <Info className="w-3 h-3 text-muted-foreground/50" aria-hidden />
+                </button>
+                <div className="absolute bottom-full left-0 mb-1.5 hidden group-hover:block z-20 pointer-events-none sm:left-auto sm:right-0">
+                  <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1.5 rounded shadow-md border border-border max-w-[260px] text-wrap leading-relaxed normal-case">
+                    Full registry inventory (every address with a service URI). This block is cached server-side and does not reload on every dashboard poll; session and SLA columns still use the period you select. The line below uses today’s date (when you opened the page) and the oldest “last seen” registry timestamp among the rows currently shown, both in short locale format.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {registryFreshnessLine != null && (
+            <p className="text-[10px] text-muted-foreground normal-case leading-snug pl-0 sm:pl-8">
+              {registryFreshnessLine}
+            </p>
+          )}
         </div>
-        <input
-          id="orchestrator-filter"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          placeholder="Filter URI / pipeline…"
-          aria-label="Filter orchestrators by URI, address, or pipeline"
-          className="w-full min-w-0 px-2 py-1.5 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground sm:max-w-xs sm:py-0.5"
-        />
+        <div className="flex min-w-0 w-full flex-col gap-1.5 sm:w-auto sm:max-w-md sm:flex-shrink-0 sm:flex-row sm:items-stretch">
+          <div className="relative flex min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              id="orchestrator-filter"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter URI / pipeline…"
+              aria-label="Filter orchestrators by URI, address, or pipeline"
+              className="w-full min-w-0 rounded border border-border bg-background py-1.5 pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground sm:py-0.5"
+            />
+          </div>
+          <OrchestratorPipelineFilterMenu
+            pipelineIds={orchestratorPipelineIds}
+            selectedIds={pipelineFilterIds}
+            onToggle={toggleOrchestratorPipelineFilter}
+            onClearAll={clearOrchestratorPipelineFilter}
+            catalog={catalog}
+          />
+        </div>
       </div>
       <div className="max-h-[min(70vh,640px)] min-w-0 overflow-x-auto overflow-y-auto overscroll-x-contain">
         <table className="w-full min-w-[720px] text-xs">
@@ -1664,120 +1968,223 @@ function OrchestratorTableCard({
           <tbody>
             {sorted.map((row) => {
               const explorerHref = livepeerOrchestratingExplorerHref(row.address);
+              const modelMetricRows = orchestratorModelMetricRows(row, catalog);
+              const isExpanded = expandedRowKeys.has(row.stableRowKey);
+              const primaryRowLabel = row.uris[0] ? stripOrchestratorServiceUri(row.uris[0]) : row.address || 'orchestrator';
               return (
-              <tr key={row.stableRowKey} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors group">
-                <td
-                  className="py-1.5 min-w-0 align-top"
-                  title={row.uris.length ? row.uris.map(stripOrchestratorServiceUri).join('\n') : undefined}
-                >
-                  <div className="flex min-w-0 w-full flex-col gap-1">
-                    {row.uris.length > 0 ? (
-                      row.uris.map((uri, i) => {
-                        const label = formatURI(uri);
-                        return (
-                          <div
-                            key={`${row.stableRowKey}:uri:${i}`}
-                            className="flex w-full min-w-0 items-center justify-start gap-1"
-                          >
-                            {explorerHref ? (
-                              <a
-                                href={explorerHref}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground underline-offset-2 hover:text-primary hover:underline"
-                                title={`${stripOrchestratorServiceUri(uri)} — Livepeer Explorer (orchestrating)`}
-                                aria-label={`${label}: view orchestrator on Livepeer Explorer (opens in new tab)`}
-                              >
-                                {label}
-                              </a>
-                            ) : (
-                              <span
-                                className="min-w-0 max-w-[calc(100%-2rem)] shrink truncate font-mono text-foreground"
-                                title={stripOrchestratorServiceUri(uri)}
-                              >
-                                {label}
-                              </span>
-                            )}
-                            <PipelineTableCopyButton
-                              inline
-                              copied={copiedId === `orch:${row.stableRowKey}:uri:${i}`}
-                              onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:uri:${i}`, uri)}
-                              title="Copy this service URI"
-                              ariaLabel={`Copy service URI ${uri}`}
-                            />
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="flex min-w-0 flex-wrap items-center gap-1">
-                        {explorerHref ? (
-                          <a
-                            href={explorerHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-                            aria-label="View orchestrator on Livepeer Explorer (opens in new tab)"
-                          >
-                            Livepeer Explorer
-                          </a>
-                        ) : (
-                          <span className="font-mono text-muted-foreground">—</span>
-                        )}
-                        {row.address ? (
-                          <PipelineTableCopyButton
-                            inline
-                            copied={copiedId === `orch:${row.stableRowKey}:addr`}
-                            onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:addr`, row.address)}
-                            title="Copy orchestrator address"
-                            ariaLabel={`Copy address ${row.address}`}
-                          />
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
-                <td className="py-1.5 text-right font-mono">{row.successRatio}%</td>
-                <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
-                <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
-                <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
-                <td className="py-1.5 pl-2 max-w-[180px]">
-                  <div className="flex flex-wrap gap-1">
-                    {row.pipelines.length === 0 && '—'}
-                    {row.pipelines.map((p) => {
-                      const offer = row.pipelineModels?.find((o) => o.pipelineId === p);
-                      const modelIds = offer?.modelIds ?? [];
-                      const entry = catalog?.find((c) => c.id === p);
-                      const pipelineName = entry?.name ?? p;
-                      return modelIds.length > 0 ? (
-                        modelIds.map((modelId) => (
-                          <span
-                            key={`${p}:${modelId}`}
-                            className={`inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId, p)}`}
-                            title={orchestratorModelTagTooltip(pipelineName, modelId, row.uris, {
-                              lastSeen: row.lastSeen,
-                              pricing: pricingByKey.get(`${p}:${modelId}`),
-                            })}
-                          >
-                            <span className="truncate">{modelId}</span>
-                          </span>
-                        ))
-                      ) : (
-                        <span
-                          key={p}
-                          className="inline-flex max-w-full cursor-default items-center rounded px-2 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground"
-                          title={orchestratorModelTagTooltip(pipelineName, '—', row.uris, {
-                            lastSeen: row.lastSeen,
-                            pricing: undefined,
-                          })}
+                <Fragment key={row.stableRowKey}>
+                  <tr
+                    className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/30 transition-colors group"
+                    onClick={onOrchestratorDataRowClick(row.stableRowKey)}
+                  >
+                    <td
+                      className="py-1.5 min-w-0 align-top"
+                      title={row.uris.length ? row.uris.map(stripOrchestratorServiceUri).join('\n') : undefined}
+                    >
+                      <div className="flex min-w-0 w-full items-start gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpandedRow(row.stableRowKey)}
+                          className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          aria-expanded={isExpanded}
+                          aria-label={`${isExpanded ? 'Hide' : 'Show'} model SLA details for ${primaryRowLabel}`}
                         >
-                          —
-                        </span>
-                      );
-                    })}
-                  </div>
-                </td>
-              </tr>
+                          <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} aria-hidden />
+                        </button>
+                        <div className="flex min-w-0 w-full flex-col gap-1">
+                          {row.uris.length > 0 ? (
+                            row.uris.map((uri, i) => {
+                              const label = formatURI(uri);
+                              return (
+                                <div
+                                  key={`${row.stableRowKey}:uri:${i}`}
+                                  className="flex w-full min-w-0 items-center justify-start gap-1"
+                                >
+                                  <span
+                                    className="min-w-0 flex-1 truncate font-mono text-foreground"
+                                    title={stripOrchestratorServiceUri(uri)}
+                                  >
+                                    {label}
+                                  </span>
+                                  <div className="flex shrink-0 items-center gap-0.5">
+                                    {explorerHref ? (
+                                      <a
+                                        href={explorerHref}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={`${pipelineCopyInlineHoverCls('default')} inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-primary`}
+                                        title={`${stripOrchestratorServiceUri(uri)} — Livepeer Explorer (orchestrating)`}
+                                        aria-label={`${label}: view orchestrator on Livepeer Explorer (opens in new tab)`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                        }}
+                                      >
+                                        <LivepeerMarkIcon className="w-3.5 h-3.5" />
+                                      </a>
+                                    ) : null}
+                                    <PipelineTableCopyButton
+                                      inline
+                                      copied={copiedId === `orch:${row.stableRowKey}:uri:${i}`}
+                                      onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:uri:${i}`, uri)}
+                                      title="Copy this service URI"
+                                      ariaLabel={`Copy service URI ${uri}`}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
+                              <span className="min-w-0 flex-1 font-mono text-muted-foreground">—</span>
+                              <div className="flex shrink-0 items-center gap-0.5">
+                                {explorerHref ? (
+                                  <a
+                                    href={explorerHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`${pipelineCopyInlineHoverCls('default')} inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-primary`}
+                                    title="Livepeer Explorer — orchestrating view"
+                                    aria-label="View orchestrator on Livepeer Explorer (opens in new tab)"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                    }}
+                                  >
+                                    <LivepeerMarkIcon className="w-3.5 h-3.5" />
+                                  </a>
+                                ) : null}
+                                {row.address ? (
+                                  <PipelineTableCopyButton
+                                    inline
+                                    copied={copiedId === `orch:${row.stableRowKey}:addr`}
+                                    onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:addr`, row.address)}
+                                    title="Copy orchestrator address"
+                                    ariaLabel={`Copy address ${row.address}`}
+                                  />
+                                ) : null}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-1.5 text-right font-mono">{row.knownSessions.toLocaleString()}</td>
+                    <td className="py-1.5 text-right font-mono">{row.successRatio != null ? `${row.successRatio}%` : '—'}</td>
+                    <td className="py-1.5 text-right font-mono">{row.effectiveSuccessRate != null ? `${row.effectiveSuccessRate}%` : '—'}</td>
+                    <td className="py-1.5 text-right font-mono">{row.slaScore ?? '—'}</td>
+                    <td className="py-1.5 pr-5 text-right font-mono">{row.gpuCount}</td>
+                    <td className="py-1.5 pl-2 max-w-[260px]">
+                      <div className="flex flex-wrap gap-1">
+                        {modelMetricRows.length === 0 && '—'}
+                        {modelMetricRows.map(({ pipelineId, pipelineName, modelId, modelSla }) => {
+                          const hasModel = modelId !== '—';
+                          return hasModel ? (
+                            <div
+                              key={`${pipelineId}:${modelId}`}
+                              className="group/model flex min-w-0 max-w-full items-center gap-0.5"
+                            >
+                              <span
+                                className={`inline-flex min-w-0 max-w-full cursor-default items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${modelBadgeColor(modelId, pipelineId)}`}
+                                title={orchestratorModelTagTooltip(pipelineName, modelId, row.uris, {
+                                  lastSeen: row.lastSeen,
+                                  pricing: pricingByKey.get(`${pipelineId}:${modelId}`),
+                                  modelSla,
+                                })}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-background/60 ${orchestratorModelSlaHealthDotClasses(modelSla?.slaScore)}`}
+                                  aria-label={orchestratorModelSlaHealthLabel(modelSla?.slaScore)}
+                                />
+                                <span className="truncate">{modelId}</span>
+                              </span>
+                              <PipelineTableCopyButton
+                                inline
+                                inlineGroup="model"
+                                copied={copiedId === `orch:${row.stableRowKey}:${pipelineId}:${modelId}`}
+                                onCopy={() => copyToClipboard(`orch:${row.stableRowKey}:${pipelineId}:${modelId}`, modelId)}
+                                title="Copy model id"
+                                ariaLabel={`Copy model id ${modelId}`}
+                              />
+                            </div>
+                          ) : (
+                            <span
+                              key={pipelineId}
+                              className="inline-flex max-w-full cursor-default items-center rounded border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                              title={orchestratorModelTagTooltip(pipelineName, '—', row.uris, {
+                                lastSeen: row.lastSeen,
+                                pricing: undefined,
+                              })}
+                            >
+                              —
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="border-b border-border/50 bg-muted/15">
+                      <td colSpan={7} className="px-2 pb-3 pt-1">
+                        <div className="ml-5 rounded-md border border-border/70 bg-card/70 p-2">
+                          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                              Model SLA details
+                            </span>
+                            {row.uris.length > 1 ? (
+                              <span className="text-[10px] text-muted-foreground">
+                                Metrics are aggregated per orchestrator address across {row.uris.length} service URIs.
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[640px] text-[10px]">
+                              <thead className="text-muted-foreground">
+                                <tr className="border-b border-border/60">
+                                  <th className="py-1 pr-2 text-left font-medium">Model</th>
+                                  <th className="py-1 px-2 text-left font-medium">Pipeline</th>
+                                  <th className="py-1 px-2 text-right font-medium">Sessions</th>
+                                  <th className="py-1 px-2 text-right font-medium">Startup %</th>
+                                  <th className="py-1 px-2 text-right font-medium">Effective %</th>
+                                  <th className="py-1 px-2 text-right font-medium">SLA</th>
+                                  <th className="py-1 pl-2 text-right font-medium">Avg FPS</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {modelMetricRows.map(({ pipelineId, pipelineName, modelId, modelSla }) => (
+                                  <tr key={`${pipelineId}:${modelId}:details`} className="border-b border-border/40 last:border-0">
+                                    <td className="py-1 pr-2">
+                                      <div className="flex min-w-0 items-center gap-1.5">
+                                        {modelId !== '—' ? (
+                                          <span
+                                            className="h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-border/40"
+                                            style={{ backgroundColor: modelHexColor(modelId, PIPELINE_COLOR[pipelineId]) }}
+                                            aria-hidden
+                                          />
+                                        ) : null}
+                                        <span className="truncate font-mono text-foreground">{modelId}</span>
+                                      </div>
+                                    </td>
+                                    <td className="py-1 px-2 text-muted-foreground">{pipelineName}</td>
+                                    <td className="py-1 px-2 text-right font-mono">{modelSla?.knownSessions.toLocaleString() ?? '—'}</td>
+                                    <td className="py-1 px-2 text-right font-mono">{orchestratorModelSlaPercentLabel(modelSla?.successRatio)}</td>
+                                    <td className="py-1 px-2 text-right font-mono">{orchestratorModelSlaPercentLabel(modelSla?.effectiveSuccessRate)}</td>
+                                    <td className="py-1 px-2 text-right">
+                                      <span className={`inline-flex min-w-10 justify-center rounded border px-1.5 py-0.5 font-mono ${orchestratorModelSlaHealthClasses(modelSla?.slaScore)}`}>
+                                        {orchestratorModelSlaScoreLabel(modelSla?.slaScore)}
+                                      </span>
+                                    </td>
+                                    <td className="py-1 pl-2 text-right font-mono">
+                                      {modelSla?.avgOutputFps != null ? modelSla.avgOutputFps.toFixed(1) : '—'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
             {sorted.length === 0 && (
@@ -1885,77 +2292,10 @@ export function OverviewContent(props: OverviewContentProps) {
     onJobFeedPollIntervalChange, jobFeedMeta, jobFeedError, jobFeedLoading, timeframe,
     onTimeframeChange, lbLoading, rtLoading, feesLoading, lbRefreshing,
     rtRefreshing, feesRefreshing, lbError, rtError, feesError, prefsReady,
+    netCapacity = {},
+    liveVideoCapacity = {},
+    modelFpsByPipelineModel = {},
   } = props;
-
-  // Supplementary REST enrichment (capacity, live-video, perf-by-model)
-  const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
-  const [liveVideoCapacity, setLiveVideoCapacity] = useState<Record<string, number>>({});
-  const [modelFpsByPipelineModel, setModelFpsByPipelineModel] = useState<Record<string, number>>({});
-  const lastFetchedNetCapacityKeyRef = useRef<string | null>(null);
-  const liveVideoCapacityModelsRef = useRef<string>('');
-
-  useEffect(() => {
-    if (!prefsReady) return;
-    if (!pipelineCatalog?.length || !pricing.length) return;
-
-    const catalogKeyPart = [...pipelineCatalog]
-      .map((e) => ({ id: e.id, models: [...e.models].sort() }))
-      .sort((a, b) => a.id.localeCompare(b.id));
-    const pricingKeyPart = [...pricing]
-      .map((p) => ({ pipeline: p.pipeline, model: p.model ?? '', capacity: p.capacity ?? null }))
-      .sort((a, b) => a.pipeline.localeCompare(b.pipeline) || a.model.localeCompare(b.model));
-    const key = JSON.stringify({ catalog: catalogKeyPart, pricing: pricingKeyPart });
-
-    if (!catalogNeedsNetCapacityFetch(pipelineCatalog, pricing)) {
-      lastFetchedNetCapacityKeyRef.current = null;
-      setNetCapacity({});
-      return;
-    }
-    if (lastFetchedNetCapacityKeyRef.current === key) return;
-
-    let cancelled = false;
-    fetch('/api/v1/network/capacity')
-      ?.then((res) => (res.ok ? res.json() : null))
-      ?.then((body: { capacityByPipelineModel?: Record<string, number> } | null) => {
-        if (cancelled || !body?.capacityByPipelineModel || typeof body.capacityByPipelineModel !== 'object') return;
-        setNetCapacity(body.capacityByPipelineModel);
-        lastFetchedNetCapacityKeyRef.current = key;
-      })
-      ?.catch(() => {});
-    return () => { cancelled = true; };
-  }, [prefsReady, pipelineCatalog, pricing]);
-
-  useEffect(() => {
-    if (!prefsReady || !pipelineCatalog?.length) return;
-    const liveVideoEntry = pipelineCatalog.find((e) => e.id === LIVE_VIDEO_PIPELINE_ID);
-    if (!liveVideoEntry?.models.length) return;
-    const modelsKey = [...liveVideoEntry.models].sort().join(',');
-    if (liveVideoCapacityModelsRef.current === modelsKey) return;
-    liveVideoCapacityModelsRef.current = modelsKey;
-    let cancelled = false;
-    fetch(`/api/v1/network/live-video-capacity?models=${encodeURIComponent(liveVideoEntry.models.join(','))}`)
-      ?.then((res) => (res.ok ? res.json() : null))
-      ?.then((body: { capacityByModel?: Record<string, number> } | null) => {
-        if (cancelled || !body?.capacityByModel || typeof body.capacityByModel !== 'object') return;
-        setLiveVideoCapacity(body.capacityByModel);
-      })
-      ?.catch(() => { if (!cancelled) liveVideoCapacityModelsRef.current = ''; });
-    return () => { cancelled = true; };
-  }, [prefsReady, pipelineCatalog]);
-
-  useEffect(() => {
-    if (!prefsReady) return;
-    const { start, end } = getTimeframeRangeIso(timeframe);
-    let cancelled = false;
-    fetch(`/api/v1/network/perf-by-model?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
-      ?.then((res) => (res.ok ? res.json() : null))
-      ?.then((body: { fpsByPipelineModel?: Record<string, number> } | null) => {
-        if (cancelled || !body?.fpsByPipelineModel || typeof body.fpsByPipelineModel !== 'object') return;
-        setModelFpsByPipelineModel(body.fpsByPipelineModel);
-      })
-      ?.catch(() => {});
-    return () => { cancelled = true; };
-  }, [prefsReady, timeframe]);
 
   const transientDashboardErrors = useMemo(() => {
     return [lbError, rtError, feesError].filter(
@@ -2048,7 +2388,10 @@ export function OverviewContent(props: OverviewContentProps) {
         </div>
       </section>
 
-      {/* Row 3: Orchestrators (full width) */}
+      {/*
+        Row 3: All orchestrators — full-width registry table. Fetched via /api/v1/dashboard/orchestrators
+        (server-cached; intentionally not tied to the same refresh cadence as live KPI tiles).
+      */}
       <section>
         {orchestrators.length > 0 ? (
           <RefreshWrap refreshing={orchestratorsLoading ?? lbRefreshing} className="block min-h-0">
@@ -2057,7 +2400,7 @@ export function OverviewContent(props: OverviewContentProps) {
         ) : uiOrchestratorsLoading ? (
           <WidgetSkeleton className="h-[320px]" />
         ) : (
-          <WidgetUnavailable label="Orchestrators" />
+          <WidgetUnavailable label="All orchestrators" />
         )}
       </section>
     </div>

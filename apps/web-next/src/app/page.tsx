@@ -95,6 +95,9 @@ export default function PublicOverviewPage() {
               rtError={null}
               feesError={null}
               prefsReady={prefsReady}
+              netCapacity={data.netCapacity}
+              liveVideoCapacity={data.liveVideoCapacity}
+              modelFpsByPipelineModel={data.modelFpsByPipelineModel}
             />
           </div>
         </div>

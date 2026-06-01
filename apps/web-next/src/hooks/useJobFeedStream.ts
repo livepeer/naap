@@ -35,6 +35,12 @@ export interface UseJobFeedStreamOptions {
   pollInterval?: number;
   /** Whether to skip connecting (useful for conditional rendering). */
   skip?: boolean;
+  /**
+   * When provided, bypass event bus discovery entirely and poll this URL directly.
+   * Use this when the BFF endpoint is already known (e.g. `/api/v1/dashboard/job-feed`)
+   * to avoid depending on a plugin being registered.
+   */
+  fetchUrl?: string;
 }
 
 /** Mirrors `/api/v1/dashboard/job-feed` JSON; legacy flag names are kept for compatibility. */
@@ -144,7 +150,7 @@ const JOB_FEED_RECOVERY_RETRY_DELAYS = [1000, 2000, 5000, 10000, 15000, 30000];
 export function useJobFeedStream(
   options?: UseJobFeedStreamOptions
 ): UseJobFeedStreamResult {
-  const { maxItems = 8, timeout = 5000, pollInterval: pollIntervalMs = 0, skip = false } = options ?? {};
+  const { maxItems = 8, timeout = 5000, pollInterval: pollIntervalMs = 0, skip = false, fetchUrl: directFetchUrl } = options ?? {};
   const shell = useShell();
 
   const [jobs, setJobs] = useState<JobFeedEntry[]>([]);
@@ -158,6 +164,8 @@ export function useJobFeedStream(
   const jobsRef = useRef<JobFeedEntry[]>([]);
   const maxItemsRef = useRef(maxItems);
   maxItemsRef.current = maxItems;
+  const pollIntervalMsRef = useRef(pollIntervalMs);
+  pollIntervalMsRef.current = pollIntervalMs;
   const cleanupRef = useRef<(() => void) | null>(null);
   const generationRef = useRef(0);
 
@@ -285,16 +293,17 @@ export function useJobFeedStream(
         reconnectTimer = null;
       }
       try {
-        const channelInfo = await shell.eventBus.request<
-          undefined,
-          JobFeedSubscribeResponse
-        >(DASHBOARD_JOB_FEED_EVENT, undefined, { timeout });
+        const channelInfo: JobFeedSubscribeResponse = directFetchUrl
+          ? { fetchUrl: directFetchUrl, channelName: null, eventName: 'job', useEventBusFallback: true }
+          : await shell.eventBus.request<undefined, JobFeedSubscribeResponse>(
+              DASHBOARD_JOB_FEED_EVENT, undefined, { timeout },
+            );
 
         if (!isCurrentRun()) return;
 
         retryCount = 0;
         const normalizedPollIntervalMs =
-          pollIntervalMs > 0 && pollIntervalMs < 1000 ? 30_000 : pollIntervalMs;
+          pollIntervalMsRef.current > 0 && pollIntervalMsRef.current < 1000 ? 30_000 : pollIntervalMsRef.current;
 
         let pollStopped = false;
         if (channelInfo.fetchUrl && (channelInfo.useEventBusFallback || !channelInfo.channelName)) {
@@ -307,8 +316,12 @@ export function useJobFeedStream(
 
           if (normalizedPollIntervalMs > 0) {
             async function poll() {
+              const effectiveIntervalMs =
+                pollIntervalMsRef.current > 0 && pollIntervalMsRef.current < 1000
+                  ? 30_000
+                  : pollIntervalMsRef.current;
               const shouldBustCache = feedFailureStreak > 0;
-              const healthy = await fetchJobFeed(baseJobFeedUrl, normalizedPollIntervalMs, {
+              const healthy = await fetchJobFeed(baseJobFeedUrl, effectiveIntervalMs, {
                 bustCache: shouldBustCache,
               });
               feedFailureStreak = healthy ? 0 : feedFailureStreak + 1;
@@ -319,8 +332,8 @@ export function useJobFeedStream(
                 );
                 const retryDelayMs = JOB_FEED_RECOVERY_RETRY_DELAYS[retryIndex];
                 const nextDelayMs = feedFailureStreak > 0
-                  ? Math.min(normalizedPollIntervalMs, retryDelayMs)
-                  : normalizedPollIntervalMs;
+                  ? Math.min(effectiveIntervalMs, retryDelayMs)
+                  : effectiveIntervalMs;
                 fetchPollTimer = setTimeout(poll, nextDelayMs);
               }
             }
@@ -446,7 +459,7 @@ export function useJobFeedStream(
       cleanupRef.current = null;
       setConnected(false);
     };
-  }, [shell.eventBus, timeout, pollIntervalMs, skip, addJob, replaceJobs]);
+  }, [shell.eventBus, timeout, skip, directFetchUrl, addJob, replaceJobs]);
 
   return { jobs, connected, error, feedMeta, jobFeedLoading };
 }
