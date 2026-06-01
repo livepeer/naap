@@ -25,7 +25,10 @@ export const OVERVIEW_TIMEFRAME_VALUES: readonly string[] = OVERVIEW_TIMEFRAME_O
 export const DEFAULT_OVERVIEW_TIMEFRAME: OverviewTimeframeValue = '12';
 
 export function formatOverviewTimeframeLabel(hours: number): string {
-  if (hours >= 24 && hours % 24 === 0) return `${hours / 24}d`;
   if (hours === 1) return '1h';
-  return `${hours}h`;
+  if (hours < 24) return `${hours}h`;
+  if (hours % 24 === 0) return `${hours / 24}d`;
+  const days = (hours / 24).toFixed(1);
+  const trimmed = days.endsWith('.0') ? days.slice(0, -2) : days;
+  return `${trimmed}d`;
 }

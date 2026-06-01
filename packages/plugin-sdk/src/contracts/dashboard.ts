@@ -74,6 +74,14 @@ export const DASHBOARD_SCHEMA = /* GraphQL */ `
     dailySessionCount: MetricDelta!
     dailyNetworkFeesEth: MetricDelta!
     timeframeHours: Int!
+    # Effective window (hours) implied by the orchestrator snapshot used to derive
+    # orchestratorsObserved. Computed from the oldest LastSeen in the registry
+    # response; null when the registry had no parseable timestamps. Independent
+    # of the user-selected dashboard timeframe.
+    orchestratorsWindowHours: Float
+    # Explicit source for orchestratorsObserved when it comes from the registry
+    # snapshot, including cases where no snapshot timeframe can be derived.
+    orchestratorsObservedSource: String
     hourlyUsage: [HourlyBucket!]
     hourlySessions: [HourlyBucket!]
   }
@@ -225,6 +233,21 @@ export interface DashboardKPI {
   dailyNetworkFeesEth: MetricDelta;
   /** The timeframe in hours that this KPI data covers */
   timeframeHours: number;
+  /**
+   * Effective window (hours) implied by the orchestrator registry snapshot used to
+   * derive {@link orchestratorsObserved}. The orchestrator list upstream has no
+   * timeframe filter — it returns a snapshot of recently-seen endpoints — so the
+   * `orchestratorsObserved` value is the full pair count and this field tells the UI
+   * how far back in time that snapshot actually reaches (based on the oldest
+   * `LastSeen` across rows). `null` when the registry had no parseable timestamps.
+   */
+  orchestratorsWindowHours?: number | null;
+  /**
+   * Explicit source for {@link orchestratorsObserved}. Set to `snapshot` when the
+   * value comes from the registry snapshot, including cases where no effective
+   * snapshot window could be derived.
+   */
+  orchestratorsObservedSource?: 'snapshot';
   hourlyUsage?: HourlyBucket[];
   hourlySessions?: HourlyBucket[];
 }

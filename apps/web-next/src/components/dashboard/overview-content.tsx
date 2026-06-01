@@ -8,8 +8,9 @@
  * this component is purely presentational + supplementary REST enrichment.
  */
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ElementType, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   DashboardKPI,
   HourlyBucket,
@@ -38,7 +39,6 @@ import {
   Minus,
   Zap,
   AlertCircle,
-  Info,
   Loader2,
   Timer,
   List,
@@ -54,6 +54,12 @@ import {
   formatOverviewTimeframeLabel,
   OVERVIEW_TIMEFRAME_OPTIONS,
 } from '@/lib/dashboard/overview-timeframe';
+import {
+  LIVE_VIDEO_PIPELINE_ID,
+  PIPELINE_ETH_USD_CLIENT_FALLBACK,
+  pipelineTablePriceCellContent,
+  splitPriceDisplay,
+} from '@naap/utils';
 
 // Recharts is only used inside FeesCard. Defer the bundle parse until the
 // fees data arrives so the initial JS execution budget is not spent on charting.
@@ -145,15 +151,67 @@ export interface OverviewContentProps {
   prefsReady: boolean;
 }
 
-// ============================================================================
-// Constants
-// ============================================================================
+function PipelineTablePriceCell({
+  pipelineId,
+  wei,
+  unit,
+  modelFps,
+  pipelineAvgFps,
+  ethUsd,
+  tdClass,
+  ethUsdProvenance,
+}: {
+  pipelineId: string;
+  wei: bigint | null;
+  unit: string;
+  modelFps: number | null;
+  pipelineAvgFps: number | undefined;
+  ethUsd: number;
+  tdClass: string;
+  ethUsdProvenance?: string | null;
+}) {
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
+  const { main, richLines } = pipelineTablePriceCellContent({
+    pipelineId,
+    wei,
+    unit,
+    modelFps,
+    pipelineAvgFps,
+    ethUsd,
+    ethUsdProvenance,
+  });
+  const tip = richLines?.join('\n') ?? null;
 
-const LIVE_VIDEO_PIPELINE_ID = 'live-video-to-video';
+  if (!tip) {
+    return <td className={tdClass}>{main}</td>;
+  }
 
-// ============================================================================
-// Utilities
-// ============================================================================
+  return (
+    <td className={tdClass}>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          {...triggerProps}
+          title={tip}
+          className="group/cell inline-flex w-fit max-w-full cursor-default border-0 bg-transparent p-0 text-right font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <span className="inline-block w-fit border-b border-dotted border-muted-foreground/35">
+            {(() => { const { amount, unit } = splitPriceDisplay(main); return <>{amount}{unit && <span className="text-[0.82em] text-muted-foreground/70">{unit}</span>}</>; })()}
+          </span>
+        </button>
+      </div>
+      {tipOpen && tipAnchor ? (
+        <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+          {richLines!.map((line, i) => (
+            <p key={i} className={i > 0 ? 'mt-1' : ''}>
+              {line}
+            </p>
+          ))}
+        </OverviewDefinitionTooltipPortal>
+      ) : null}
+    </td>
+  );
+}
 
 function pipelinesRowCapacity(
   pipelineId: string,
@@ -413,6 +471,111 @@ function DeltaBadge({ value, unit = '%', invert = false }: { value: number | nul
 const OVERVIEW_CHART_ACCENT = 'hsl(var(--primary))';
 const OVERVIEW_CHART_CURSOR = 'hsl(var(--primary) / 0.12)';
 
+/** KPI tile tooltip: matches upstream ClickHouse aggregation for GET /v1/dashboard/kpi. */
+const SUCCESS_RATE_KPI_TOOLTIP =
+  'Success rate (%) = 100 × (sum of startup_success_sessions) / (sum of requested_sessions) over the selected window, using hourly rows from ClickHouse table naap.api_hourly_streaming_demand, with optional filters on pipeline_id and model_id.';
+
+const OVERVIEW_DEF_TOOLTIP_GAP_PX = 8;
+const OVERVIEW_DEF_TOOLTIP_EDGE_PX = 12;
+const OVERVIEW_DEF_TOOLTIP_PREF_WIDTH_PX = 336;
+
+type OverviewDefAnchor = {
+  left: number;
+  top: number;
+};
+
+function useOverviewPortaledDefinitionTooltip<T extends HTMLElement>() {
+  const triggerRef = useRef<T>(null);
+  const [tipOpen, setTipOpen] = useState(false);
+  const [tipAnchor, setTipAnchor] = useState<OverviewDefAnchor | null>(null);
+
+  const syncTipAnchor = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const preferredLeft = rect.right - OVERVIEW_DEF_TOOLTIP_PREF_WIDTH_PX;
+    const maxLeft = window.innerWidth - OVERVIEW_DEF_TOOLTIP_PREF_WIDTH_PX - OVERVIEW_DEF_TOOLTIP_EDGE_PX;
+    const left = Math.min(
+      Math.max(preferredLeft, OVERVIEW_DEF_TOOLTIP_EDGE_PX),
+      Math.max(maxLeft, OVERVIEW_DEF_TOOLTIP_EDGE_PX),
+    );
+    setTipAnchor({
+      left,
+      top: rect.bottom + OVERVIEW_DEF_TOOLTIP_GAP_PX,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!tipOpen) return;
+    syncTipAnchor();
+  }, [tipOpen, syncTipAnchor]);
+
+  useEffect(() => {
+    if (!tipOpen) return;
+    const onReposition = () => syncTipAnchor();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [tipOpen, syncTipAnchor]);
+
+  const triggerProps = {
+    ref: triggerRef,
+    onMouseEnter: () => {
+      syncTipAnchor();
+      setTipOpen(true);
+    },
+    onMouseLeave: () => setTipOpen(false),
+    onFocus: () => {
+      syncTipAnchor();
+      setTipOpen(true);
+    },
+    onBlur: () => setTipOpen(false),
+  };
+
+  return { tipAnchor, tipOpen, triggerProps };
+}
+
+function OverviewDefinitionTooltipPortal(props: { anchor: OverviewDefAnchor; children: React.ReactNode }) {
+  const { anchor, children } = props;
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-[9999] w-[min(21rem,calc(100vw-1.5rem))] whitespace-normal break-words rounded-md border border-border bg-popover px-3 py-2 text-left text-[10px] leading-relaxed text-popover-foreground shadow-md"
+      style={{ left: anchor.left, top: anchor.top }}
+      role="tooltip"
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function KpiTileTitleWithDefinition(props: { label: string; definition: string }) {
+  const { label, definition } = props;
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
+  return (
+    <>
+      <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider leading-tight">
+        <button
+          type="button"
+          {...triggerProps}
+          className="cursor-default rounded-sm border-b border-dotted border-border/60 bg-transparent p-0 text-left font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          aria-label={definition}
+        >
+          {label}
+        </button>
+      </span>
+      {tipOpen && tipAnchor ? (
+        <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+          <p>{definition}</p>
+        </OverviewDefinitionTooltipPortal>
+      ) : null}
+    </>
+  );
+}
+
 function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { data: HourlyBucket[]; color?: string }) {
   if (!data || data.length === 0) return null;
   const max = Math.max(...data.map((d) => d.value), 1);
@@ -444,6 +607,22 @@ function HourlySparkline({ data, color = 'var(--color-muted-foreground)' }: { da
 
 function KPIGroupCard({ data }: { data: DashboardKPI }) {
   const tfLabel = formatOverviewTimeframeLabel(data.timeframeHours);
+  /**
+   * Orchestrator snapshot has no timeframe filter upstream — label this tile with the
+   * effective window implied by the oldest `LastSeen` instead of the selected timeframe.
+   */
+  const orchLabel =
+    data.orchestratorsWindowHours != null && Number.isFinite(data.orchestratorsWindowHours)
+      ? `~${formatOverviewTimeframeLabel(Math.max(1, Math.round(data.orchestratorsWindowHours)))}`
+      : data.orchestratorsObservedSource === 'snapshot'
+        ? 'snapshot'
+        : tfLabel;
+  const orchTooltip =
+    data.orchestratorsObservedSource === 'snapshot'
+      ? data.orchestratorsWindowHours != null
+        ? 'Distinct orchestrator endpoints (Address + service URI) in the registry snapshot. Window is derived from the oldest LastSeen — the list endpoint does not accept a timeframe.'
+        : 'Orchestrator data came from the registry snapshot, but the snapshot did not include parseable LastSeen timestamps for a timeframe label.'
+      : undefined;
 
   const tile = (
     icon: ElementType,
@@ -451,25 +630,21 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
     value: string | number,
     suffix?: string,
     sparkline?: HourlyBucket[],
-    tooltip?: string,
+    definition?: string,
   ) => {
     const Icon = icon;
     return (
       <div className="flex flex-col p-3 rounded-lg bg-muted/30 border border-border/50">
-        <div className="flex items-center gap-1.5 mb-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0">
             <Icon className="w-3.5 h-3.5" />
           </div>
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
-          {tooltip && (
-            <div className="relative group ml-auto">
-              <Info className="w-3 h-3 text-muted-foreground/50 cursor-help" />
-              <div className="absolute bottom-full right-0 mb-1.5 hidden group-hover:block z-20 pointer-events-none">
-                <div className="bg-popover text-popover-foreground text-[10px] px-2 py-1 rounded shadow-md border border-border max-w-[200px] text-wrap leading-relaxed">
-                  {tooltip}
-                </div>
-              </div>
-            </div>
+          {definition != null && definition !== '' ? (
+            <KpiTileTitleWithDefinition label={label} definition={definition} />
+          ) : (
+            <span className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider leading-tight">
+              {label}
+            </span>
           )}
         </div>
         <div className="flex items-baseline gap-1">
@@ -483,8 +658,8 @@ function KPIGroupCard({ data }: { data: DashboardKPI }) {
 
   return (
     <div className="grid shrink-0 grid-cols-2 gap-2 content-start rounded-lg border border-border bg-card p-2 sm:gap-3 sm:p-3">
-      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value.toFixed(1)}%`)}
-      {tile(Server, `Orchestrators (${tfLabel})`, data.orchestratorsObserved.value)}
+      {tile(CheckCircle2, `Success Rate (${tfLabel})`, `${data.successRate.value.toFixed(1)}%`, undefined, undefined, SUCCESS_RATE_KPI_TOOLTIP)}
+      {tile(Server, `Orchestrators (${orchLabel})`, data.orchestratorsObserved.value, undefined, undefined, orchTooltip)}
       {tile(Clock, `Usage (${tfLabel})`, formatNumber(data.dailyUsageMins.value), 'mins', data.hourlyUsage, 'Total transcoding minutes. Sparkline: one bar per UTC hour.')}
       {tile(Radio, `Sessions (${tfLabel})`, data.dailySessionCount.value.toLocaleString(), undefined, data.hourlySessions, 'Demand sessions. Sparkline: one bar per UTC hour.')}
     </div>
@@ -773,7 +948,7 @@ function pipelineTableModelIds(
 ): string[] {
   const fromUsage = pipelineUsage?.modelMins?.map((m) => m.model).filter(Boolean) ?? [];
   const set = new Set<string>([...entry.models, ...fromUsage]);
-  return [...set].sort((a, b) => a.localeCompare(b));
+  return [...set];
 }
 
 type PipelineTableSortCol = 'model' | 'gpus' | 'capacity' | 'price' | 'fps' | 'mins';
@@ -799,7 +974,9 @@ function sortPipelineTableModels(
     const modelFps = Number.isFinite(modelFpsFromPerf) ? modelFpsFromPerf : null;
     const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
     const cap = pipelinesRowCapacity(pipelineId, model, p, netCapacity, liveVideoCapacity);
-    const gpus = gpuByPipelineModel.get(`${pipelineId}\x1f${model}`) ?? 0;
+    const gpusRaw = gpuByPipelineModel.get(`${pipelineId}\x1f${model}`) ?? 0;
+    const gpusN = Number(gpusRaw);
+    const gpus = Number.isFinite(gpusN) ? gpusN : 0;
     const priceWei = avgWeiBigIntForPricingRow(p);
     return { cap, gpus, priceWei, modelFps, modelMins };
   };
@@ -850,7 +1027,8 @@ function sortPipelineTableModels(
         break;
     }
     if (c !== 0) return sortDir === 'asc' ? c : -c;
-    return a.localeCompare(b);
+    const tie = a.localeCompare(b);
+    return sortDir === 'asc' ? tie : -tie;
   });
 }
 
@@ -921,6 +1099,21 @@ function PipelineSortIcon({
   return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />;
 }
 
+const PIPELINE_TABLE_HEADER_DESCRIPTION: Record<PipelineTableSortCol, string> = {
+  model:
+    'Pipeline id on the summary row; model id on each detail row. Rows combine catalog seeds with usage so pipelines with demand still appear.',
+  gpus:
+    'Warm GPUs for the pipeline (summary row) or for the pipeline plus model (detail rows), merged from network capacity and the pipeline catalog.',
+  capacity:
+    'Published capacity for this model when the network exposes it (rules differ by pipeline type). Em dash when unknown.',
+  price:
+    'Estimated list price from orchestrator wei rates and the ETH/USD oracle. Live video: USD/min at 512×512 from wei/pixel and FPS. Text-to-image: USD per 512×512 image. Upscale: USD per 4×512² output. LLM-style pipelines: USD per 10k tokens. Other pipelines: wei per billing unit.',
+  fps:
+    'Average output FPS from GET /v1/streaming/models (24-hour weighted average; live-video-to-video models only). BFF-cached.',
+  mins:
+    'Usage minutes in the selected dashboard timeframe for the pipeline (summary) or for the model within that pipeline (detail).',
+};
+
 function PipelineTH({
   col,
   label,
@@ -928,7 +1121,7 @@ function PipelineTH({
   sortCol,
   sortDir,
   onSort,
-  headerInfo,
+  headerDescription,
 }: {
   col: PipelineTableSortCol;
   label: string;
@@ -936,42 +1129,48 @@ function PipelineTH({
   sortCol: PipelineTableSortCol;
   sortDir: 'asc' | 'desc';
   onSort: (col: PipelineTableSortCol) => void;
-  /** Non-sorting info (e.g. metric provenance); kept outside the sort button for accessibility. */
-  headerInfo?: ReactNode;
+  /** Hover / focus: portaled definition (dotted label), same pattern as Developer API Manager column headers. */
+  headerDescription?: string;
 }) {
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
   const ariaSort: 'ascending' | 'descending' | 'none' =
     sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
   const right = className.includes('text-right');
+  const hasDef = headerDescription != null && headerDescription !== '';
+  const labelEl = hasDef ? (
+    <span className="cursor-default border-b border-dotted border-border/60" aria-label={headerDescription}>
+      {label}
+    </span>
+  ) : (
+    label
+  );
   return (
-    <th scope="col" className={className} aria-sort={ariaSort}>
+    <th scope="col" className={`${className} bg-card`.trim()} aria-sort={ariaSort}>
       <div
         className={`flex w-full items-center gap-0.5 ${right ? 'justify-end' : 'justify-start'}`}
       >
         <button
           type="button"
+          {...(hasDef ? triggerProps : {})}
           onClick={() => onSort(col)}
           className={`inline-flex min-w-0 flex-1 items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'justify-end' : 'justify-start'}`}
         >
           {right ? (
             <>
               <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
-              {label}
+              {labelEl}
             </>
           ) : (
             <>
-              {label}
+              {labelEl}
               <PipelineSortIcon col={col} sortCol={sortCol} sortDir={sortDir} />
             </>
           )}
         </button>
-        {headerInfo ? (
-          <span
-            className="shrink-0 inline-flex text-muted-foreground pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            {headerInfo}
-          </span>
+        {hasDef && tipOpen && tipAnchor ? (
+          <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+            <p>{headerDescription}</p>
+          </OverviewDefinitionTooltipPortal>
         ) : null}
       </div>
     </th>
@@ -987,6 +1186,7 @@ function PipelinesCard({
   modelFpsByPipelineModel,
   timeframeHours,
   gpuCapacity,
+  ethUsdOracle,
 }: {
   data: DashboardPipelineUsage[];
   catalog: DashboardPipelineCatalogEntry[];
@@ -996,6 +1196,8 @@ function PipelinesCard({
   modelFpsByPipelineModel: Record<string, number>;
   timeframeHours: number;
   gpuCapacity: DashboardGPUCapacity | null;
+  /** USD per 1 ETH (from GET /api/v1/dashboard/eth-usd). */
+  ethUsdOracle: number;
 }) {
   /** Default: GPUs descending so busy models surface first (was Model A–Z). */
   const [sortCol, setSortCol] = useState<PipelineTableSortCol>('gpus');
@@ -1098,12 +1300,44 @@ function PipelinesCard({
               <col className="w-[9%]" />
               <col className="w-[9%]" />
             </colgroup>
-            <thead className="sticky top-0 z-10 bg-card border-b border-border shadow-[0_1px_0_0_hsl(var(--border))]">
+            <thead className="sticky top-0 z-30 bg-card border-b border-border shadow-[0_1px_0_0_hsl(var(--border))]">
               <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                <PipelineTH col="model" label="Model" className={thModel} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
-                <PipelineTH col="gpus" label="GPUs" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
-                <PipelineTH col="capacity" label="Capacity" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
-                <PipelineTH col="price" label="Price" className={thNum} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH
+                  col="model"
+                  label="Model"
+                  className={thModel}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.model}
+                />
+                <PipelineTH
+                  col="gpus"
+                  label="GPUs"
+                  className={thNum}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.gpus}
+                />
+                <PipelineTH
+                  col="capacity"
+                  label="Capacity"
+                  className={thNum}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.capacity}
+                />
+                <PipelineTH
+                  col="price"
+                  label="Price"
+                  className={thNum}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.price}
+                />
                 <PipelineTH
                   col="fps"
                   label="FPS"
@@ -1111,17 +1345,17 @@ function PipelinesCard({
                   sortCol={sortCol}
                   sortDir={sortDir}
                   onSort={togglePipelineTableSort}
-                  headerInfo={
-                    <span
-                      title="Average output FPS from GET /v1/streaming/models (24-hour weighted average; live-video-to-video models only). BFF-cached."
-                      className="cursor-help"
-                      aria-label="Average output FPS from streaming models API, last 24 hours, live-video pipelines only"
-                    >
-                      <Info className="w-3 h-3 opacity-60" aria-hidden />
-                    </span>
-                  }
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.fps}
                 />
-                <PipelineTH col="mins" label="Mins" className={`${thNum} pr-4`} sortCol={sortCol} sortDir={sortDir} onSort={togglePipelineTableSort} />
+                <PipelineTH
+                  col="mins"
+                  label="Mins"
+                  className={`${thNum} pr-4`}
+                  sortCol={sortCol}
+                  sortDir={sortDir}
+                  onSort={togglePipelineTableSort}
+                  headerDescription={PIPELINE_TABLE_HEADER_DESCRIPTION.mins}
+                />
               </tr>
             </thead>
             <tbody>
@@ -1187,12 +1421,9 @@ function PipelinesCard({
                         const modelFps = Number.isFinite(modelFpsFromPerf) ? modelFpsFromPerf : null;
                         const modelMins = Number.isFinite(modelUsage?.mins) ? (modelUsage?.mins as number) : null;
                         const wei = avgWeiBigIntForPricingRow(p);
-                        const priceStr =
-                          wei != null
-                            ? `${wei.toLocaleString('en-US')} wei/${p?.unit ?? 'unit'}`
-                            : '—';
                         const cap = pipelinesRowCapacity(entry.id, model, p, netCapacity, liveVideoCapacity);
                         const gpus = gpuByPipelineModel.get(`${entry.id}\x1f${model}`) ?? 0;
+                        const pipeAvgFps = pipelineUsage?.avgFps;
                         return (
                           <tr key={`${entry.id}:${model}`} className="border-b border-border/25 hover:bg-muted/20">
                             <td className={`${tdModel} group/model`}>
@@ -1212,7 +1443,15 @@ function PipelinesCard({
                             </td>
                             <td className={tdNum}>{formatNumber(gpus)}</td>
                             <td className={tdNum}>{cap === '—' ? '—' : formatNumber(cap)}</td>
-                            <td className={`${tdNum} text-muted-foreground`}>{priceStr}</td>
+                            <PipelineTablePriceCell
+                              pipelineId={entry.id}
+                              wei={wei}
+                              unit={p?.unit ?? 'unit'}
+                              modelFps={modelFps}
+                              pipelineAvgFps={pipeAvgFps}
+                              ethUsd={ethUsdOracle}
+                              tdClass={`${tdNum} text-muted-foreground`}
+                            />
                             <td className={`${tdNum} text-muted-foreground`}>{modelFps != null ? modelFps.toFixed(1) : '—'}</td>
                             <td className={`${tdNum} pr-4 text-muted-foreground`}>{modelMins != null ? formatNumber(Math.round(modelMins)) : '—'}</td>
                           </tr>
@@ -1558,6 +1797,102 @@ function orchestratorModelTagTooltip(
   return lines.join('\n');
 }
 
+const ORCHESTRATOR_TABLE_HEADER_DESCRIPTION: Record<OrchestratorSortCol, string> = {
+  uri:
+    'Service URI(s) registered for this orchestrator address. Rows merge multiple URIs under one address; Explorer links use the on-chain orchestrator address.',
+  knownSessions: 'Known demand sessions attributed to this orchestrator in the merged registry snapshot.',
+  successRatio:
+    'Startup success ratio for this orchestrator: successful startup sessions versus sessions requested, as reported upstream for the snapshot window.',
+  effectiveSuccessRate:
+    'End-to-end effective success rate when reported by upstream data. Null when the field is not available for this row.',
+  slaScore: 'SLA score from orchestrator inventory when present; higher is better. Null when not reported.',
+  gpuCount: 'Total GPUs advertised across all service URIs grouped under this orchestrator address.',
+};
+
+const ORCHESTRATOR_MODELS_HEADER_DESCRIPTION =
+  'Pipelines and models this orchestrator advertises. Model tags aggregate per address when the same address exposes multiple URIs.';
+
+function OrchestratorSortTH(props: {
+  col: OrchestratorSortCol;
+  label: string;
+  description: string;
+  right?: boolean;
+  className?: string;
+  activeSortCol: OrchestratorSortCol;
+  sortDir: 'asc' | 'desc';
+  onToggle: (col: OrchestratorSortCol) => void;
+}) {
+  const { col, label, description, right, className = '', activeSortCol, sortDir, onToggle } = props;
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
+  const ariaSort: 'ascending' | 'descending' | 'none' =
+    activeSortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
+  const Icon =
+    activeSortCol !== col ? (
+      <ChevronsUpDown className="w-3 h-3 opacity-30 shrink-0" />
+    ) : sortDir === 'asc' ? (
+      <ChevronUp className="w-3 h-3 shrink-0" />
+    ) : (
+      <ChevronDown className="w-3 h-3 shrink-0" />
+    );
+  const labelEl = (
+    <span className="cursor-default border-b border-dotted border-border/60" aria-label={description}>
+      {label}
+    </span>
+  );
+  return (
+    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'} ${className}`.trim()} aria-sort={ariaSort}>
+      <div className={`flex w-full min-w-0 items-center gap-0.5 ${right ? 'justify-end' : 'justify-start'}`}>
+        <button
+          type="button"
+          {...triggerProps}
+          onClick={() => onToggle(col)}
+          className={`inline-flex min-w-0 flex-1 items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse justify-end' : 'justify-start'}`}
+          aria-label={`Sort by ${label}`}
+        >
+          {right ? (
+            <>
+              {Icon}
+              {labelEl}
+            </>
+          ) : (
+            <>
+              {labelEl}
+              {Icon}
+            </>
+          )}
+        </button>
+        {tipOpen && tipAnchor ? (
+          <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+            <p>{description}</p>
+          </OverviewDefinitionTooltipPortal>
+        ) : null}
+      </div>
+    </th>
+  );
+}
+
+function OrchestratorModelsHeader(props: { label: string; description: string }) {
+  const { label, description } = props;
+  const { tipAnchor, tipOpen, triggerProps } = useOverviewPortaledDefinitionTooltip<HTMLButtonElement>();
+  return (
+    <th className="pb-2 pl-2 font-medium text-left align-bottom">
+      <button
+        type="button"
+        {...triggerProps}
+        className="cursor-default rounded-sm border-b border-dotted border-border/60 bg-transparent p-0 text-left font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        aria-label={description}
+      >
+        {label}
+      </button>
+      {tipOpen && tipAnchor ? (
+        <OverviewDefinitionTooltipPortal anchor={tipAnchor}>
+          <p>{description}</p>
+        </OverviewDefinitionTooltipPortal>
+      ) : null}
+    </th>
+  );
+}
+
 function OrchestratorTableCard({
   data,
   catalog,
@@ -1567,7 +1902,7 @@ function OrchestratorTableCard({
   catalog?: DashboardPipelineCatalogEntry[] | null;
   pricing: DashboardPipelinePricing[];
 }) {
-  const [sortCol, setSortCol] = useState<OrchestratorSortCol>('knownSessions');
+  const [sortCol, setSortCol] = useState<OrchestratorSortCol>('gpuCount');
   const formatURI = (uri?: string) => {
     if (!uri) return '—';
     return stripOrchestratorServiceUri(uri);
@@ -1579,11 +1914,6 @@ function OrchestratorTableCard({
   const toggleSort = (col: OrchestratorSortCol) => {
     if (sortCol === col) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); }
     else { setSortCol(col); setSortDir('desc'); }
-  };
-
-  const SortIcon = ({ col }: { col: OrchestratorSortCol }) => {
-    if (sortCol !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
-    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />;
   };
 
   const mergedByAddress = useMemo(() => mergeOrchestratorRowsByAddress([...data]), [data]);
@@ -1611,19 +1941,16 @@ function OrchestratorTableCard({
     return rows;
   }, [mergedByAddress, sortCol, sortDir, filter, catalog]);
 
-  const ariaSortValue = (col: OrchestratorSortCol): 'ascending' | 'descending' | 'none' =>
-    sortCol !== col ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending';
-
-  const TH = ({ col, label, right, className = '' }: { col: OrchestratorSortCol; label: string; right?: boolean; className?: string }) => (
-    <th className={`pb-2 font-medium ${right ? 'text-right' : 'text-left'} ${className}`.trim()} aria-sort={ariaSortValue(col)}>
-      <button type="button" onClick={() => toggleSort(col)} className={`inline-flex items-center gap-1 select-none hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`} aria-label={`Sort by ${label}`}>
-        {label}
-        <SortIcon col={col} />
-      </button>
-    </th>
-  );
-
   const totalGPUsInList = useMemo(() => sorted.reduce((sum, r) => sum + (r.gpuCount ?? 0), 0), [sorted]);
+  /** Sum of service URIs across rows — equals the number of `(Address, URI)` pairs from the registry. */
+  const totalPairsInList = useMemo(
+    () => sorted.reduce((sum, r) => sum + r.uris.length, 0),
+    [sorted],
+  );
+  const totalPairsAll = useMemo(
+    () => mergedByAddress.reduce((sum, r) => sum + r.uris.length, 0),
+    [mergedByAddress],
+  );
 
   const pricingByKey = useMemo(
     () => new Map(pricing.map((p) => [`${p.pipeline}:${p.model ?? ''}`, p])),
@@ -1636,7 +1963,7 @@ function OrchestratorTableCard({
         <div className="flex min-w-0 items-center gap-2">
           <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0"><Server className="w-3.5 h-3.5" /></div>
           <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-snug sm:text-[11px]">
-            Orchestrators ({sorted.length}{filter ? ` of ${mergedByAddress.length}` : ''}) · {totalGPUsInList} GPUs
+            Orchestrators ({totalPairsInList}{filter ? ` of ${totalPairsAll}` : ''}) · {totalGPUsInList} GPUs
           </span>
         </div>
         <input
@@ -1652,13 +1979,61 @@ function OrchestratorTableCard({
         <table className="w-full min-w-[720px] text-xs">
           <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
             <tr>
-              <TH col="uri" label="URI" />
-              <TH col="knownSessions" label="Sessions" right />
-              <TH col="successRatio" label="Startup %" right />
-              <TH col="effectiveSuccessRate" label="Effective %" right />
-              <TH col="slaScore" label="SLA" right />
-              <TH col="gpuCount" label="GPUs" right className="pr-5" />
-              <th className="pb-2 pl-2 font-medium text-left">Models</th>
+              <OrchestratorSortTH
+                col="uri"
+                label="URI"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.uri}
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="knownSessions"
+                label="Sessions"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.knownSessions}
+                right
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="successRatio"
+                label="Startup %"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.successRatio}
+                right
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="effectiveSuccessRate"
+                label="Effective %"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.effectiveSuccessRate}
+                right
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="slaScore"
+                label="SLA"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.slaScore}
+                right
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorSortTH
+                col="gpuCount"
+                label="GPUs"
+                description={ORCHESTRATOR_TABLE_HEADER_DESCRIPTION.gpuCount}
+                right
+                className="pr-5"
+                activeSortCol={sortCol}
+                sortDir={sortDir}
+                onToggle={toggleSort}
+              />
+              <OrchestratorModelsHeader label="Models" description={ORCHESTRATOR_MODELS_HEADER_DESCRIPTION} />
             </tr>
           </thead>
           <tbody>
@@ -1891,8 +2266,24 @@ export function OverviewContent(props: OverviewContentProps) {
   const [netCapacity, setNetCapacity] = useState<Record<string, number>>({});
   const [liveVideoCapacity, setLiveVideoCapacity] = useState<Record<string, number>>({});
   const [modelFpsByPipelineModel, setModelFpsByPipelineModel] = useState<Record<string, number>>({});
+  const [pipelineEthUsdSpot, setPipelineEthUsdSpot] = useState<number | null>(null);
   const lastFetchedNetCapacityKeyRef = useRef<string | null>(null);
   const liveVideoCapacityModelsRef = useRef<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/v1/dashboard/eth-usd')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { ethUsd?: number } | null) => {
+        const n = body?.ethUsd;
+        if (cancelled || n == null || !Number.isFinite(n) || n <= 0) return;
+        setPipelineEthUsdSpot(n);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!prefsReady) return;
@@ -1968,6 +2359,8 @@ export function OverviewContent(props: OverviewContentProps) {
   const uiFeesLoading = feesLoading || !prefsReady;
   const uiOrchestratorsLoading = (orchestratorsLoading ?? lbLoading) || !prefsReady;
 
+  const pipelineTableEthUsd = pipelineEthUsdSpot ?? PIPELINE_ETH_USD_CLIENT_FALLBACK;
+
   return (
     <div className="mx-auto min-w-0 w-full max-w-[1440px] space-y-4 sm:space-y-6">
       <DashboardHeader timeframe={timeframe} onTimeframeChange={onTimeframeChange} />
@@ -2038,6 +2431,7 @@ export function OverviewContent(props: OverviewContentProps) {
                 modelFpsByPipelineModel={modelFpsByPipelineModel}
                 timeframeHours={kpi?.timeframeHours ?? 12}
                 gpuCapacity={gpuCapacity ?? null}
+                ethUsdOracle={pipelineTableEthUsd}
               />
             </RefreshWrap>
           ) : uiLbLoading ? (

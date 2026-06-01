@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box,
@@ -17,7 +18,7 @@ import {
   Cpu,
   Users,
   X,
-ChevronUp,
+  ChevronUp,
   ChevronDown,
   ChevronsUpDown,
   CircleHelp,
@@ -25,6 +26,13 @@ ChevronUp,
 import { Card, Badge, Modal, Tooltip } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
 import { computeSignerSessionExpiry } from '@pymthouse/builder-sdk/tokens';
+import {
+  avgWeiBigIntFromNumber,
+  pipelineBillingUnit,
+  pipelineTablePriceCellContent,
+  splitPriceDisplay,
+  PIPELINE_ETH_USD_CLIENT_FALLBACK,
+} from '@naap/utils';
 
 const PIPELINE_COLOR: Record<string, string> = {
   'text-to-image':           '#f59e0b',
@@ -248,6 +256,8 @@ function formatUsdMicros(microsRaw: string | number | bigint): string {
   }
 }
 
+type ModelSortKey = 'Model' | 'Pipeline' | 'WarmOrchCount' | 'TotalCapacity' | 'PriceAvgWeiPerPixel';
+
 async function fetchCsrfToken(): Promise<string> {
   try {
     const res = await fetch('/api/v1/auth/csrf', { credentials: 'include' });
@@ -370,6 +380,295 @@ function billingProviderSupportsPythonGatewayDiscovery(slug: string | undefined)
   return !!slug && PYTHON_GATEWAY_DISCOVERY_BILLING_SLUGS.has(slug);
 }
 
+function developerPriceCellContent(
+  pipelineId: string,
+  wei: bigint | null,
+  ethUsd: number,
+): { main: string; richLines: string[] | null } {
+  const unit = pipelineBillingUnit(pipelineId);
+  return pipelineTablePriceCellContent({
+    pipelineId,
+    wei,
+    unit,
+    modelFps: null,
+    pipelineAvgFps: undefined,
+    ethUsd,
+  });
+}
+
+/** First line of richLines is always wei/…; remaining lines are shared when avg/min/max use the same formula. */
+function commonRichLinesSuffix(linesList: (string[] | null | undefined)[]): string[] | null {
+  const slices = linesList
+    .filter((l): l is string[] => l != null && l.length > 1)
+    .map((l) => l.slice(1));
+  if (slices.length === 0) return null;
+  const ref = slices[0];
+  for (let s = 1; s < slices.length; s++) {
+    const cur = slices[s];
+    if (cur.length !== ref.length) return null;
+    for (let i = 0; i < ref.length; i++) {
+      if (cur[i] !== ref[i]) return null;
+    }
+  }
+  return ref;
+}
+
+function weiHeadlineFromCell(cell: { main: string; richLines: string[] | null }): string {
+  const head = cell.richLines?.[0];
+  if (head && head.trim() !== '') return head;
+  return cell.main;
+}
+
+const NETWORK_MODEL_PRICE_HEADER_INFO =
+  'Price shown is the average price per billing unit advertised across orchestrators that quote this model in the merged network registry. Min and max quotes across those orchestrators appear when you hover the cell. USD figures use the ETH/USD oracle.';
+
+const TOOLTIP_GAP_PX = 8;
+const TOOLTIP_EDGE_PADDING_PX = 12;
+const NETWORK_MODEL_TOOLTIP_WIDTH_PX = 336;
+
+type TooltipAnchor = {
+  left: number;
+  top: number;
+};
+
+function usePortaledTooltip<T extends HTMLElement>() {
+  const triggerRef = useRef<T>(null);
+  const [tipOpen, setTipOpen] = useState(false);
+  const [tipAnchor, setTipAnchor] = useState<TooltipAnchor | null>(null);
+
+  const syncTipAnchor = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const preferredLeft = rect.right - NETWORK_MODEL_TOOLTIP_WIDTH_PX;
+    const maxLeft = window.innerWidth - NETWORK_MODEL_TOOLTIP_WIDTH_PX - TOOLTIP_EDGE_PADDING_PX;
+    const left = Math.min(
+      Math.max(preferredLeft, TOOLTIP_EDGE_PADDING_PX),
+      Math.max(maxLeft, TOOLTIP_EDGE_PADDING_PX),
+    );
+
+    setTipAnchor({
+      left,
+      top: rect.bottom + TOOLTIP_GAP_PX,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!tipOpen) return;
+    syncTipAnchor();
+  }, [tipOpen, syncTipAnchor]);
+
+  useEffect(() => {
+    if (!tipOpen) return;
+    const onReposition = () => syncTipAnchor();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [tipOpen, syncTipAnchor]);
+
+  const triggerProps = {
+    ref: triggerRef,
+    onMouseEnter: () => {
+      syncTipAnchor();
+      setTipOpen(true);
+    },
+    onMouseLeave: () => setTipOpen(false),
+    onFocus: () => {
+      syncTipAnchor();
+      setTipOpen(true);
+    },
+    onBlur: () => setTipOpen(false),
+  };
+
+  return {
+    tipAnchor,
+    tipOpen,
+    triggerProps,
+  };
+}
+
+function NetworkModelTooltipPanel(props: {
+  anchor: TooltipAnchor;
+  children: React.ReactNode;
+}) {
+  const { anchor, children } = props;
+
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-[9999] w-[min(21rem,calc(100vw-1.5rem))] whitespace-normal break-words rounded border border-white/10 bg-bg-tertiary px-3 py-2 text-left text-[10px] leading-relaxed text-text-primary shadow-md"
+      style={{ left: anchor.left, top: anchor.top }}
+      role="tooltip"
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function DeveloperModelCombinedPriceCell(props: {
+  pipelineId: string;
+  avgWei: bigint | null;
+  minWei: bigint | null;
+  maxWei: bigint | null;
+  ethUsd: number;
+  tdClass: string;
+}) {
+  const { pipelineId, avgWei, minWei, maxWei, ethUsd, tdClass } = props;
+  const avg = developerPriceCellContent(pipelineId, avgWei, ethUsd);
+  const lo = developerPriceCellContent(pipelineId, minWei, ethUsd);
+  const hi = developerPriceCellContent(pipelineId, maxWei, ethUsd);
+  const hasRangeWei =
+    (minWei != null && minWei > 0n) ||
+    (maxWei != null && maxWei > 0n);
+  const rangeMainsOk =
+    hasRangeWei &&
+    lo.main !== '—' &&
+    hi.main !== '—';
+  const rangeSummary =
+    rangeMainsOk && lo.main !== hi.main
+      ? `${lo.main} – ${hi.main}`
+      : rangeMainsOk
+        ? lo.main
+        : null;
+
+  const hoverBlocks: { title: string; lines: string[] }[] = [];
+
+  if (rangeMainsOk && lo.main !== hi.main) {
+    hoverBlocks.push({
+      title: 'Range',
+      lines: [`${lo.main} – ${hi.main}`],
+    });
+    const weiLines: string[] = [];
+    weiLines.push(`Average: ${weiHeadlineFromCell(avg)}`);
+    weiLines.push(`${weiHeadlineFromCell(lo)} – ${weiHeadlineFromCell(hi)}`);
+    hoverBlocks.push({ title: 'Wei', lines: weiLines });
+    const sharedSuffix = commonRichLinesSuffix([avg.richLines, lo.richLines, hi.richLines]);
+    if (sharedSuffix?.length) {
+      hoverBlocks.push({ title: 'Basis', lines: sharedSuffix });
+    }
+  } else if (rangeMainsOk && lo.main === hi.main) {
+    hoverBlocks.push({
+      title: 'List price',
+      lines: [lo.main],
+    });
+    const weiLines: string[] = [];
+    const a = weiHeadlineFromCell(avg);
+    const l = weiHeadlineFromCell(lo);
+    if (a === l) {
+      weiLines.push(a);
+    } else {
+      weiLines.push(`Average: ${a}`);
+      weiLines.push(`Quoted: ${l}`);
+    }
+    hoverBlocks.push({ title: 'Wei', lines: weiLines });
+    const sharedSuffix = commonRichLinesSuffix([avg.richLines, lo.richLines]);
+    if (sharedSuffix?.length) {
+      hoverBlocks.push({ title: 'Basis', lines: sharedSuffix });
+    }
+  } else {
+    if (avg.richLines && avg.richLines.length > 0) {
+      hoverBlocks.push({ title: 'Details', lines: avg.richLines });
+    } else if (avg.main !== '—') {
+      hoverBlocks.push({ title: 'Price', lines: [avg.main] });
+    }
+  }
+
+  const showHover = hoverBlocks.length > 0;
+  const active = avgWei != null && avg.main !== '—';
+
+  const { tipAnchor, tipOpen, triggerProps } = usePortaledTooltip<HTMLButtonElement>();
+
+  const tipPanel =
+    tipOpen && tipAnchor ? (
+      <NetworkModelTooltipPanel anchor={tipAnchor}>
+        {hoverBlocks.map((block, bi) => (
+          <div key={block.title} className={bi > 0 ? 'mt-2.5 border-t border-white/10 pt-2.5' : ''}>
+            <p className="font-medium text-text-primary/90">{block.title}</p>
+            {block.lines.map((line, i) => (
+              <p key={`${block.title}-${i}`} className={i > 0 ? 'mt-1' : 'mt-0.5'}>
+                {line}
+              </p>
+            ))}
+          </div>
+        ))}
+      </NetworkModelTooltipPanel>
+    ) : null;
+
+  return (
+    <td className={`${tdClass} text-sm font-mono ${active ? 'text-text-primary' : 'text-text-secondary opacity-40'}`}>
+      {showHover ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            {...triggerProps}
+            className="inline-flex w-fit max-w-full cursor-default border-0 bg-transparent p-0 font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/50 rounded-sm"
+          >
+            <span className="inline-block w-fit cursor-default border-b border-dotted border-white/35">
+              {(() => { const { amount, unit } = splitPriceDisplay(avg.main); return <>{amount}{unit && <span className="text-[0.82em] text-text-secondary/70">{unit}</span>}</>; })()}
+            </span>
+          </button>
+          {tipPanel}
+        </div>
+      ) : (
+        <span>
+          {(() => { const { amount, unit } = splitPriceDisplay(avg.main); return <>{amount}{unit && <span className="text-[0.82em] text-text-secondary/70">{unit}</span>}</>; })()}
+        </span>
+      )}
+    </td>
+  );
+}
+
+function NetworkModelSortHeader(props: {
+  sortKey: ModelSortKey;
+  label: string;
+  align: 'left' | 'right';
+  headerTitle?: string;
+  active: boolean;
+  sortDir: 'asc' | 'desc';
+  onSort: () => void;
+}) {
+  const { sortKey, label, align, headerTitle, active, sortDir, onSort } = props;
+  const isPrice = sortKey === 'PriceAvgWeiPerPixel';
+  const Icon = active ? (sortDir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+  const { tipAnchor, tipOpen, triggerProps } = usePortaledTooltip<HTMLButtonElement>();
+  const priceTriggerProps = isPrice ? triggerProps : {};
+
+  return (
+    <div
+      className={`inline-flex items-center gap-1${align === 'right' ? ' ml-auto w-fit max-w-full justify-end' : ''}`}
+    >
+      <button
+        {...priceTriggerProps}
+        type="button"
+        title={isPrice ? undefined : headerTitle}
+        onClick={onSort}
+        className={`inline-flex w-fit max-w-full items-center gap-1 hover:text-text-primary transition-colors${align === 'right' ? ' flex-row-reverse' : ''}${active ? ' text-text-primary' : ''}`}
+      >
+        {isPrice ? (
+          <span
+            className="inline-block w-fit cursor-default border-b border-dotted border-white/35"
+            aria-label={NETWORK_MODEL_PRICE_HEADER_INFO}
+          >
+            {label}
+          </span>
+        ) : (
+          label
+        )}
+        <Icon size={12} className={active ? 'text-accent-blue' : 'opacity-40'} />
+      </button>
+      {isPrice && tipOpen && tipAnchor ? (
+        <NetworkModelTooltipPanel anchor={tipAnchor}>
+          <p>{NETWORK_MODEL_PRICE_HEADER_INFO}</p>
+        </NetworkModelTooltipPanel>
+      ) : null}
+    </div>
+  );
+}
+
 export const DeveloperView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>(() => resolveTabFromPath(window.location.pathname));
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -411,11 +710,13 @@ export const DeveloperView: React.FC = () => {
   const pollAbortControllerRef = useRef<AbortController | null>(null);
 
   const [networkModels, setNetworkModels] = useState<NetworkModel[]>([]);
+  const [networkModelsEthUsd, setNetworkModelsEthUsd] = useState<number>(PIPELINE_ETH_USD_CLIENT_FALLBACK);
+  /** True when GET /api/v1/dashboard/eth-usd returned a usable rate (not client fallback alone). */
+  const [networkModelsEthUsdFromOracle, setNetworkModelsEthUsdFromOracle] = useState(false);
   const [networkModelsLoading, setNetworkModelsLoading] = useState(false);
   const [networkModelsError, setNetworkModelsError] = useState<string | null>(null);
   const [networkModelSearch, setNetworkModelSearch] = useState('');
   const [pipelineFilter, setPipelineFilter] = useState<string>('all');
-  type ModelSortKey = 'Model' | 'Pipeline' | 'WarmOrchCount' | 'TotalCapacity' | 'PriceAvgWeiPerPixel' | 'PriceMinWeiPerPixel';
   const [modelSortKey, setModelSortKey] = useState<ModelSortKey>('WarmOrchCount');
   const [modelSortDir, setModelSortDir] = useState<'asc' | 'desc'>('desc');
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
@@ -596,11 +897,27 @@ export const DeveloperView: React.FC = () => {
   const loadNetworkModels = useCallback(async () => {
     setNetworkModelsLoading(true);
     setNetworkModelsError(null);
+    setNetworkModelsEthUsd(PIPELINE_ETH_USD_CLIENT_FALLBACK);
+    setNetworkModelsEthUsdFromOracle(false);
     try {
-      const [netRes, catalogRes] = await Promise.allSettled([
+      const [netRes, catalogRes, ethRes] = await Promise.allSettled([
         fetch('/api/v1/developer/network-models?limit=all'),
         fetch('/api/v1/dashboard/pipeline-catalog'),
+        fetch('/api/v1/dashboard/eth-usd'),
       ]);
+
+      if (ethRes.status === 'fulfilled' && ethRes.value.ok) {
+        try {
+          const ethJson = await ethRes.value.json();
+          const n = ethJson.ethUsd;
+          if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
+            setNetworkModelsEthUsd(n);
+            setNetworkModelsEthUsdFromOracle(true);
+          }
+        } catch {
+          /* keep client fallback */
+        }
+      }
 
       // Require net/models to succeed
       if (netRes.status !== 'fulfilled' || !netRes.value.ok) {
@@ -1293,12 +1610,23 @@ result = [...result].sort((a, b) => {
                         {filteredNetworkModels.length} model{filteredNetworkModels.length !== 1 ? 's' : ''}
                         {(networkModelSearch || pipelineFilter !== 'all') && ` (filtered from ${networkModels.length})`}
                       </span>
-                      <button
-                        onClick={loadNetworkModels}
-                        className="text-xs text-text-secondary hover:text-accent-blue transition-colors"
-                      >
-                        Refresh
-                      </button>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {networkModelsEthUsdFromOracle ? (
+                          <span
+                            className="text-[10px] text-text-secondary tabular-nums"
+                            title="USD list-price estimates use this ETH/USD from GET /api/v1/dashboard/eth-usd (cached)."
+                          >
+                            ETH/USD ≈ ${networkModelsEthUsd.toFixed(2)}
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={loadNetworkModels}
+                          className="text-xs text-text-secondary hover:text-accent-blue transition-colors"
+                        >
+                          Refresh
+                        </button>
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full">
@@ -1309,29 +1637,37 @@ result = [...result].sort((a, b) => {
                                 { key: 'Model', label: 'Model', align: 'left' },
                                 { key: 'WarmOrchCount', label: 'Warm Orchestrators', align: 'right' },
                                 { key: 'TotalCapacity', label: 'Total Capacity', align: 'right' },
-                                { key: 'PriceAvgWeiPerPixel', label: 'Avg Price (wei/px)', align: 'right' },
-                                { key: 'PriceMinWeiPerPixel', label: 'Price Range (wei/px)', align: 'right' },
-                              ] as { key: ModelSortKey; label: string; align: 'left' | 'right' }[]
-                            ).map(({ key, label, align }) => {
+                                {
+                                  key: 'PriceAvgWeiPerPixel',
+                                  label: 'Price',
+                                  align: 'right',
+                                },
+                              ] as {
+                                key: ModelSortKey;
+                                label: string;
+                                align: 'left' | 'right';
+                                headerTitle?: string;
+                              }[]
+                            ).map(({ key, label, align, headerTitle }) => {
                               const active = modelSortKey === key;
-                              const Icon = active ? (modelSortDir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
                               return (
                                 <th key={key} className={`pb-3 font-medium${align === 'right' ? ' text-right' : ''}`}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
+                                  <NetworkModelSortHeader
+                                    sortKey={key}
+                                    label={label}
+                                    align={align}
+                                    headerTitle={headerTitle}
+                                    active={active}
+                                    sortDir={modelSortDir}
+                                    onSort={() => {
                                       if (modelSortKey === key) {
-                                        setModelSortDir((d) => d === 'asc' ? 'desc' : 'asc');
+                                        setModelSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
                                       } else {
                                         setModelSortKey(key);
                                         setModelSortDir('desc');
                                       }
                                     }}
-                                    className={`inline-flex items-center gap-1 hover:text-text-primary transition-colors${align === 'right' ? ' flex-row-reverse' : ''}${active ? ' text-text-primary' : ''}`}
-                                  >
-                                    {label}
-                                    <Icon size={12} className={active ? 'text-accent-blue' : 'opacity-40'} />
-                                  </button>
+                                  />
                                 </th>
                               );
                             })}
@@ -1365,16 +1701,14 @@ result = [...result].sort((a, b) => {
                               <td className="py-3 pr-4 text-right">
                                 <span className={`text-sm font-mono ${model.TotalCapacity > 0 ? 'text-text-primary' : 'text-text-secondary opacity-40'}`}>{model.TotalCapacity > 0 ? model.TotalCapacity : '—'}</span>
                               </td>
-                              <td className="py-3 pr-4 text-right">
-                                <span className={`text-sm font-mono ${model.PriceAvgWeiPerPixel > 0 ? 'text-accent-emerald' : 'text-text-secondary opacity-40'}`}>{model.PriceAvgWeiPerPixel > 0 ? model.PriceAvgWeiPerPixel.toLocaleString() : '—'}</span>
-                              </td>
-                              <td className="py-3 text-right">
-                                <span className="text-sm font-mono text-text-secondary">
-                                  {model.PriceMinWeiPerPixel > 0 || model.PriceMaxWeiPerPixel > 0
-                                    ? `${model.PriceMinWeiPerPixel.toLocaleString()} – ${model.PriceMaxWeiPerPixel.toLocaleString()}`
-                                    : '—'}
-                                </span>
-                              </td>
+                              <DeveloperModelCombinedPriceCell
+                                pipelineId={model.Pipeline}
+                                avgWei={avgWeiBigIntFromNumber(model.PriceAvgWeiPerPixel)}
+                                minWei={avgWeiBigIntFromNumber(model.PriceMinWeiPerPixel)}
+                                maxWei={avgWeiBigIntFromNumber(model.PriceMaxWeiPerPixel)}
+                                ethUsd={networkModelsEthUsd}
+                                tdClass="py-3 pr-4 text-right"
+                              />
                             </tr>
                           ))}
                         </tbody>
