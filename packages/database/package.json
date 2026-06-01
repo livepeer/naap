@@ -36,10 +36,10 @@
     "@prisma/client": "^5.20.0"
   },
   "devDependencies": {
-    "@types/node": "^20.19.35",
+    "@types/node": "^20.19.41",
     "prisma": "^5.20.0",
     "ts-node": "^10.9.2",
-    "tsx": "^4.19.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
