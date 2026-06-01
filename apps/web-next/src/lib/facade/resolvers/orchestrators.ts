@@ -219,6 +219,23 @@ function mergePipelineModels(
   }));
 }
 
+function mergePipelineOffersFromCapabilitySla(
+  existing: { pipelineId: string; modelIds: string[] }[],
+  capabilitySla: DashboardOrchestratorPipelineModelSla[] | undefined,
+): { pipelineId: string; modelIds: string[] }[] {
+  if (!capabilitySla?.length) return existing;
+  const byPipeline = new Map(existing.map((o) => [o.pipelineId, new Set(o.modelIds)]));
+  for (const row of capabilitySla) {
+    const set = byPipeline.get(row.pipelineId) ?? new Set<string>();
+    set.add(row.modelId);
+    byPipeline.set(row.pipelineId, set);
+  }
+  return [...byPipeline.entries()].map(([pipelineId, modelIds]) => ({
+    pipelineId,
+    modelIds: [...modelIds].sort((a, b) => a.localeCompare(b)),
+  }));
+}
+
 function mapDashboardIntoNetRow(
   addressLower: string,
   dash: ApiOrchestrator,
@@ -230,7 +247,10 @@ function mapDashboardIntoNetRow(
   const netUris = netData.urisByAddress.get(addressLower) ?? [];
   const uris = mergeOrchestratorServiceUris(netUris, dash);
   const rawOffers = netData.pipelineModelsByAddress.get(addressLower) ?? [];
-  const pipelineModels = mergePipelineModels(dash.pipelineModels, rawOffers);
+  const pipelineModels = mergePipelineOffersFromCapabilitySla(
+    mergePipelineModels(dash.pipelineModels, rawOffers),
+    pipelineModelSla,
+  );
   const pipelineSet = new Set([...dash.pipelines, ...pipelineModels.map((o) => o.pipelineId)]);
   const lastSeenMs = netData.lastSeenMsByAddress.get(addressLower);
   const sla = resolveSlaMetrics(dash, streamingSla);
@@ -257,7 +277,11 @@ function netOnlyPlaceholder(
   streamingSla: StreamingSlaAggregate | undefined,
   pipelineModelSla: DashboardOrchestratorPipelineModelSla[] | undefined,
 ): DashboardOrchestrator {
-  const pipelineModels = netData.pipelineModelsByAddress.get(addressLower) ?? [];
+  const pipelineModels = mergePipelineOffersFromCapabilitySla(
+    netData.pipelineModelsByAddress.get(addressLower) ?? [],
+    pipelineModelSla,
+  );
+  const pipelineSet = new Set(pipelineModels.map((o) => o.pipelineId));
   const lastSeenMs = netData.lastSeenMsByAddress.get(addressLower);
   return {
     address: netData.displayAddressByLower.get(addressLower) ?? addressLower,
@@ -269,7 +293,7 @@ function netOnlyPlaceholder(
     effectiveSuccessRate: streamingSla?.effectiveSuccessRate ?? null,
     noSwapRatio: streamingSla?.noSwapRatio ?? null,
     slaScore: streamingSla?.slaScore ?? null,
-    pipelines: pipelineModels.map((o) => o.pipelineId),
+    pipelines: [...pipelineSet],
     pipelineModels,
     pipelineModelSla,
     gpuCount: 0,

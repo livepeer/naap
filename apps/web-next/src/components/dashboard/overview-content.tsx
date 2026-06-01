@@ -1517,7 +1517,7 @@ function OrchestratorPipelineFilterMenu({
             : 'border-border bg-background text-muted-foreground hover:bg-muted/40 hover:text-foreground'
         }`}
         aria-expanded={open}
-        aria-haspopup="listbox"
+        aria-haspopup="true"
         aria-label={`Filter by pipeline${nSelected > 0 ? `, ${nSelected} selected` : ''}`}
       >
         <Layers className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
@@ -1532,8 +1532,8 @@ function OrchestratorPipelineFilterMenu({
       {open && (
         <div
           className="absolute right-0 z-50 mt-1 max-h-56 w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg"
-          role="listbox"
-          aria-multiselectable="true"
+          role="group"
+          aria-label="Filter pipelines"
         >
           <label className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-xs hover:bg-muted/50">
             <input
