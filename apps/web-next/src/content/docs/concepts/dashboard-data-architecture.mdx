@@ -198,7 +198,7 @@ This has two important implications:
 
 ### Implementation Tasks
 
-1. Validate the configured upstream returns non-empty `/v1/streaming/sla` data for the selected window.
+1. Validate the configured upstream returns non-empty `/v1/streaming/sla` data for the fixed 7-day lookback (168 h). Note: the UI period selector only affects orchestrator ordering — `resolveStreamingSla()` always queries the full 7-day window regardless of which period the user has selected.
 2. Confirm orchestrator row-level SLA values match the merged fallback logic in `resolvers/orchestrators.ts`.
 3. Confirm model tag tooltips show capability-level metrics only where per-model SLA exists.
 4. Add request-mode per-capability SLA endpoints before attempting parity with streaming model-level metrics.

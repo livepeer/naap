@@ -292,7 +292,10 @@ export async function resolveOrchestrators(opts?: { period?: string }): Promise<
         errorLabel: 'orchestrators',
       }),
       getNetOrchestratorDataSafe(),
-      resolveStreamingSla(),
+      resolveStreamingSla().catch((err) => {
+        console.warn('[resolveOrchestrators] streaming SLA fetch failed, using empty fallback:', err);
+        return { byOrchestrator: new Map(), byOrchestratorCapability: new Map() } as Awaited<ReturnType<typeof resolveStreamingSla>>;
+      }),
     ]);
 
     const dashboardByLower = new Map<string, ApiOrchestrator>();
