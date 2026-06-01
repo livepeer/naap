@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { ApiKeyStatus } from '@naap/types';
 
 export interface AIModel {
   id: string;
@@ -20,7 +21,7 @@ export interface ApiKey {
   projectName: string;
   providerDisplayName: string;
   keyHash: string;
-  status: 'active' | 'revoked';
+  status: ApiKeyStatus;
   createdAt: string;
   lastUsedAt: string | null;
 }

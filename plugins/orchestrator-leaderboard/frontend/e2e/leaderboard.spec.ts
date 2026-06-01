@@ -195,6 +195,7 @@ test.describe('Global Dataset & Plan Integration', () => {
                 {
                   id: 'plan-1',
                   billingPlanId: 'bp-1',
+                  billingProviderSlug: 'pymthouse',
                   name: 'Test Plan',
                   description: 'A test plan',
                   capabilities: ['noop'],
@@ -223,15 +224,13 @@ test.describe('Global Dataset & Plan Integration', () => {
         body: JSON.stringify({
           success: true,
           data: {
-            data: {
-              planId: 'plan-1',
-              refreshedAt: new Date().toISOString(),
-              capabilities: {
-                noop: [FIXTURE_RANK.data[0]],
-              },
-              plan: { name: 'Test Plan', description: 'A test plan', capabilities: ['noop'], topN: 5 },
-              meta: { totalOrchestrators: 1, refreshIntervalMs: 60000, cacheAgeMs: 0 },
+            planId: 'plan-1',
+            refreshedAt: new Date().toISOString(),
+            capabilities: {
+              noop: [FIXTURE_RANK.data[0]],
             },
+            plan: { name: 'Test Plan', description: 'A test plan', capabilities: ['noop'], topN: 5 },
+            meta: { totalOrchestrators: 1, refreshIntervalMs: 60000, cacheAgeMs: 0 },
           },
         }),
       });
@@ -256,8 +255,8 @@ test.describe('Global Dataset & Plan Integration', () => {
     });
 
     expect(resp.success).toBe(true);
-    expect(resp.data.data.plan.name).toBe('Test Plan');
-    expect(resp.data.data.plan.description).toBe('A test plan');
-    expect(resp.data.data.capabilities.noop).toHaveLength(1);
+    expect(resp.data.plan.name).toBe('Test Plan');
+    expect(resp.data.plan.description).toBe('A test plan');
+    expect(resp.data.capabilities.noop).toHaveLength(1);
   });
 });

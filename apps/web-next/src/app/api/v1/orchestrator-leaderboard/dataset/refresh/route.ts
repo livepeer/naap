@@ -16,14 +16,12 @@ import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
 import { getRefreshIntervalMs, getLastRefreshedAt } from '@/lib/orchestrator-leaderboard/config';
 import { refreshGlobalDataset } from '@/lib/orchestrator-leaderboard/global-refresh';
-
-function isCronAuth(request: NextRequest): boolean {
-  const auth = request.headers.get('authorization');
-  return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
-}
+import { verifyCronAuth } from '@/lib/orchestrator-leaderboard/cron-auth';
+import { syncPymthouseManifestSnapshot } from '@/lib/pymthouse-manifest';
+import { clearPlanCache } from '@/lib/orchestrator-leaderboard/refresh';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const cronAuthed = isCronAuth(request);
+  const cronAuthed = verifyCronAuth(request);
 
   let adminUserId: string | null = null;
   if (!cronAuthed) {
@@ -51,18 +49,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (cronAuthed) {
     const lastRefreshed = await getLastRefreshedAt();
     if (lastRefreshed && Date.now() - lastRefreshed.getTime() < intervalMs) {
+      const { revisionChanged } = await syncPymthouseManifestSnapshot();
+      if (revisionChanged) {
+        clearPlanCache();
+      }
       return NextResponse.json({
         success: true,
         data: {
           skipped: true,
           reason: 'Global dataset is still fresh',
           nextRefreshInMs: intervalMs - (Date.now() - lastRefreshed.getTime()),
+          pymthouseManifestRevisionChanged: revisionChanged,
         },
       });
     }
   }
 
-  const authToken = getAuthToken(request) || process.env.CRON_SECRET || '';
+  const authToken = adminUserId
+    ? (getAuthToken(request) || '')
+    : (getAuthToken(request) || process.env.CRON_SECRET || '');
   const refreshedBy = adminUserId ? `admin:${adminUserId}` : 'cron';
 
   try {
@@ -75,9 +80,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Refresh failed';
+    console.error('[dataset/refresh] refreshGlobalDataset failed:', err);
     return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL_ERROR', message } },
+      { success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
       { status: 500 },
     );
   }

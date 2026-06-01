@@ -99,7 +99,8 @@ test.describe('Orchestrator Leaderboard (stub) @pre-release', () => {
     await expect(page.getByText('orch-1.example.com')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('orch-2.example.com')).toBeVisible();
     await expect(page.getByText('RTX 4090')).toBeVisible();
-    await expect(page.getByText('2 orchestrators')).toBeVisible();
+    const expectedCount = `${STUB_RANK_DATA.length} orchestrator${STUB_RANK_DATA.length === 1 ? '' : 's'}`;
+    await expect(page.getByText(expectedCount)).toBeVisible();
   });
 });
 

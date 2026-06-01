@@ -1,9 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import { Sidebar } from './sidebar';
 import { TopBar } from './top-bar';
 import { useShell, useEvents } from '@/contexts/shell-context';
+
+function isOrchestratorLeaderboardRoute(pathname: string | null): boolean {
+  return pathname?.startsWith('/orchestrator-leaderboard') ?? false;
+}
 
 // Constants — must match sidebar.tsx
 const SIDEBAR_DEFAULT_WIDTH = 240;
@@ -30,8 +35,10 @@ interface AppLayoutProps {
  * a small gap exposing the dark frame beneath.
  */
 export function AppLayout({ children }: AppLayoutProps) {
+  const pathname = usePathname();
   const { isSidebarOpen } = useShell();
   const eventBus = useEvents();
+  const pluginEdgeToEdge = isOrchestratorLeaderboardRoute(pathname);
 
   // Track sidebar width (syncs with sidebar resize via event bus)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -71,7 +78,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div className="h-full flex flex-col rounded-lg overflow-hidden bg-card border border-border/60">
           <TopBar />
           <main className="flex-1 overflow-y-auto">
-            <div className="px-5 py-4">
+            <div className={pluginEdgeToEdge ? 'p-0' : 'px-5 py-4'}>
               {children}
             </div>
           </main>

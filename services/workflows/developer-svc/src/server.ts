@@ -102,7 +102,7 @@ app.post('/api/v1/developer/keys', (req, res) => {
     projectName,
     providerDisplayName: providerDisplayName || 'Daydream',
     keyHash: hashApiKey(rawKey),
-    status: 'active' as const,
+    status: 'ACTIVE' as const,
     createdAt: new Date().toISOString(),
     lastUsedAt: null,
   };
@@ -160,7 +160,7 @@ app.delete('/api/v1/developer/keys/:id', (req, res) => {
   }
   
   // Soft delete - mark as revoked
-  apiKeys[keyIndex].status = 'revoked';
+  apiKeys[keyIndex].status = 'REVOKED';
   
   res.json({ message: 'API key revoked', key: apiKeys[keyIndex] });
 });
