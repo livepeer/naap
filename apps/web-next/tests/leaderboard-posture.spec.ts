@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test';
  *   3. Admin-only GET routes return 403 for non-admins
  *   4. Discovery Plans page loads for users
  *   5. Dataset Settings panel hidden for non-admins
- *   6. Seed Demo button hidden for non-admins
+ *   6. No per-user demo seed UI (defaults come from deploy-time seed only)
  *
  * Requires E2E_USER_EMAIL + E2E_USER_PASSWORD for non-admin user,
  * and optionally ADMIN_EMAIL + ADMIN_PASSWORD for admin.
@@ -149,7 +149,7 @@ test.describe('Leaderboard Posture — UI (live) @pre-release', () => {
     await expect(page.getByText('Maximum Availability')).toBeVisible();
   });
 
-  test('non-admin does not see Seed Demo Data button', async ({ page }) => {
+  test('plans page has no Seed Demo Data button', async ({ page }) => {
     await page.goto('/orchestrator-leaderboard/plans');
     await expect(page.getByRole('heading', { name: /Discovery Plans/i })).toBeVisible({
       timeout: 30_000,
@@ -186,12 +186,12 @@ test.describe('Leaderboard Posture — Admin UI (live) @pre-release', () => {
   );
   test.use({ storageState: 'playwright/.auth/admin.json' });
 
-  test('admin sees Seed Demo Data button on Plans page', async ({ page }) => {
+  test('admin plans page has no Seed Demo Data button', async ({ page }) => {
     await page.goto('/orchestrator-leaderboard/plans');
     await expect(page.getByRole('heading', { name: /Discovery Plans/i })).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByRole('button', { name: /Seed Demo/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Seed Demo/i })).not.toBeVisible();
   });
 
   test('admin sees Dataset Settings panel', async ({ page }) => {

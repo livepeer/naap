@@ -225,7 +225,7 @@ export function PluginLoader({
       }
 
       // Mount the plugin
-      cleanupRef.current = mountUMDPlugin(loaded, containerRef.current, pluginContext);
+      cleanupRef.current = await mountUMDPlugin(loaded, containerRef.current, pluginContext);
       mountedRef.current = true;
 
       setStatus('loaded');

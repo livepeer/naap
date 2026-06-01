@@ -105,8 +105,8 @@ if [ "${VERCEL_ENV}" = "production" ] || [ "${VERCEL_ENV}" = "preview" ]; then
   echo "[3.5/6] Seeding gateway connectors (ClickHouse + Subgraph)..."
   npx tsx bin/seed-gateway-connector.ts || echo "WARN: gateway connector seed had issues (non-fatal)"
 
-  # Seed demo discovery plans so the leaderboard UI has data to display.
-  echo "[3.6/6] Seeding discovery plans..."
+  # Seed public default discovery plans (visible to all signed-in users).
+  echo "[3.6/6] Seeding default discovery plans..."
   npx tsx bin/seed-discovery-plans.ts || echo "WARN: discovery plan seed had issues (non-fatal)"
 fi
 

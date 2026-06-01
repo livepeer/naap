@@ -28,6 +28,8 @@ const nextConfig = {
     '@naap/plugin-sdk',
     '@naap/cache',
     '@naap/crypto',
+    // @pymthouse/builder-sdk removed: it ships precompiled dist/*.js with exports
+    // pointing at dist, so Next.js does not need to transpile it.
   ],
 
   // Image optimization

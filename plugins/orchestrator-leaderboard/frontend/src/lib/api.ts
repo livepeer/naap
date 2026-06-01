@@ -138,6 +138,7 @@ export type PlanSortBy = 'slaScore' | 'latency' | 'price' | 'swapRate' | 'avail'
 export interface DiscoveryPlan {
   id: string;
   billingPlanId: string;
+  billingProviderSlug: 'pymthouse' | 'daydream' | null;
   name: string;
   description: string | null;
   teamId: string | null;
@@ -166,6 +167,7 @@ export interface PlanResults {
 
 export interface PlanUpdatePayload {
   name?: string;
+  billingProviderSlug?: 'pymthouse' | 'daydream' | null;
   capabilities?: string[];
   topN?: number;
   slaWeights?: SLAWeights | null;
@@ -173,6 +175,19 @@ export interface PlanUpdatePayload {
   sortBy?: PlanSortBy | null;
   filters?: LeaderboardFilters | null;
   enabled?: boolean;
+}
+
+export interface PlanCreatePayload {
+  billingPlanId: string;
+  billingProviderSlug: 'pymthouse' | 'daydream';
+  name: string;
+  description?: string;
+  capabilities: string[];
+  topN?: number;
+  slaWeights?: SLAWeights | null;
+  slaMinScore?: number | null;
+  sortBy?: PlanSortBy | null;
+  filters?: LeaderboardFilters | null;
 }
 
 export async function fetchPlans(): Promise<DiscoveryPlan[]> {
@@ -193,6 +208,28 @@ export async function fetchPlans(): Promise<DiscoveryPlan[]> {
   return json.data.plans;
 }
 
+export async function createPlan(
+  payload: PlanCreatePayload,
+): Promise<DiscoveryPlan> {
+  const res = await fetch(`${BASE_URL}/plans`, {
+    method: 'POST',
+    headers: buildHeaders(true),
+    body: JSON.stringify(payload),
+    credentials: 'include',
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<DiscoveryPlan> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+
+  return json.data;
+}
+
 export async function fetchPlanResults(planId: string): Promise<PlanResults> {
   const res = await fetch(`${BASE_URL}/plans/${planId}/results`, {
     headers: buildHeaders(false),
@@ -205,10 +242,108 @@ export async function fetchPlanResults(planId: string): Promise<PlanResults> {
     throw new Error(json?.error?.message || `Request failed (${res.status})`);
   }
 
-  const json: APIResponse<{ data: PlanResults }> = await res.json();
+  const json: APIResponse<PlanResults> = await res.json();
   if (!json.success) throw new Error(json.error?.message || 'Request failed');
 
-  return json.data.data;
+  return json.data;
+}
+
+export interface PlanResultsTestResponse {
+  status: number;
+  ok: boolean;
+  body: unknown;
+}
+
+/** Run discovery results with the current session token (not shown in UI). */
+export async function testPlanResultsEndpoint(planId: string): Promise<PlanResultsTestResponse> {
+  const res = await fetch(`${BASE_URL}/plans/${planId}/results`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  const text = await res.text();
+  let body: unknown = text;
+  if (text.length > 0) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      body = text;
+    }
+  }
+
+  return { status: res.status, ok: res.ok, body };
+}
+
+export interface CapabilityCatalogPipelineModel {
+  id: string;
+  label: string;
+  capability: string;
+}
+
+export interface CapabilityCatalogPipeline {
+  id: string;
+  name: string;
+  models: CapabilityCatalogPipelineModel[];
+}
+
+export interface CapabilityCatalogResponse {
+  requestedBillingProviderSlug: 'pymthouse' | 'daydream';
+  billingProviderSlug: 'pymthouse' | 'daydream';
+  pymthouseConfigured: boolean;
+  manifestChecked: boolean;
+  manifestAvailable: boolean;
+  pipelines: CapabilityCatalogPipeline[];
+  capabilities?: string[];
+  filteredCapabilities?: string[];
+}
+
+export async function fetchCapabilityCatalog(
+  billingProviderSlug: 'daydream',
+): Promise<CapabilityCatalogResponse> {
+  const q = new URLSearchParams({ billingProviderSlug }).toString();
+  const res = await fetch(`${BASE_URL}/capability-catalog?${q}`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<CapabilityCatalogResponse> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+  return json.data;
+}
+
+export async function fetchCapabilityCatalogManifest(
+  billingProviderSlug: 'daydream',
+  capabilities: string[],
+): Promise<CapabilityCatalogResponse> {
+  const q = new URLSearchParams({
+    billingProviderSlug,
+    manifestOnly: '1',
+  });
+  for (const capability of capabilities) {
+    q.append('capability', capability);
+  }
+
+  const res = await fetch(`${BASE_URL}/capability-catalog?${q}`, {
+    headers: buildHeaders(false),
+    credentials: 'include',
+    signal: AbortSignal.timeout(5_000),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json?.error?.message || `Request failed (${res.status})`);
+  }
+
+  const json: APIResponse<CapabilityCatalogResponse> = await res.json();
+  if (!json.success) throw new Error(json.error?.message || 'Request failed');
+  return json.data;
 }
 
 export async function updatePlan(
@@ -445,21 +580,3 @@ export async function fetchAudits(limit = 20, cursor?: string): Promise<{
   };
 }
 
-export async function seedDemoPlans(): Promise<{ created: number }> {
-  const res = await fetch(`${BASE_URL}/plans/seed`, {
-    method: 'POST',
-    headers: buildHeaders(true),
-    credentials: 'include',
-    signal: AbortSignal.timeout(10_000),
-  });
-
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json?.error?.message || `Request failed (${res.status})`);
-  }
-
-  const json: APIResponse<{ created: number }> = await res.json();
-  if (!json.success) throw new Error(json.error?.message || 'Request failed');
-
-  return json.data;
-}

@@ -5,7 +5,7 @@
  * Live tests (skipped in CI): validate real network endpoints.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { FetchCtx, NormalizedOrch } from '../../sources/types';
 
 const IS_CI = !!process.env.CI;
@@ -19,6 +19,65 @@ const internalCtx: FetchCtx = { authToken: 'test-token', internal: true };
 vi.mock('../../sources/internal-resolve', () => ({
   resolveConnectorAuth: vi.fn().mockResolvedValue(null),
 }));
+
+// ---------------------------------------------------------------------------
+// clickhouse-query — unit
+// ---------------------------------------------------------------------------
+
+describe('clickhouse-query adapter (unit)', () => {
+  const originalFetch = globalThis.fetch;
+  const prevUrl = process.env.CLICKHOUSE_URL;
+  const prevUser = process.env.CLICKHOUSE_USER;
+  const prevPassword = process.env.CLICKHOUSE_PASSWORD;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (prevUrl === undefined) delete process.env.CLICKHOUSE_URL;
+    else process.env.CLICKHOUSE_URL = prevUrl;
+    if (prevUser === undefined) delete process.env.CLICKHOUSE_USER;
+    else process.env.CLICKHOUSE_USER = prevUser;
+    if (prevPassword === undefined) delete process.env.CLICKHOUSE_PASSWORD;
+    else process.env.CLICKHOUSE_PASSWORD = prevPassword;
+    vi.resetModules();
+  });
+
+  it('prefers direct CLICKHOUSE_* env credentials for internal startup refresh', async () => {
+    process.env.CLICKHOUSE_URL = 'https://ch.example.com:8443';
+    process.env.CLICKHOUSE_USER = 'default';
+    process.env.CLICKHOUSE_PASSWORD = 'secret';
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: [{ capability_name: 'streamdiffusion' }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [{
+            orch_uri: 'https://orch.test',
+            gpu_name: 'RTX 4090',
+            gpu_gb: 24,
+            avail: 1,
+            total_cap: 2,
+            price_per_unit: 3,
+          }],
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const { clickhouseAdapter } = await import('../../sources/clickhouse');
+    const result = await clickhouseAdapter.fetchAll(internalCtx);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://ch.example.com:8443/');
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe(`Basic ${Buffer.from('default:secret').toString('base64')}`);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].orchUri).toBe('https://orch.test');
+  });
+});
 
 describe('naap-discover adapter (unit)', () => {
   const originalFetch = globalThis.fetch;
@@ -206,7 +265,7 @@ describe('resolver with union membership (integration)', () => {
 // Live integration tests (skipped in CI — run locally with `CI= npx vitest run ...`)
 // ---------------------------------------------------------------------------
 
-describe.skipIf(IS_CI)('naap-discover adapter (live)', () => {
+describe.skipIf(IS_CI || process.env.RUN_LIVE_INTEGRATION_TESTS !== 'true')('naap-discover adapter (live)', () => {
   it('fetches real orchestrators from public Discovery API', async () => {
     // Call the public endpoint directly (bypasses mocks)
     const res = await globalThis.fetch('https://naap-api.cloudspe.com/v1/discover/orchestrators', {

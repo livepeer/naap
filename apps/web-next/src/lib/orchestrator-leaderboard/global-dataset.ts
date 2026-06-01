@@ -7,6 +7,8 @@
  * Postgres table — no more cold-start issues.
  */
 
+import { randomUUID } from 'node:crypto';
+import { Prisma } from '@naap/database';
 import { prisma } from '@/lib/db';
 import type { ClickHouseLeaderboardRow } from './types';
 
@@ -120,10 +122,34 @@ interface DatasetWriteInput {
   refreshedBy: string;
 }
 
+interface FlatDatasetRow {
+  capability: string;
+  orchUri: string;
+  gpuName: string;
+  gpuGb: number;
+  avail: number;
+  totalCap: number;
+  pricePerUnit: number;
+  bestLatMs: number | null;
+  avgLatMs: number | null;
+  swapRatio: number | null;
+  avgAvail: number | null;
+}
+
 /**
- * Full-replace the persistent dataset. Deletes all existing rows and inserts
- * the new resolved dataset in a single transaction. Uses batched inserts to
- * stay within PostgreSQL's 65535 bind-parameter limit.
+ * Full-replace the persistent dataset using upsert-then-prune so that
+ * concurrent readers always see a populated table:
+ *
+ *   1. UPSERT every new row with `refreshedAt = now` (ON CONFLICT (capability,
+ *      orchUri) DO UPDATE). Existing rows are updated in place; new rows are
+ *      inserted.
+ *   2. DELETE rows whose `refreshedAt < now` — those are stragglers from the
+ *      previous refresh that no longer exist in the new dataset.
+ *
+ * Unlike the prior delete-then-insert approach, this never leaves the table
+ * empty (or partially empty), so `/rank`, `/filters`, and plan evaluation
+ * cannot observe zero-row windows during a refresh — even under cold-start
+ * triggered refreshes on Vercel.
  */
 export async function writeGlobalDataset(input: DatasetWriteInput): Promise<{
   totalRows: number;
@@ -132,21 +158,7 @@ export async function writeGlobalDataset(input: DatasetWriteInput): Promise<{
   const { capabilities, refreshedBy } = input;
   const now = new Date();
 
-  const flatRows: {
-    capability: string;
-    orchUri: string;
-    gpuName: string;
-    gpuGb: number;
-    avail: number;
-    totalCap: number;
-    pricePerUnit: number;
-    bestLatMs: number | null;
-    avgLatMs: number | null;
-    swapRatio: number | null;
-    avgAvail: number | null;
-    refreshedAt: Date;
-  }[] = [];
-
+  const flatRows: FlatDatasetRow[] = [];
   for (const [cap, rows] of Object.entries(capabilities)) {
     for (const row of rows) {
       flatRows.push({
@@ -161,7 +173,6 @@ export async function writeGlobalDataset(input: DatasetWriteInput): Promise<{
         avgLatMs: row.avg_lat_ms ?? null,
         swapRatio: row.swap_ratio ?? null,
         avgAvail: row.avg_avail ?? null,
-        refreshedAt: now,
       });
     }
   }
@@ -169,16 +180,18 @@ export async function writeGlobalDataset(input: DatasetWriteInput): Promise<{
   const validRows = flatRows.filter((r) => r.orchUri.length > 0);
   const capNames = Object.keys(capabilities).sort();
 
-  // Use interactive transaction so we can batch inserts and stay within
-  // PostgreSQL's parameter limit (~65535 bind params).
   await prisma.$transaction(async (tx) => {
-    await tx.leaderboardDatasetRow.deleteMany({});
-
     for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
-      await tx.leaderboardDatasetRow.createMany({
-        data: validRows.slice(i, i + BATCH_SIZE),
-      });
+      const batch = validRows.slice(i, i + BATCH_SIZE);
+      await upsertDatasetBatch(tx, batch, now);
     }
+
+    // Prune rows that weren't refreshed in this run — they're no longer in
+    // the resolved dataset. Doing this after the upserts means readers never
+    // see a moment where the table is empty.
+    await tx.leaderboardDatasetRow.deleteMany({
+      where: { refreshedAt: { lt: now } },
+    });
 
     await tx.leaderboardConfig.upsert({
       where: { id: 'singleton' },
@@ -200,6 +213,53 @@ export async function writeGlobalDataset(input: DatasetWriteInput): Promise<{
     totalRows: validRows.length,
     totalCapabilities: capNames.length,
   };
+}
+
+async function upsertDatasetBatch(
+  tx: Prisma.TransactionClient,
+  batch: FlatDatasetRow[],
+  refreshedAt: Date,
+): Promise<void> {
+  if (batch.length === 0) return;
+
+  const valuesSql = Prisma.join(
+    batch.map(
+      (r) => Prisma.sql`(
+        ${randomUUID()},
+        ${r.capability},
+        ${r.orchUri},
+        ${r.gpuName},
+        ${r.gpuGb},
+        ${r.avail},
+        ${r.totalCap},
+        ${r.pricePerUnit},
+        ${r.bestLatMs},
+        ${r.avgLatMs},
+        ${r.swapRatio},
+        ${r.avgAvail},
+        ${refreshedAt}
+      )`,
+    ),
+  );
+
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "plugin_orchestrator_leaderboard"."LeaderboardDatasetRow"
+      (id, capability, "orchUri", "gpuName", "gpuGb", avail, "totalCap",
+       "pricePerUnit", "bestLatMs", "avgLatMs", "swapRatio", "avgAvail",
+       "refreshedAt")
+    VALUES ${valuesSql}
+    ON CONFLICT (capability, "orchUri") DO UPDATE SET
+      "gpuName"     = EXCLUDED."gpuName",
+      "gpuGb"       = EXCLUDED."gpuGb",
+      avail         = EXCLUDED.avail,
+      "totalCap"    = EXCLUDED."totalCap",
+      "pricePerUnit" = EXCLUDED."pricePerUnit",
+      "bestLatMs"   = EXCLUDED."bestLatMs",
+      "avgLatMs"    = EXCLUDED."avgLatMs",
+      "swapRatio"   = EXCLUDED."swapRatio",
+      "avgAvail"    = EXCLUDED."avgAvail",
+      "refreshedAt" = EXCLUDED."refreshedAt"
+  `);
 }
 
 // ---------------------------------------------------------------------------

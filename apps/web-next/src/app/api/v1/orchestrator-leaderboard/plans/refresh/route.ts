@@ -10,14 +10,10 @@ export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { refreshAllPlans } from '@/lib/orchestrator-leaderboard/refresh';
-
-function authorized(request: NextRequest): boolean {
-  const auth = request.headers.get('authorization');
-  return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`;
-}
+import { verifyCronAuth } from '@/lib/orchestrator-leaderboard/cron-auth';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (!authorized(request)) {
+  if (!verifyCronAuth(request)) {
     return NextResponse.json(
       { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } },
       { status: 401 },
@@ -31,9 +27,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       data: result,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Refresh failed';
+    console.error('[plans/refresh] refreshAllPlans failed:', err);
     return NextResponse.json(
-      { success: false, error: { code: 'INTERNAL_ERROR', message } },
+      { success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
       { status: 500 },
     );
   }

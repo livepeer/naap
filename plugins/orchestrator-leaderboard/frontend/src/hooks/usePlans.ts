@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   fetchPlans,
   fetchPlanResults,
-  seedDemoPlans,
   type DiscoveryPlan,
   type PlanResults,
 } from '../lib/api';
@@ -18,8 +17,6 @@ interface UsePlansResult {
   plans: PlanWithResults[];
   loading: boolean;
   error: string | null;
-  seeding: boolean;
-  seed: () => Promise<void>;
   refresh: () => void;
 }
 
@@ -27,7 +24,6 @@ export function usePlans(): UsePlansResult {
   const [planItems, setPlanItems] = useState<PlanWithResults[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [seeding, setSeeding] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -90,17 +86,5 @@ export function usePlans(): UsePlansResult {
     return () => { cancelled = true; };
   }, [refreshKey]);
 
-  const seed = useCallback(async () => {
-    setSeeding(true);
-    try {
-      await seedDemoPlans();
-      refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to seed plans');
-    } finally {
-      setSeeding(false);
-    }
-  }, [refresh]);
-
-  return { plans: planItems, loading, error, seeding, seed, refresh };
+  return { plans: planItems, loading, error, refresh };
 }

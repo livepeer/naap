@@ -17,7 +17,7 @@
 import { useEffect, useRef, useMemo, useCallback } from 'react';
 import { usePlugins } from '@/contexts/plugin-context';
 import { useShell } from '@/contexts/shell-context';
-import { loadUMDPlugin, type UMDLoadOptions } from '@/lib/plugins/umd-loader';
+import { loadUMDPlugin, mountUMDPlugin, type UMDLoadOptions } from '@/lib/plugins/umd-loader';
 
 const TAG = '[BackgroundPluginLoader]';
 
@@ -121,10 +121,10 @@ export function BackgroundPluginLoader() {
         team: shell.team,
       };
 
-      // Mount the plugin
+      // Mount the plugin via shared helper to ensure stylesheet lifecycle
+      // is managed consistently with foreground plugins.
       console.log(`${TAG} ${plugin.name}: calling mount()...`);
-      const cleanup = loaded.module.mount(container, pluginContext);
-      const cleanupFn = typeof cleanup === 'function' ? cleanup : () => {};
+      const cleanupFn = await mountUMDPlugin(loaded, container, pluginContext);
       mountedPlugins.current.set(plugin.name, cleanupFn);
 
       console.log(`${TAG} ✅ Mounted headless plugin: ${plugin.name}`);
