@@ -10,8 +10,10 @@ export interface BillingProviderRedirectConfig {
   readonly authUrl: string;
 }
 
+// External-app OAuth (NaaP, Scope desktop) uses redirect_url + server-side allowlist
+// validation on Daydream's /sign-in/local — not the generic /sign-in (returnUrl only).
 const DAYDREAM_AUTH_URL =
-  process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in';
+  process.env.DAYDREAM_AUTH_URL || 'https://app.daydream.live/sign-in/local';
 
 const REDIRECT_FLOW_BILLING_PROVIDERS: Readonly<Record<string, BillingProviderRedirectConfig>> = {
   daydream: { providerSlug: 'daydream', authUrl: DAYDREAM_AUTH_URL },
