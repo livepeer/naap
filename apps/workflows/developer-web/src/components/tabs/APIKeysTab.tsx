@@ -67,10 +67,10 @@ export const APIKeysTab: React.FC = () => {
       return;
     }
     setKeys((prev) =>
-      prev.map((k) => (k.id === key.id ? { ...k, status: 'revoked' } : k))
+      prev.map((k) => (k.id === key.id ? { ...k, status: 'REVOKED' } : k))
     );
     if (selectedKey?.id === key.id) {
-      setSelectedKey({ ...selectedKey, status: 'revoked' });
+      setSelectedKey({ ...selectedKey, status: 'REVOKED' });
     }
   };
 
@@ -85,7 +85,7 @@ export const APIKeysTab: React.FC = () => {
       projectName: data.projectName,
       providerDisplayName: data.providerDisplayName,
       keyHash: data.rawKey.slice(0, 6) + '****************************' + data.rawKey.slice(-4),
-      status: 'active',
+      status: 'ACTIVE',
       createdAt: new Date().toISOString(),
       lastUsedAt: null,
     };
@@ -93,8 +93,8 @@ export const APIKeysTab: React.FC = () => {
     setShowCreateModal(false);
   };
 
-  const activeKeys = keys.filter((k) => k.status === 'active');
-  const revokedKeys = keys.filter((k) => k.status === 'revoked');
+  const activeKeys = keys.filter((k) => k.status === 'ACTIVE');
+  const revokedKeys = keys.filter((k) => k.status === 'REVOKED');
 
   return (
     <div className="space-y-6">

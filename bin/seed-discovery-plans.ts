@@ -75,12 +75,33 @@ function defaultPlanId(slug: string): string {
   return `naap-default-${slug}`;
 }
 
+async function backfillBillingProviderSlugs(
+  prisma: PrismaClient,
+): Promise<number> {
+  // Backfill legacy null slugs to pymthouse so they align with newly seeded
+  // defaults (also pymthouse). We intentionally do NOT blanket-convert
+  // existing pymthouse plans to daydream — that would fight operator intent and
+  // diverge from default plan creation below.
+  const nullResult = await prisma.discoveryPlan.updateMany({
+    where: { billingProviderSlug: null },
+    data: { billingProviderSlug: 'pymthouse' },
+  });
+  if (nullResult.count > 0) {
+    console.log(
+      `[seed-plans] Backfilled billingProviderSlug=pymthouse on ${nullResult.count} legacy plan(s)`,
+    );
+  }
+
+  return nullResult.count;
+}
+
 async function main() {
   console.log('[seed-plans] Seeding public default discovery plans...');
 
   const prisma = new PrismaClient();
 
   try {
+    await backfillBillingProviderSlugs(prisma);
     let ownerUserId = SYSTEM_OWNER_ID;
     const existingUser = await prisma.user.findFirst({
       orderBy: { createdAt: 'asc' },
@@ -92,6 +113,12 @@ async function main() {
     } else {
       console.log(`[seed-plans] No users found — using system owner ID`);
     }
+
+    // The plans API scopes queries by teamId (using the "personal:{userId}"
+    // convention) when the caller authenticates via JWT. Without setting
+    // teamId here, the runtime scopeWhere filter would never match these
+    // rows, making them invisible to logged-in users.
+    const teamId = `personal:${ownerUserId}`;
 
     const existingPlans = await prisma.discoveryPlan.findMany({
       where: { visibility: 'public' },
@@ -112,6 +139,7 @@ async function main() {
       await prisma.discoveryPlan.create({
         data: {
           billingPlanId,
+          billingProviderSlug: 'pymthouse',
           name: tpl.name,
           description: tpl.description,
           visibility: 'public',
@@ -122,6 +150,7 @@ async function main() {
           sortBy: tpl.sortBy ?? undefined,
           filters: tpl.filters ?? undefined,
           ownerUserId,
+          teamId,
           enabled: true,
         },
       });

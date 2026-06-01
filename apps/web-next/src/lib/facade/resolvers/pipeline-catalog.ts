@@ -153,27 +153,34 @@ function unionCatalogEntries(...parts: DashboardPipelineCatalogEntry[][]): Dashb
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-export async function resolvePipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
-  return cachedFetch('facade:pipeline-catalog', TTL.PIPELINE_CATALOG, async () => {
-    const end = new Date();
-    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-    const [netModels, warmCatalog, fpsByPipelineModel] = await Promise.all([
-      getRawNetModels().catch((err) => {
-        console.warn('[facade/pipeline-catalog] net/models augment skipped:', err);
-        return [] as NetworkModel[];
-      }),
-      fetchWarmCatalog(),
-      resolvePerfByModel({ start: start.toISOString(), end: end.toISOString() }).catch((err) => {
-        console.warn('[facade/pipeline-catalog] perf-by-model augment skipped:', err);
-        return {};
-      }),
-    ]);
+async function fetchPipelineCatalogUncached(): Promise<DashboardPipelineCatalogEntry[]> {
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  const [netModels, warmCatalog, fpsByPipelineModel] = await Promise.all([
+    getRawNetModels().catch((err) => {
+      console.warn('[facade/pipeline-catalog] net/models augment skipped:', err);
+      return [] as NetworkModel[];
+    }),
+    fetchWarmCatalog(),
+    resolvePerfByModel({ start: start.toISOString(), end: end.toISOString() }).catch((err) => {
+      console.warn('[facade/pipeline-catalog] perf-by-model augment skipped:', err);
+      return {};
+    }),
+  ]);
 
-    console.log(`[facade/pipeline-catalog] net/models: ${netModels.length} rows${warmCatalog.length > 0 ? `, warm catalog: ${warmCatalog.length} entries` : ', warm catalog empty'}`);
+  console.log(`[facade/pipeline-catalog] net/models: ${netModels.length} rows${warmCatalog.length > 0 ? `, warm catalog: ${warmCatalog.length} entries` : ', warm catalog empty'}`);
 
-    const base = buildStableCatalog(netModels, warmCatalog);
-    const fromPerfByModel = catalogFromPerfByModel(fpsByPipelineModel);
+  const base = buildStableCatalog(netModels, warmCatalog);
+  const fromPerfByModel = catalogFromPerfByModel(fpsByPipelineModel);
 
-    return unionCatalogEntries(base, fromPerfByModel);
-  });
+  return unionCatalogEntries(base, fromPerfByModel);
+}
+
+export async function resolvePipelineCatalog(opts?: {
+  bypassCache?: boolean;
+}): Promise<DashboardPipelineCatalogEntry[]> {
+  if (opts?.bypassCache) {
+    return fetchPipelineCatalogUncached();
+  }
+  return cachedFetch('facade:pipeline-catalog', TTL.PIPELINE_CATALOG, fetchPipelineCatalogUncached);
 }

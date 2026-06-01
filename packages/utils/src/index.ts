@@ -27,6 +27,8 @@ export * from './security.js';
 // Pipeline list-price USD estimates (dashboard + developer plugin)
 export * from './pipelinePricingEstimate.js';
 
+export * from './formatFeeWeiString.js';
+
 /**
  * Format an Ethereum address to a shortened display format
  */

@@ -33,6 +33,8 @@ import { normalizeTimeframeHours, resolveKPI } from './resolvers/kpi.js';
 import { resolvePipelines } from './resolvers/pipelines.js';
 import { resolvePipelineCatalog } from './resolvers/pipeline-catalog.js';
 import { resolveOrchestrators } from './resolvers/orchestrators.js';
+import { applyDiscoveryPolicyToOrchestrators } from '../orchestrator-leaderboard/discovery-policy.js';
+import type { DiscoveryPolicy } from '../orchestrator-leaderboard/discovery-policy.js';
 import { resolveGPUCapacity } from './resolvers/gpu-capacity.js';
 import { resolvePricing } from './resolvers/pricing.js';
 import { resolveNetworkModels } from './resolvers/network-models.js';
@@ -80,16 +82,23 @@ export async function getDashboardPipelines(opts: {
   return resolvePipelines({ limit: opts.limit, timeframe: opts.timeframe });
 }
 
-export async function getDashboardPipelineCatalog(): Promise<DashboardPipelineCatalogEntry[]> {
+export async function getDashboardPipelineCatalog(opts?: {
+  bypassCache?: boolean;
+}): Promise<DashboardPipelineCatalogEntry[]> {
   if (USE_STUBS) return stubs.pipelineCatalog;
-  return resolvePipelineCatalog();
+  return resolvePipelineCatalog(opts);
 }
 
 export async function getDashboardOrchestrators(opts: {
   period?: string;
+  pipeline?: string;
+  modelId?: string;
+  userDiscoveryPolicy?: DiscoveryPolicy | null;
 }): Promise<DashboardOrchestrator[]> {
   if (USE_STUBS) return stubs.orchestrators;
-  return resolveOrchestrators(opts);
+  const rows = await resolveOrchestrators(opts);
+  // PR #337 is Daydream-only: do not apply any PymtHouse pipeline/model manifest denylist here.
+  return applyDiscoveryPolicyToOrchestrators(rows, opts.userDiscoveryPolicy ?? null);
 }
 
 export async function getDashboardPricing(): Promise<DashboardPipelinePricing[]> {

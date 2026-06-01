@@ -93,7 +93,7 @@ export const ApiKeyTable: React.FC<ApiKeyTableProps> = ({
                 <span className="text-text-secondary text-sm">{formatDate(key.createdAt)}</span>
               </td>
               <td className="py-4 px-4">
-                <Badge variant={key.status === 'active' ? 'emerald' : 'rose'}>
+                <Badge variant={key.status === 'ACTIVE' ? 'emerald' : 'rose'}>
                   {key.status}
                 </Badge>
               </td>
@@ -113,7 +113,7 @@ export const ApiKeyTable: React.FC<ApiKeyTableProps> = ({
                     onClick={() => onRotateKey(key)}
                     className="p-2 hover:bg-white/10 rounded-lg transition-colors text-text-secondary hover:text-text-primary"
                     title="Rotate key"
-                    disabled={key.status === 'revoked'}
+                    disabled={key.status === 'REVOKED'}
                   >
                     <RotateCw size={16} />
                   </button>
@@ -128,7 +128,7 @@ export const ApiKeyTable: React.FC<ApiKeyTableProps> = ({
                     onClick={() => onRevokeKey(key)}
                     className="p-2 hover:bg-accent-rose/10 rounded-lg transition-colors text-text-secondary hover:text-accent-rose"
                     title="Revoke key"
-                    disabled={key.status === 'revoked'}
+                    disabled={key.status === 'REVOKED'}
                   >
                     <Trash2 size={16} />
                   </button>

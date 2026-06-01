@@ -1,6 +1,10 @@
 /**
  * GET /api/v1/auth/providers/:providerSlug/callback
  * Provider redirects the browser here after user authentication.
+ *
+ * PymtHouse does not use this route — it uses client_credentials + the Builder API
+ * via POST /api/v1/auth/providers/pymthouse/start.
+ * Only Daydream (browser-redirect OAuth) reaches this callback.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,11 +22,7 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-async function exchangeTokenForApiKey(providerSlug: string, token: string): Promise<string> {
-  if (providerSlug !== 'daydream') {
-    throw new Error(`Unsupported billing provider for OAuth callback: ${providerSlug}`);
-  }
-
+async function exchangeDaydreamTokenForApiKey(token: string): Promise<string> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10_000);
   let response: Response;
@@ -84,27 +84,40 @@ export async function GET(
 ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>' : ''}
 </head>
 <body><div class="card"><h1>${safeTitle}</h1><p>${safeMessage}</p></div></body></html>`,
-      { status: isError ? 400 : 200, headers: { 'Content-Type': 'text/html' } }
+      {
+        status: isError ? 400 : 200,
+        // no-store: callback URLs carry bearer tokens in the query string and
+        // must never be cached by the browser or intermediaries.
+        headers: {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-store',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
     );
   };
 
-  if (!token || !state) {
+  // PymtHouse uses server-to-server client_credentials — no browser callback.
+  if (providerSlug === 'pymthouse') {
     return htmlResponse(
-      'Authentication Failed',
-      'Missing token or state parameter from billing provider.',
+      'Not Used',
+      'PymtHouse billing uses server-to-server authentication. This callback is not required.',
       true
     );
   }
 
-  const session = await prisma.billingProviderOAuthSession.findUnique({
-    where: { state },
-  });
+  if (providerSlug !== 'daydream') {
+    return htmlResponse('Authentication Failed', `Unsupported billing provider: ${providerSlug}`, true);
+  }
+
+  if (!state || !token) {
+    return htmlResponse('Authentication Failed', 'Missing token or state parameter from Daydream.', true);
+  }
+
+  const session = await prisma.billingProviderOAuthSession.findUnique({ where: { state } });
   if (!session) {
-    return htmlResponse(
-      'Session Expired',
-      'The login session has expired or was already used. Please try again from NaaP.',
-      true
-    );
+    return htmlResponse('Session Expired', 'The login session has expired or was already used. Please try again from NaaP.', true);
   }
 
   if (session.providerSlug !== providerSlug) {
@@ -113,44 +126,55 @@ ${!isError ? '<script>setTimeout(function(){ window.close(); }, 3000);</script>'
 
   if (Date.now() >= new Date(session.expiresAt).getTime()) {
     await prisma.billingProviderOAuthSession
-      .updateMany({
-        where: {
-          loginSessionId: session.loginSessionId,
-          status: 'pending',
-        },
-        data: { status: 'expired' },
-      })
-      .catch(() => null);
+      .updateMany({ where: { loginSessionId: session.loginSessionId, status: 'pending' }, data: { status: 'expired' } })
+      .catch((err) => {
+        console.error(
+          `[billing-auth:${providerSlug}] Failed to expire pending sessions during callback`,
+          { loginSessionId: session.loginSessionId, err },
+        );
+        return null;
+      });
+    return htmlResponse('Session Expired', 'The login session has expired or was already used. Please try again from NaaP.', true);
+  }
 
-    return htmlResponse(
-      'Session Expired',
-      'The login session has expired or was already used. Please try again from NaaP.',
-      true
-    );
+  const claim = await prisma.billingProviderOAuthSession.updateMany({
+    where: {
+      loginSessionId: session.loginSessionId,
+      state,
+      status: 'pending',
+    },
+    data: { status: 'processing' },
+  });
+  if (claim.count !== 1) {
+    return htmlResponse('Session Expired', 'The login session has expired or was already used. Please try again from NaaP.', true);
   }
 
   try {
-    const apiKey = await exchangeTokenForApiKey(providerSlug, token);
+    const apiKey = await exchangeDaydreamTokenForApiKey(token);
 
     await prisma.billingProviderOAuthSession.update({
       where: { loginSessionId: session.loginSessionId },
-      data: {
-        status: 'complete',
-        accessToken: encryptToken(apiKey),
-      },
+      data: { status: 'complete', accessToken: encryptToken(apiKey) },
     });
 
-    console.log(
-      `[billing-auth:${providerSlug}] Callback complete for session ${session.loginSessionId.slice(0, 8)}...`
-    );
+    console.log(`[billing-auth:${providerSlug}] Callback complete for session ${session.loginSessionId.slice(0, 8)}...`);
 
     return htmlResponse('Authentication Complete', 'You can close this tab and return to NaaP.');
   } catch (err) {
     console.error(`[billing-auth:${providerSlug}] Callback error:`, err);
-    return htmlResponse(
-      'Authentication Failed',
-      err instanceof Error ? err.message : 'Failed to authenticate with billing provider.',
-      true
-    );
+    await prisma.billingProviderOAuthSession
+      .update({
+        where: { loginSessionId: session.loginSessionId },
+        data: { status: 'failed' },
+      })
+      .catch((dbErr) => {
+        console.error(
+          `[billing-auth:${providerSlug}] Failed to mark billingProviderOAuthSession as failed`,
+          { loginSessionId: session.loginSessionId, err: dbErr },
+        );
+        return null;
+      });
+    console.error(`[billing-auth:${providerSlug}] Callback handler error:`, err);
+    return htmlResponse('Authentication Failed', 'Failed to authenticate with Daydream. Please try again.', true);
   }
 }

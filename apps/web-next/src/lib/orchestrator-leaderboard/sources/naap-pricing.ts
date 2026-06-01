@@ -64,15 +64,17 @@ export const naapPricingAdapter: SourceAdapter = {
         ? json.data
         : [];
 
-    const rows: NormalizedOrch[] = rawRows.map((r) => ({
-      ethAddress: r.orchAddress.toLowerCase(),
-      orchUri: undefined,
-      pricePerUnit: r.priceWeiPerUnit,
-      pipeline: r.pipeline,
-      model: r.model,
-      isWarm: r.isWarm,
-      capabilities: [`${r.model}`],
-    }));
+    const rows: NormalizedOrch[] = rawRows
+      .filter((r) => typeof r.orchAddress === 'string' && r.orchAddress.length > 0)
+      .map((r) => ({
+        ethAddress: r.orchAddress.toLowerCase(),
+        orchUri: undefined,
+        pricePerUnit: r.priceWeiPerUnit,
+        pipeline: r.pipeline,
+        model: r.model,
+        isWarm: r.isWarm,
+        capabilities: [r.model],
+      }));
 
     return {
       rows,

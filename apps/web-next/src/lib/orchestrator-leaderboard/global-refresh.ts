@@ -12,9 +12,10 @@ import { Prisma } from '@naap/database';
 import type { SourceKind, NormalizedOrch, SourceStats } from './sources/types';
 import { getAdapter } from './sources';
 import { resolve, type ResolverConfig, type AuditEntry } from './resolver';
-import { writeGlobalDataset } from './global-dataset';
-import { getMembershipStrategy } from './config';
+import { getGlobalDatasetStats, writeGlobalDataset } from './global-dataset';
+import { getMembershipStrategy, getRefreshIntervalMs } from './config';
 import { clearPlanCache } from './refresh';
+import { syncPymthouseManifestSnapshot } from '@/lib/pymthouse-manifest';
 
 // ---------------------------------------------------------------------------
 // Load resolver config from DB (LeaderboardSource table)
@@ -94,6 +95,79 @@ async function writeAudit(input: AuditWriteInput): Promise<void> {
 // Public API — preserved signature
 // ---------------------------------------------------------------------------
 
+type StartupRefreshResult = {
+  refreshed: boolean;
+  capabilities: number;
+  orchestrators: number;
+  skipped?: boolean;
+  reason?: string;
+};
+
+let startupRefreshPromise: Promise<StartupRefreshResult> | null = null;
+
+// Cooldown before a rejected startup promise is cleared, so that a burst of
+// concurrent cold-start callers all observe the same rejection instead of
+// triggering a thundering-herd of duplicate full-dataset refreshes.
+const STARTUP_REJECT_COOLDOWN_MS = 30_000;
+
+export function refreshGlobalDatasetOnStartup(): Promise<StartupRefreshResult> {
+  if (startupRefreshPromise) return startupRefreshPromise;
+
+  const inflight: Promise<StartupRefreshResult> = (async () => {
+    const [stats, intervalMs] = await Promise.all([
+      getGlobalDatasetStats(),
+      getRefreshIntervalMs(),
+    ]);
+
+    const ageMs = stats.refreshedAt ? Date.now() - stats.refreshedAt : Infinity;
+    if (stats.populated && ageMs < intervalMs) {
+      // Dataset rows persist in Postgres, but the PymtHouse manifest snapshot is
+      // in-memory only — always sync it on startup even when skipping dataset refresh.
+      const { revisionChanged } = await syncPymthouseManifestSnapshot();
+      if (revisionChanged) {
+        clearPlanCache();
+      }
+      return {
+        refreshed: false,
+        capabilities: stats.capabilityCount,
+        orchestrators: stats.totalOrchestrators,
+        skipped: true,
+        reason: 'Global dataset is still fresh',
+      };
+    }
+
+    return refreshGlobalDataset(
+      'startup',
+      process.env.CRON_SECRET ?? '',
+      undefined,
+      null,
+      { internal: true },
+    );
+  })();
+
+  // Swallow unhandled-rejection warnings while keeping the original rejection
+  // observable to awaiting callers.
+  inflight.catch(() => undefined);
+
+  startupRefreshPromise = inflight;
+
+  inflight.then(
+    () => undefined,
+    () => {
+      // On rejection, keep the (rejected) cached promise around briefly so
+      // concurrent cold-start callers share the failure, then clear it so a
+      // later attempt (e.g., cron, the next cold start) can retry cleanly.
+      setTimeout(() => {
+        if (startupRefreshPromise === inflight) {
+          startupRefreshPromise = null;
+        }
+      }, STARTUP_REJECT_COOLDOWN_MS).unref?.();
+    },
+  );
+
+  return startupRefreshPromise;
+}
+
 export async function refreshGlobalDataset(
   refreshedBy: string,
   authToken: string,
@@ -106,6 +180,11 @@ export async function refreshGlobalDataset(
   orchestrators: number;
 }> {
   const t0 = Date.now();
+  const { revisionChanged } = await syncPymthouseManifestSnapshot();
+  if (revisionChanged) {
+    clearPlanCache();
+  }
+
   const cfg = await loadResolverConfig();
   cfg.membershipStrategy = await getMembershipStrategy();
   const enabled = cfg.sources.filter((s) => s.enabled).sort((a, b) => a.priority - b.priority);

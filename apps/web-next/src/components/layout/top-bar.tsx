@@ -37,8 +37,18 @@ function useViewTitle(): string {
  * Shows the current view title on the left (Linear-style)
  * and minimal contextual actions on the right.
  */
+/** Plugin UIs provide their own section headers and tab navigation. */
+function shouldHideTopBar(pathname: string | null): boolean {
+  return pathname?.startsWith('/orchestrator-leaderboard') ?? false;
+}
+
 export function TopBar() {
+  const pathname = usePathname();
   const title = useViewTitle();
+
+  if (shouldHideTopBar(pathname)) {
+    return null;
+  }
 
   return (
     <div className="shrink-0 h-12 border-b border-border/40">

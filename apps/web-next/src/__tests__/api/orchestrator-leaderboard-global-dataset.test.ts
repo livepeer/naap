@@ -17,6 +17,7 @@ const mockCreateMany = vi.fn();
 const mockCount = vi.fn();
 const mockConfigFindUnique = vi.fn();
 const mockConfigUpsert = vi.fn();
+const mockExecuteRaw = vi.fn();
 
 const mockPrisma = {
   leaderboardDatasetRow: {
@@ -29,6 +30,7 @@ const mockPrisma = {
     findUnique: (...args: unknown[]) => mockConfigFindUnique(...args),
     upsert: (...args: unknown[]) => mockConfigUpsert(...args),
   },
+  $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
   $transaction: vi.fn(async (input: unknown) => {
     if (typeof input === 'function') {
       return (input as (tx: typeof mockPrisma) => Promise<void>)(mockPrisma);
@@ -54,6 +56,7 @@ describe('global-dataset (DB-backed)', () => {
     mockCount.mockReset();
     mockConfigFindUnique.mockReset();
     mockConfigUpsert.mockReset();
+    mockExecuteRaw.mockReset();
   });
 
   it('getRowsForCapability returns mapped rows from DB', async () => {
@@ -143,7 +146,11 @@ describe('global-dataset (DB-backed)', () => {
     expect(stats.totalOrchestrators).toBe(0);
   });
 
-  it('writeGlobalDataset filters out empty orchUri rows', async () => {
+  it('writeGlobalDataset upserts valid rows and prunes stale rows by refreshedAt', async () => {
+    mockExecuteRaw.mockResolvedValue(1);
+    mockDeleteMany.mockResolvedValue({ count: 0 });
+    mockConfigUpsert.mockResolvedValue({});
+
     const { writeGlobalDataset } = await import(
       '@/lib/orchestrator-leaderboard/global-dataset'
     );
@@ -158,9 +165,18 @@ describe('global-dataset (DB-backed)', () => {
       refreshedBy: 'test',
     });
 
-    const createCall = mockCreateMany.mock.calls[0][0];
-    expect(createCall.data).toHaveLength(1);
-    expect(createCall.data[0].orchUri).toBe('https://valid.test');
+    // Exactly one upsert batch should have been issued for the single valid row.
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
+
+    // Stale rows from prior refreshes must be pruned by refreshedAt — never
+    // by a blanket deleteMany({}). That contract guarantees that concurrent
+    // reads always observe a populated table mid-refresh.
+    expect(mockDeleteMany).toHaveBeenCalledTimes(1);
+    const deleteArg = mockDeleteMany.mock.calls[0][0];
+    expect(deleteArg).toMatchObject({ where: { refreshedAt: { lt: expect.any(Date) } } });
+
+    // createMany must not be used anymore — upsert is the only write path.
+    expect(mockCreateMany).not.toHaveBeenCalled();
   });
 });
 

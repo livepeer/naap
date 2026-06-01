@@ -25,6 +25,8 @@ export interface ModalProps {
   showCloseButton?: boolean;
   /** Whether clicking backdrop closes the modal */
   closeOnBackdrop?: boolean;
+  /** Whether pressing Escape closes the modal */
+  closeOnEscape?: boolean;
   /** Additional className for content */
   className?: string;
 }
@@ -38,10 +40,12 @@ export const Modal: React.FC<ModalProps> = ({
   size = 'md',
   showCloseButton = true,
   closeOnBackdrop = true,
+  closeOnEscape = true,
   className = '',
 }) => {
   // Handle escape key
   useEffect(() => {
+    if (!closeOnEscape) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
         onClose();
@@ -50,7 +54,7 @@ export const Modal: React.FC<ModalProps> = ({
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, closeOnEscape]);
 
   // Lock body scroll when open
   useEffect(() => {

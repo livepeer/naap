@@ -11,6 +11,11 @@ export default defineConfig({
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/**/*.{test,spec}.{js,ts,jsx,tsx}'],
     exclude: ['node_modules', '.next', 'dist'],
+    server: {
+      deps: {
+        inline: ['@pymthouse/builder-sdk', 'oauth4webapi'],
+      },
+    },
     coverage: {
       provider: 'v8',
       reportsDirectory: './coverage',

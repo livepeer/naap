@@ -1,24 +1,111 @@
-import React, { useState } from 'react';
-import { Copy, Check, ChevronDown, ChevronUp, Terminal, Link } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Copy, Check, Play, Loader2, X, AlertCircle } from 'lucide-react';
+import { testPlanResultsEndpoint, type PlanResultsTestResponse } from '../lib/api';
 
 interface EndpointGuideProps {
   planId: string;
-  compact?: boolean;
 }
 
 function getBaseUrl() {
-  return typeof window !== 'undefined' ? window.location.origin : '';
+  return typeof globalThis.window !== 'undefined' ? globalThis.window.location.origin : '';
 }
 
-export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = false }) => {
+function formatResponseBody(body: unknown): string {
+  if (body === null || body === undefined) {
+    return '';
+  }
+  if (typeof body === 'string') {
+    return body;
+  }
+  return JSON.stringify(body, null, 2);
+}
+
+function EndpointTestModal({
+  result,
+  error,
+  onClose,
+}: Readonly<{
+  result: PlanResultsTestResponse | null;
+  error: string | null;
+  onClose: () => void;
+}>) {
+  const dialogRef = React.useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return undefined;
+    }
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+
+  const status = result?.status;
+  const statusClass = result?.ok
+    ? 'bg-accent-emerald/15 text-accent-emerald border-accent-emerald/30'
+    : 'bg-accent-rose/15 text-accent-rose border-accent-rose/30';
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="endpoint-test-title"
+      className="fixed inset-0 z-50 m-0 p-4 w-full max-w-none max-h-none bg-transparent backdrop:bg-black/60 open:flex open:items-center open:justify-center"
+      onClose={onClose}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-bg-secondary border border-[var(--border-color)] rounded-xl shadow-2xl">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border-color)]">
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 id="endpoint-test-title" className="text-sm font-semibold text-text-primary">
+              Discovery test response
+            </h2>
+            {status != null && (
+              <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${statusClass}`}>
+                HTTP {status}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 p-1 rounded hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-auto p-4">
+          {error && (
+            <div className="flex items-start gap-2 text-sm text-accent-rose mb-3">
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              <p>{error}</p>
+            </div>
+          )}
+          {result && (
+            <pre className="text-[11px] font-mono text-text-secondary whitespace-pre-wrap break-all">
+              {formatResponseBody(result.body) || '(empty response)'}
+            </pre>
+          )}
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
+export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId }) => {
   const [copied, setCopied] = useState(false);
-  const [expanded, setExpanded] = useState(!compact);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<PlanResultsTestResponse | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
   const baseUrl = getBaseUrl();
   const endpoint = `${baseUrl}/api/v1/orchestrator-leaderboard/plans/${planId}/results`;
-
-  const curlExample = `curl -s "${endpoint}" \\
-  -H "Authorization: Bearer <YOUR_API_KEY>" | jq .`;
+  const curlExample = `curl -s "${endpoint}"`;
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -28,83 +115,70 @@ export const EndpointGuide: React.FC<EndpointGuideProps> = ({ planId, compact = 
     } catch { /* fallback ignored */ }
   };
 
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+  }, []);
+
+  const runTest = async () => {
+    setTesting(true);
+    setTestError(null);
+    setTestResult(null);
+    try {
+      const result = await testPlanResultsEndpoint(planId);
+      setTestResult(result);
+      setModalOpen(true);
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : 'Request failed');
+      setModalOpen(true);
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
-    <div className={compact ? '' : 'glass-card p-4'} onClick={(e) => e.stopPropagation()}>
-      {/* Endpoint URL */}
-      <div className="flex items-center gap-2 mb-2">
-        <Link size={12} className="text-text-muted shrink-0" />
-        <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-          API Endpoint
-        </span>
-      </div>
-      <div className="flex items-center gap-2 bg-bg-primary border border-[var(--border-color)] rounded-lg px-3 py-2">
-        <code className="text-[11px] text-accent-emerald font-mono truncate flex-1">
-          GET {compact ? `/plans/${planId.slice(0, 8)}../results` : endpoint}
-        </code>
-        <button
-          onClick={() => copyToClipboard(endpoint)}
-          className="shrink-0 p-1 rounded hover:bg-bg-tertiary transition-colors"
-          title="Copy endpoint URL"
-        >
-          {copied ? <Check size={13} className="text-accent-emerald" /> : <Copy size={13} className="text-text-muted" />}
-        </button>
-      </div>
-
-      {/* Toggle for compact mode */}
-      {compact && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary mt-2 transition-colors"
-        >
-          <Terminal size={10} />
-          Webhook Setup
-          {expanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-        </button>
-      )}
-
-      {/* Expanded guide */}
-      {expanded && (
-        <div className={compact ? 'mt-2' : 'mt-4'}>
-          <div className="space-y-2 text-[11px] text-text-secondary">
-            <div className="flex gap-2">
-              <span className="shrink-0 w-4 h-4 rounded-full bg-accent-blue/20 text-accent-blue text-[10px] font-bold flex items-center justify-center">1</span>
-              <span>Copy the endpoint URL above</span>
-            </div>
-            <div className="flex gap-2">
-              <span className="shrink-0 w-4 h-4 rounded-full bg-accent-blue/20 text-accent-blue text-[10px] font-bold flex items-center justify-center">2</span>
-              <span>
-                Set your signer&apos;s{' '}
-                <code className="px-1 py-0.5 bg-bg-secondary rounded text-text-primary text-[10px]">ORCHESTRATOR_DISCOVERY_URL</code>
-                {' '}to this endpoint
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <span className="shrink-0 w-4 h-4 rounded-full bg-accent-blue/20 text-accent-blue text-[10px] font-bold flex items-center justify-center">3</span>
-              <span>
-                Add{' '}
-                <code className="px-1 py-0.5 bg-bg-secondary rounded text-text-primary text-[10px]">Authorization: Bearer &lt;api-key&gt;</code>
-                {' '}header
-              </span>
-            </div>
-          </div>
-
-          {/* Curl example */}
-          <div className="mt-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-text-muted font-medium">Example</span>
-              <button
-                onClick={() => copyToClipboard(curlExample)}
-                className="text-[10px] text-text-muted hover:text-text-primary flex items-center gap-1 transition-colors"
-              >
-                <Copy size={10} />
-                Copy
-              </button>
-            </div>
-            <pre className="bg-bg-primary border border-[var(--border-color)] rounded-lg p-3 text-[10px] text-text-secondary font-mono overflow-x-auto whitespace-pre-wrap break-all">
-              {curlExample}
-            </pre>
-          </div>
+    <div className="space-y-2">
+      <p className="text-[11px] text-text-muted">
+        Uses your current browser session when you run Test.
+      </p>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-1 min-w-0 bg-bg-primary border border-[var(--border-color)] rounded-lg px-3 py-2">
+          <pre className="text-[11px] text-accent-emerald font-mono flex-1 overflow-x-auto whitespace-nowrap">
+            {curlExample}
+          </pre>
+          <button
+            type="button"
+            onClick={() => copyToClipboard(curlExample)}
+            className="shrink-0 p-1 rounded hover:bg-bg-tertiary transition-colors"
+            title="Copy curl command"
+          >
+            {copied ? (
+              <Check size={13} className="text-accent-emerald" />
+            ) : (
+              <Copy size={13} className="text-text-muted" />
+            )}
+          </button>
         </div>
+        <button
+          type="button"
+          onClick={runTest}
+          disabled={testing}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-accent-emerald/40 bg-accent-emerald/10 text-accent-emerald hover:bg-accent-emerald/20 hover:border-accent-emerald/60 disabled:opacity-50 transition-colors"
+        >
+          {testing ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Play size={12} />
+          )}
+          Test
+        </button>
+      </div>
+
+      {modalOpen && (
+        <EndpointTestModal
+          result={testResult}
+          error={testError}
+          onClose={closeModal}
+        />
       )}
     </div>
   );

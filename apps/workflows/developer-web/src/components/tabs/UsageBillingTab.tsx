@@ -98,7 +98,7 @@ export const UsageBillingTab: React.FC = () => {
                 All API Keys
               </button>
               {mockApiKeys
-                .filter((k) => k.status === 'active')
+                .filter((k) => k.status === 'ACTIVE')
                 .map((key) => (
                   <button
                     key={key.id}
