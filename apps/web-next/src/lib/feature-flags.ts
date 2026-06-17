@@ -39,6 +39,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     description:
       'Native provider-opaque naap_ keys issued to a seat (/api/v1/teams/{id}/seats/{seatId}/keys). OFF = endpoints 404, no-op (NAAP-B).',
   },
+  {
+    key: 'key_validation_front_door',
+    enabled: false,
+    description:
+      'Key validation front door POST /api/v1/keys/validate (resolves naap_ → provider via adapter, BPP ③). OFF = 404 so callers fall back to their direct path (NAAP-C).',
+  },
 ];
 
 /**
