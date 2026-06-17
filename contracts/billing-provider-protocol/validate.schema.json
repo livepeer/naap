@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://naap.livepeer.org/contracts/bpp/validate.schema.json",
+  "title": "BPP ② validate response",
+  "description": "Provider-neutral response for resolving an opaque key into identity, capabilities, billing account, and an optional provider-issued signer session. Exercised by NaaP through the BillingProviderAdapter. MUST NOT leak provider-internal metering identifiers (see provider-internal-openmeter.schema.json).",
+  "type": "object",
+  "required": ["valid"],
+  "additionalProperties": false,
+  "properties": {
+    "valid": {
+      "type": "boolean",
+      "description": "Whether the presented key is valid."
+    },
+    "user": {
+      "type": "object",
+      "required": ["sub"],
+      "additionalProperties": false,
+      "properties": {
+        "sub": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable subject identifier for the resolved user."
+        }
+      }
+    },
+    "billing_account": {
+      "type": "object",
+      "required": ["id", "providerSlug", "billingMode"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "providerSlug": { "type": "string", "minLength": 1 },
+        "billingMode": { "type": "string", "enum": ["delegated", "prepay"] }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "Either the wildcard [\"*\"] or a list of generic capability ids in the form <pipeline>:<model> or tool:<name>.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "quota": {
+      "description": "Remaining quota, or null when not metered/unbounded.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["remaining"],
+          "additionalProperties": false,
+          "properties": {
+            "remaining": { "type": "number" },
+            "resetAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "subscriptionRef": {
+      "type": "string",
+      "minLength": 1,
+      "description": "OPTIONAL neutral opaque subscription pointer. The provider decides its meaning; it MUST NOT encode a provider-internal identifier name (e.g. openmeter_subscription_id)."
+    },
+    "signerSession": {
+      "type": "object",
+      "required": ["url", "headers"],
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "headers": {
+          "type": "object",
+          "description": "Opaque-to-apps headers, e.g. { \"Authorization\": \"Bearer <provider-token>\" }.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}
