@@ -33,6 +33,7 @@ describe('BPP conformance — stub provider', () => {
     const failing = report.seams.filter((s) => !s.valid);
     expect(failing, JSON.stringify(failing, null, 2)).toHaveLength(0);
     expect(report.leakedFields).toEqual([]);
+    expect(report.accountRefMismatches).toEqual([]);
     expect(report.passed).toBe(true);
   });
 });
@@ -61,6 +62,38 @@ describe('BPP conformance — negative cases (the suite catches drift)', () => {
     };
     const report = await runConformance(leaky);
     expect(report.leakedFields).toContain('openmeter_subscription_id');
+    expect(report.passed).toBe(false);
+  });
+
+  it('fails seam isolation when a provider-internal id leaks through usage ingest (⑥)', async () => {
+    const leaky: BppConformanceProvider = {
+      ...createStubBillingProvider(),
+      async getUsageIngest() {
+        const base = (await createStubBillingProvider().getUsageIngest()) as Record<
+          string,
+          unknown
+        >;
+        return { ...base, openmeter_subscription_id: '01J-usage-leak' };
+      },
+    };
+    const report = await runConformance(leaky);
+    expect(report.leakedFields).toContain('openmeter_subscription_id');
+    expect(report.passed).toBe(false);
+  });
+
+  it('fails when account.id diverges from billingAccountRef.accountId (⑤ identity)', async () => {
+    const mismatched: BppConformanceProvider = {
+      ...createStubBillingProvider(),
+      async getAccount() {
+        const base = (await createStubBillingProvider().getAccount()) as Record<string, unknown>;
+        return {
+          ...base,
+          billingAccountRef: { providerSlug: 'stub', accountId: 'acct_DIFFERENT' },
+        };
+      },
+    };
+    const report = await runConformance(mismatched);
+    expect(report.accountRefMismatches.length).toBeGreaterThan(0);
     expect(report.passed).toBe(false);
   });
 

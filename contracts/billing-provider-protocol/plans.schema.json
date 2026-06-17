@@ -18,7 +18,7 @@
         "properties": {
           "amount": { "type": "number", "minimum": 0 },
           "interval": { "type": "string", "enum": ["month", "year", "once"] },
-          "currency": { "type": "string", "description": "ISO 4217 code; defaults to USD when omitted." }
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$", "description": "ISO 4217 code; defaults to USD when omitted." }
         }
       },
       "bundles": {

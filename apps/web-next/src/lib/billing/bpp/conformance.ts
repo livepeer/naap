@@ -64,7 +64,16 @@ export function getForbiddenInternalFieldNames(): string[] {
   if (!Array.isArray(names)) {
     throw new Error('provider-internal-openmeter.schema.json missing x-bpp-forbidden-field-names');
   }
-  return names.map((n) => String(n));
+  // Fail fast on malformed schema values rather than silently coercing with
+  // String(): a non-string entry means the contract itself is wrong.
+  return names.map((n) => {
+    if (typeof n !== 'string') {
+      throw new Error(
+        'provider-internal-openmeter.schema.json x-bpp-forbidden-field-names entries must be strings',
+      );
+    }
+    return n;
+  });
 }
 
 /** Recursively collect every object key present in a payload. */
@@ -88,6 +97,35 @@ export function findLeakedInternalFields(payload: unknown, forbidden: string[]):
   return forbidden.filter((name) => keys.has(name));
 }
 
+/**
+ * Enforce the ⑤ account identity invariant that plain JSON Schema (2020-12)
+ * cannot express: `account.id` / `account.providerSlug` MUST equal the neutral
+ * `billingAccountRef.accountId` / `billingAccountRef.providerSlug` pointer. NaaP
+ * only ever persists `billingAccountRef`, so a divergence would leave the stored
+ * pointer aimed at a different account than the one the provider described.
+ * Returns a list of human-readable mismatches (empty when consistent).
+ */
+export function checkAccountRefIdentity(accountPayload: unknown): string[] {
+  if (!accountPayload || typeof accountPayload !== 'object') return [];
+  const root = accountPayload as Record<string, unknown>;
+  const account = root.account as Record<string, unknown> | undefined;
+  const ref = root.billingAccountRef as Record<string, unknown> | undefined;
+  if (!account || !ref) return [];
+
+  const mismatches: string[] = [];
+  if (account.id !== ref.accountId) {
+    mismatches.push(
+      `account.id (${String(account.id)}) !== billingAccountRef.accountId (${String(ref.accountId)})`,
+    );
+  }
+  if (account.providerSlug !== ref.providerSlug) {
+    mismatches.push(
+      `account.providerSlug (${String(account.providerSlug)}) !== billingAccountRef.providerSlug (${String(ref.providerSlug)})`,
+    );
+  }
+  return mismatches;
+}
+
 export interface SeamResult {
   seam: BppSeam;
   valid: boolean;
@@ -99,6 +137,8 @@ export interface ConformanceReport {
   seams: SeamResult[];
   /** Seam-isolation: provider-internal (⑨) names found in ② and ⑥ payloads. */
   leakedFields: string[];
+  /** ⑤ account ↔ billingAccountRef identity-invariant violations. */
+  accountRefMismatches: string[];
   passed: boolean;
 }
 
@@ -126,31 +166,39 @@ async function payloadForSeam(
 
 /**
  * Run the BPP conformance suite (② ④ ⑤ ⑥ ⑧) against a provider plus the
- * seam-isolation assertion on the ② validate and ⑥ usage payloads.
+ * seam-isolation assertion on the ② validate and ⑥ usage payloads and the ⑤
+ * account-ref identity invariant. Each seam is fetched from the provider exactly
+ * once and the captured payloads are reused for the cross-cutting checks, so a
+ * provider with time-varying/stateful responses cannot make the suite flaky.
  */
 export async function runConformance(
   provider: BppConformanceProvider,
 ): Promise<ConformanceReport> {
   const ajv = newAjv();
   const seams: SeamResult[] = [];
+  const payloads = new Map<BppSeam, unknown>();
 
   for (const seam of BPP_SEAMS) {
     const validate = ajv.compile(readSchema(schemaFileForSeam(seam)));
     const payload = await payloadForSeam(provider, seam);
+    payloads.set(seam, payload);
     const valid = validate(payload) as boolean;
     seams.push({ seam, valid, errors: valid ? [] : (validate.errors ?? []) });
   }
 
   const forbidden = getForbiddenInternalFieldNames();
-  const validatePayload = await provider.validate('opaque-test-key');
-  const usagePayload = await provider.getUsageIngest();
   const leakedFields = Array.from(
     new Set([
-      ...findLeakedInternalFields(validatePayload, forbidden),
-      ...findLeakedInternalFields(usagePayload, forbidden),
+      ...findLeakedInternalFields(payloads.get('validate'), forbidden),
+      ...findLeakedInternalFields(payloads.get('usage-ingest'), forbidden),
     ]),
   );
 
-  const passed = seams.every((s) => s.valid) && leakedFields.length === 0;
-  return { provider: provider.slug, seams, leakedFields, passed };
+  const accountRefMismatches = checkAccountRefIdentity(payloads.get('account'));
+
+  const passed =
+    seams.every((s) => s.valid) &&
+    leakedFields.length === 0 &&
+    accountRefMismatches.length === 0;
+  return { provider: provider.slug, seams, leakedFields, accountRefMismatches, passed };
 }

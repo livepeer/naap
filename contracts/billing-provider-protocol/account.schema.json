@@ -3,6 +3,7 @@
   "$id": "https://naap.livepeer.org/contracts/bpp/account.schema.json",
   "title": "BPP ⑤ account + member + billingAccountRef",
   "description": "The billing account is provider-internal; NaaP only ever stores the neutral billingAccountRef pointer. account and account_member are documented so providers expose a consistent shape.",
+  "$comment": "Identity invariant (enforced by the BPP conformance suite, not plain JSON Schema 2020-12): account.id MUST equal billingAccountRef.accountId and account.providerSlug MUST equal billingAccountRef.providerSlug, so the persisted neutral ref can never point at a different account than the one described.",
   "type": "object",
   "required": ["account", "billingAccountRef"],
   "additionalProperties": false,
