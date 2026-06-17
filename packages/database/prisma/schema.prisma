@@ -309,6 +309,33 @@ model HistoricalStat {
   @@schema("public")
 }
 
+/// Cross-provider usage telemetry ingested via the BPP ⑥ seam (NAAP-2).
+/// Stores the NEUTRAL provider → NaaP usage payload only — never any
+/// provider-internal metering shape. Aggregated into a cross-provider spend
+/// view (provider column). Write-only on ingest; read by the dashboard BFF.
+model ProviderUsageRecord {
+  id                  String   @id @default(uuid())
+  providerSlug        String
+  accountId           String
+  appId               String?
+
+  windowFrom          DateTime
+  windowTo            DateTime
+
+  sessions            Int      @default(0)
+  tickets             Int      @default(0)
+  feeWei              String? // decimal wei string
+  networkFeeUsdMicros String? // decimal USD-micros string
+  byCapability        Json? // { "<pipeline>:<model>": { tickets, networkFeeUsdMicros } }
+
+  receivedAt          DateTime @default(now())
+
+  @@index([providerSlug, windowTo])
+  @@index([accountId, windowTo])
+  @@index([appId, windowTo])
+  @@schema("public")
+}
+
 model JobFeed {
   id             String   @id @default(uuid())
   gatewayId      String
