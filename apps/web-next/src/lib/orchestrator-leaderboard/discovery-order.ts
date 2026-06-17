@@ -93,3 +93,19 @@ export function tieredShuffleDiscoveryAddresses(
 
   return unique;
 }
+
+/**
+ * Tiered shuffle where a static-fleet fallback joins the shuffle (NAAP-9).
+ *
+ * Live-ranked `discovered` addresses keep their order and are tiered first;
+ * `staticFallback` addresses not already discovered are appended so they land
+ * in the lowest tier — present (never silently dropped) but not displacing
+ * live-ranked orchestrators. De-duplication is first-occurrence wins.
+ */
+export function tieredShuffleWithStaticFallback(
+  discovered: string[],
+  staticFallback: string[],
+  options?: TieredShuffleDiscoveryOptions,
+): string[] {
+  return tieredShuffleDiscoveryAddresses([...discovered, ...staticFallback], options);
+}
