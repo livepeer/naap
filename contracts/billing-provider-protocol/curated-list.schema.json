@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://naap.livepeer.org/contracts/bpp/curated-list.schema.json",
+  "title": "BPP ⑧ curated list + optional token bundle",
+  "description": "NaaP → provider via adapter.receiveCuratedOrchestrators(plan, list). The token bundle is OPTIONAL and only used for the direct python-gateway path (Option 2). Headers in the token bundle are opaque to apps.",
+  "type": "object",
+  "required": ["plan", "version", "orchestrators"],
+  "additionalProperties": false,
+  "$defs": {
+    "headers": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "tokenBundle": {
+      "type": "object",
+      "required": ["signer", "signer_headers", "discovery", "discovery_headers"],
+      "additionalProperties": false,
+      "properties": {
+        "signer": { "type": "string", "format": "uri" },
+        "signer_headers": { "$ref": "#/$defs/headers" },
+        "discovery": { "type": "string", "format": "uri" },
+        "discovery_headers": { "$ref": "#/$defs/headers" }
+      }
+    }
+  },
+  "properties": {
+    "plan": { "type": "string", "minLength": 1 },
+    "version": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp identifying this curated revision."
+    },
+    "orchestrators": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["address", "capabilities"],
+        "additionalProperties": false,
+        "properties": {
+          "address": { "type": "string", "format": "uri" },
+          "capabilities": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "score": { "type": "number" }
+        }
+      }
+    },
+    "tokenBundle": { "$ref": "#/$defs/tokenBundle" }
+  }
+}
