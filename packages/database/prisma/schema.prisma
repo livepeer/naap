@@ -1721,6 +1721,12 @@ model DevApiKey {
   // before. NAAP-B issues native `naap_` keys bound to a seat + team.
   seatId            String?
   teamId            String?
+  // NAAP-B: encrypted, provider-OPAQUE session ref (AES-256-GCM via
+  // @/lib/gateway/encryption). A native `naap_` key maps server-side to the
+  // backing provider session; apps never see provider tokens/URLs. Nullable +
+  // additive — only native keys populate it.
+  providerSessionRefEnc String?
+  providerSessionRefIv  String?
   createdAt         DateTime            @default(now())
   lastUsedAt        DateTime?
   revokedAt         DateTime?
