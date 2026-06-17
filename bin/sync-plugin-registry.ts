@@ -333,6 +333,7 @@ async function main(): Promise<void> {
           authType: bp.authType,
           enabled: bp.enabled,
           sortOrder: bp.sortOrder,
+          adapterType: bp.adapterType,
         },
         create: bp,
       });

@@ -26,6 +26,7 @@ async function seedBillingProviders() {
         authType: provider.authType,
         enabled: provider.enabled,
         sortOrder: provider.sortOrder,
+        adapterType: provider.adapterType,
       },
       create: provider,
     });
