@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://naap.livepeer.org/contracts/bpp/plans.schema.json",
+  "title": "BPP ④ plans + capability bundles",
+  "description": "Provider plan catalogue. Each plan declares the capabilities it enables and their SLA / price ceiling. NaaP enforces key → seat → account → plan → capabilities.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "bundles"],
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string", "minLength": 1 },
+      "name": { "type": "string" },
+      "price": {
+        "type": "object",
+        "required": ["amount", "interval"],
+        "additionalProperties": false,
+        "properties": {
+          "amount": { "type": "number", "minimum": 0 },
+          "interval": { "type": "string", "enum": ["month", "year", "once"] },
+          "currency": { "type": "string", "description": "ISO 4217 code; defaults to USD when omitted." }
+        }
+      },
+      "bundles": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["capability"],
+          "additionalProperties": false,
+          "properties": {
+            "capability": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Generic capability id, e.g. text-to-image:sdxl or tool:byoc-foo."
+            },
+            "sla": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "uptime": { "type": "number", "minimum": 0, "maximum": 1 },
+                "p95Ms": { "type": "number", "minimum": 0 }
+              }
+            },
+            "maxPriceWeiPerUnit": {
+              "type": "string",
+              "pattern": "^[0-9]+$",
+              "description": "Decimal wei string price ceiling per unit."
+            }
+          }
+        }
+      }
+    }
+  }
+}
