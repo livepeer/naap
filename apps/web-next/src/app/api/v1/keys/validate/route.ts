@@ -30,6 +30,8 @@ import { isFeatureEnabled } from '@/lib/feature-flags';
 import { parseApiKey } from '@naap/database';
 import { AdapterNotImplementedError } from '@/lib/billing/adapter';
 import { getBillingProviderAdapter } from '@/lib/billing/registry';
+import { APP_REGISTRY_FLAG, gateCapabilitiesForApp } from '@/lib/apps/registry';
+import { appBelongsToKeyScope, resolveRegisteredApp } from '@/lib/apps/resolve';
 import {
   resolveNativeKeyToProviderSession,
   verifyNativeKeyHash,
@@ -166,12 +168,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // App-registry gating (NAAP-D, integration wiring). When the app_registry
+    // flag is ON and an X-App-Id was presented, registry-check the app: it must
+    // be registered, active, and owned by the key's scope. The effective
+    // capabilities are then gated to the app's grant (NAAP-E). Flag OFF keeps
+    // the prior attribution-only behavior (lag tolerance / zero regression).
+    let appScopes: string[] | undefined;
+    if (appId && (await isFeatureEnabled(APP_REGISTRY_FLAG))) {
+      const app = await resolveRegisteredApp(appId);
+      if (!app || app.status !== 'active') {
+        log('warn', 'keys.validate.app_unregistered', { correlationId, appId });
+        return noStore(errors.forbidden('App is not registered or is disabled'));
+      }
+      if (!appBelongsToKeyScope(app, { teamId: key.teamId, userId: key.userId })) {
+        log('warn', 'keys.validate.app_scope_mismatch', { correlationId, appId: app.id });
+        return noStore(errors.forbidden('App is not owned by this key'));
+      }
+      appScopes = app.allowedScopes;
+      capabilities = gateCapabilitiesForApp(app, capabilities);
+    }
+
     // Fire-and-forget last-used update; never block validation on it.
     prisma.devApiKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
 
     const body = buildFrontDoorResponse({
       userSub: key.userId,
       appId: appId ?? undefined,
+      appScopes,
       billingAccountRef: ref,
       capabilities,
       quota,

@@ -9,10 +9,12 @@ import { describe, it, expect } from 'vitest';
 import {
   appAllowsCapability,
   appAllowsScope,
+  gateCapabilitiesForApp,
   invalidScopes,
   resolveAppAttribution,
   type RegisteredApp,
 } from './registry';
+import { appBelongsToKeyScope } from './resolve';
 
 function app(overrides: Partial<RegisteredApp> = {}): RegisteredApp {
   return {
@@ -85,5 +87,41 @@ describe('invalidScopes', () => {
   it('flags unknown scopes and accepts known ones', () => {
     expect(invalidScopes(['discovery', 'gateway'])).toEqual([]);
     expect(invalidScopes(['discovery', 'bogus'])).toEqual(['bogus']);
+  });
+});
+
+describe('gateCapabilitiesForApp (NAAP-C↔NAAP-D↔NAAP-E integration)', () => {
+  const providerCaps = ['text-to-image:sdxl', 'tool:byoc-demo', 'text-to-video:ltx'];
+
+  it('intersects provider caps with the app grant', () => {
+    const limited = app({ allowedCapabilities: ['tool:byoc-demo', 'text-to-image:sdxl'] });
+    expect(gateCapabilitiesForApp(limited, providerCaps)).toEqual([
+      'text-to-image:sdxl',
+      'tool:byoc-demo',
+    ]);
+  });
+
+  it('passes provider caps through unchanged for a wildcard grant', () => {
+    const wildcard = app({ allowedCapabilities: ['*'] });
+    expect(gateCapabilitiesForApp(wildcard, providerCaps)).toEqual(providerCaps);
+  });
+
+  it('fails CLOSED ([]) for a disabled app', () => {
+    const disabled = app({ allowedCapabilities: ['*'], status: 'disabled' });
+    expect(gateCapabilitiesForApp(disabled, providerCaps)).toEqual([]);
+  });
+});
+
+describe('appBelongsToKeyScope (NAAP-D ownership check)', () => {
+  it('matches a team-scoped app to the key team', () => {
+    const teamApp = app({ teamId: 'team-1', ownerUserId: null });
+    expect(appBelongsToKeyScope(teamApp, { teamId: 'team-1', userId: 'u1' })).toBe(true);
+    expect(appBelongsToKeyScope(teamApp, { teamId: 'team-2', userId: 'u1' })).toBe(false);
+  });
+
+  it('matches a personal app to the key user', () => {
+    const personal = app({ teamId: null, ownerUserId: 'u9' });
+    expect(appBelongsToKeyScope(personal, { teamId: null, userId: 'u9' })).toBe(true);
+    expect(appBelongsToKeyScope(personal, { teamId: null, userId: 'u8' })).toBe(false);
   });
 });

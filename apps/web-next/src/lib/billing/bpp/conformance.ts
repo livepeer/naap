@@ -47,6 +47,24 @@ function newAjv(): Ajv2020 {
   return ajv;
 }
 
+export interface SchemaCheck {
+  valid: boolean;
+  errors: ErrorObject[];
+}
+
+/**
+ * Validate an arbitrary payload against one of the BPP schema files (by base
+ * name, e.g. `validate`, `usage-ingest`). Reusable across INT-0 / INT-G so a
+ * producer (a real adapter, the stub, or a pymthouse mock) is checked against
+ * the SAME canonical C0 schema the conformance suite uses — no drift.
+ */
+export function validateAgainstBppSchema(seam: string, payload: unknown): SchemaCheck {
+  const ajv = newAjv();
+  const validate = ajv.compile(readSchema(`${seam}.schema.json`));
+  const valid = validate(payload) as boolean;
+  return { valid, errors: valid ? [] : (validate.errors ?? []) };
+}
+
 /** Compile every schema file (schema-lint guardrail). Throws on an invalid schema. */
 export function compileAllSchemas(): Record<string, ValidateFunction> {
   const ajv = newAjv();

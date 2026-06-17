@@ -88,3 +88,25 @@ export function appAllowsCapability(app: RegisteredApp, capability: string): boo
   if (app.allowedCapabilities.includes(CAPABILITY_WILDCARD)) return true;
   return app.allowedCapabilities.includes(capability);
 }
+
+/**
+ * Gate a provider's capability set down to what the registered app is allowed to
+ * use (NAAP-C ↔ NAAP-D ↔ NAAP-E). The effective capabilities a key exposes
+ * through an app are the intersection of:
+ *   - what the billing provider's plan enables (`providerCapabilities`), and
+ *   - what the app is granted (`app.allowedCapabilities`).
+ *
+ * A `*` app grant passes the provider set through unchanged. A non-active app
+ * yields `[]` (fail CLOSED). This is provider- and app-agnostic: it works
+ * identically whether the provider is pymthouse or the stub, and whether the app
+ * is Storyboard or APP-2.
+ */
+export function gateCapabilitiesForApp(
+  app: RegisteredApp,
+  providerCapabilities: string[],
+): string[] {
+  if (app.status !== 'active') return [];
+  if (app.allowedCapabilities.includes(CAPABILITY_WILDCARD)) return [...providerCapabilities];
+  const allowed = new Set(app.allowedCapabilities);
+  return providerCapabilities.filter((cap) => allowed.has(cap));
+}

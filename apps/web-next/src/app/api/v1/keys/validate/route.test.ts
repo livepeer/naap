@@ -21,6 +21,7 @@ vi.mock('@/lib/billing/registry', () => ({
 const prisma = vi.hoisted(() => ({
   devApiKey: { findUnique: vi.fn(), update: vi.fn() },
   team: { findUnique: vi.fn() },
+  application: { findFirst: vi.fn() },
 }));
 vi.mock('@/lib/db', () => ({ prisma }));
 
@@ -65,6 +66,18 @@ beforeEach(() => {
     billingAccountId: 'acct_om_1',
   });
   prisma.devApiKey.update.mockResolvedValue({});
+  // NAAP-D app registry: default to a team-scoped app with a wildcard grant so
+  // the integrated front door (app_registry ON in these tests) resolves it.
+  prisma.application.findFirst.mockResolvedValue({
+    id: 'storyboard',
+    slug: 'storyboard',
+    type: 'app',
+    teamId: 'team-1',
+    ownerUserId: null,
+    allowedScopes: ['gateway', 'llm'],
+    allowedCapabilities: ['*'],
+    status: 'active',
+  });
   getBillingProviderAdapter.mockReturnValue(adapterMock());
 });
 
@@ -116,11 +129,59 @@ describe('resolution (provider-agnostic, BPP ③)', () => {
     const d = json.data;
     expect(d.valid).toBe(true);
     expect(d.user).toEqual({ sub: 'user-1' });
-    expect(d.app).toEqual({ id: 'storyboard' });
+    // App registry resolved: scopes attached; wildcard grant passes caps through.
+    expect(d.app).toEqual({ id: 'storyboard', scopes: ['gateway', 'llm'] });
     expect(d.billingAccount).toEqual({ id: 'acct_om_1', providerSlug: 'pymthouse' });
     expect(d.capabilities).toEqual(['text-to-image:sdxl']);
     expect(d.quota).toEqual({ remaining: 9 });
     expect(d.signerSession.accessToken).toBe('signer-tok');
+  });
+
+  it('registry-checks the app: 403 for an unregistered X-App-Id (NAAP-C↔NAAP-D)', async () => {
+    prisma.application.findFirst.mockResolvedValue(null);
+    const res = await POST(req(rawKey, { 'x-app-id': 'ghost-app' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('403 when the app is owned by a different team scope', async () => {
+    prisma.application.findFirst.mockResolvedValue({
+      id: 'other', slug: 'other', type: 'app', teamId: 'team-OTHER', ownerUserId: null,
+      allowedScopes: ['gateway'], allowedCapabilities: ['*'], status: 'active',
+    });
+    const res = await POST(req(rawKey, { 'x-app-id': 'other' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('gates capabilities to the app grant (intersection with provider caps)', async () => {
+    prisma.application.findFirst.mockResolvedValue({
+      id: 'app2', slug: 'app2', type: 'cli', teamId: 'team-1', ownerUserId: null,
+      allowedScopes: ['gateway'], allowedCapabilities: ['tool:byoc-demo'], status: 'active',
+    });
+    getBillingProviderAdapter.mockReturnValue(
+      adapterMock({
+        validate: vi.fn(async () => ({
+          valid: true,
+          capabilities: ['text-to-image:sdxl', 'tool:byoc-demo'],
+          quota: null,
+        })),
+      }),
+    );
+    const res = await POST(req(rawKey, { 'x-app-id': 'app2' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // sdxl filtered out (not granted to app2); byoc-demo kept.
+    expect(json.data.capabilities).toEqual(['tool:byoc-demo']);
+    expect(json.data.app).toEqual({ id: 'app2', scopes: ['gateway'] });
+  });
+
+  it('app_registry OFF → attribution only, no registry check (zero regression)', async () => {
+    isFeatureEnabled.mockImplementation(async (flag: string) => flag !== 'app_registry');
+    prisma.application.findFirst.mockResolvedValue(null);
+    const res = await POST(req(rawKey, { 'x-app-id': 'unregistered-but-ok' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.app).toEqual({ id: 'unregistered-but-ok' });
+    expect(prisma.application.findFirst).not.toHaveBeenCalled();
   });
 
   it('resolves the SAME key against the C0 stub provider', async () => {
