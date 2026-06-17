@@ -21,7 +21,27 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: true,
     description: 'Enable teams collaboration feature (team creation, team switching, team pages)',
   },
+  {
+    key: 'app_registry',
+    enabled: false,
+    description:
+      'Enable the application/service registry (/api/v1/apps/*) so usage and rate limits attribute per registered app. OFF = registry endpoints return 404 (no-op).',
+  },
 ];
+
+/**
+ * Read a single feature flag's effective state without writing to the DB.
+ * Falls back to the KNOWN_FLAGS default (or `false`) when the flag row does not
+ * exist yet, so a flag defaulting OFF is a no-op until an admin enables it.
+ */
+export async function isFeatureEnabled(key: string): Promise<boolean> {
+  const flag = await prisma.featureFlag.findUnique({
+    where: { key },
+    select: { enabled: true },
+  });
+  if (flag) return flag.enabled;
+  return KNOWN_FLAGS.find((f) => f.key === key)?.enabled ?? false;
+}
 
 /**
  * Ensure all known flags exist in the database.
