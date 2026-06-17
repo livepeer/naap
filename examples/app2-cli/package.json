@@ -1,0 +1,17 @@
+{
+  "name": "@naap-examples/app2-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "APP-2 — a minimal second reference application that uses a native naap_ key through the NaaP front door. Proves the API key + capability model is app-agnostic (shares zero code with Storyboard).",
+  "bin": {
+    "naap-app2": "./src/cli.mjs"
+  },
+  "scripts": {
+    "start": "node ./src/cli.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "$comment": "APP-2 registration descriptor for the NaaP Application registry (NAAP-D). Register it by POSTing this to /api/v1/apps (app_registry flag ON) or seeding an Application row. The appId NaaP assigns (or this slug) is what APP-2 presents via X-App-Id so usage attributes to APP-2 distinctly from Storyboard.",
+  "slug": "naap-sample-cli",
+  "name": "NaaP Sample CLI (APP-2)",
+  "type": "cli",
+  "allowedScopes": ["gateway", "llm"],
+  "allowedCapabilities": ["text-to-image:sdxl"],
+  "status": "active"
+}
