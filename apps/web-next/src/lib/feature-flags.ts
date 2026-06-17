@@ -33,6 +33,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     description:
       'Team Seats API + provider-agnostic billingAccountRef binding (/api/v1/teams/{id}/seats/*, /billing-account). OFF = endpoints 404, no-op (NAAP-1).',
   },
+  {
+    key: 'native_keys',
+    enabled: false,
+    description:
+      'Native provider-opaque naap_ keys issued to a seat (/api/v1/teams/{id}/seats/{seatId}/keys). OFF = endpoints 404, no-op (NAAP-B).',
+  },
 ];
 
 /**
