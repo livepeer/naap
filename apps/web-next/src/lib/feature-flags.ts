@@ -27,6 +27,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     description:
       'Route billing requests through the generic BillingProviderAdapter registry (/api/v1/billing/{provider}/*). OFF = legacy /billing/pymthouse/* behavior only.',
   },
+  {
+    key: 'team_seats',
+    enabled: false,
+    description:
+      'Team Seats API + provider-agnostic billingAccountRef binding (/api/v1/teams/{id}/seats/*, /billing-account). OFF = endpoints 404, no-op (NAAP-1).',
+  },
 ];
 
 /**

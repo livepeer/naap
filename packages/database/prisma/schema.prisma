@@ -60,6 +60,7 @@ model User {
   // Team relations
   ownedTeams      Team[]       @relation("TeamOwner")
   teamMemberships TeamMember[]
+  seats           Seat[]       @relation("UserSeats")
 
   // Platform relations
   pluginReviews    PluginReview[]
@@ -226,10 +227,50 @@ model Team {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // NAAP-1: provider-agnostic billing-account binding.
+  // A team binds to exactly ONE billing account via {providerSlug, accountId}
+  // (the BPP `billingAccountRef`), resolved through the BillingProviderAdapter
+  // registry (NAAP-A) — never a provider-specific FK. `accountId` is the
+  // provider's opaque customer/subscription id (e.g. an OpenMeter customer id).
+  // Both nullable + additive: a team with no binding behaves exactly as before.
+  billingAccountProviderSlug String?
+  billingAccountId           String?
+
   members        TeamMember[]
   pluginInstalls TeamPluginInstall[]
+  seats          Seat[]
 
   @@index([ownerId])
+  @@index([billingAccountProviderSlug])
+  @@schema("public")
+}
+
+// NAAP-1: A seat is a developer's place in a team. API keys (NAAP-B) are issued
+// to a seat, and a seat resolves (via its team) to a single `billingAccountRef`.
+// Seats are additive: with the `team_seats` flag OFF nothing reads this table.
+model Seat {
+  id          String   @id @default(uuid())
+  teamId      String
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  // null while an invite is pending (no NaaP user has accepted the seat yet).
+  userId      String?
+  user        User?    @relation("UserSeats", fields: [userId], references: [id], onDelete: SetNull)
+  // Invite target email while pending; informational once accepted.
+  email       String?
+  role        String   @default("member") // admin | member | viewer
+  status      String   @default("active") // active | pending | revoked
+  // Per-seat cap on the number of active API keys (NAAP-B).
+  keyLimit    Int      @default(5)
+  invitedBy   String?
+  // Opaque single-use token for the pending-invite accept flow.
+  inviteToken String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@index([teamId, status])
   @@schema("public")
 }
 
@@ -1675,6 +1716,11 @@ model DevApiKey {
   projectName       String?
   keyHash           String?             @unique
   status            DevApiKeyStatus     @default(ACTIVE)
+  // NAAP-1: optional seat/team attribution for keys. Scalar (no cross-schema FK)
+  // and additive — existing user-scoped keys leave these null and behave as
+  // before. NAAP-B issues native `naap_` keys bound to a seat + team.
+  seatId            String?
+  teamId            String?
   createdAt         DateTime            @default(now())
   lastUsedAt        DateTime?
   revokedAt         DateTime?
@@ -1687,6 +1733,8 @@ model DevApiKey {
   @@index([status])
   @@index([keyHash])
   @@index([keyLookupId])
+  @@index([seatId])
+  @@index([teamId])
   @@schema("plugin_developer_api")
 }
 
