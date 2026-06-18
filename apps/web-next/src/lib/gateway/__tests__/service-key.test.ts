@@ -98,15 +98,22 @@ describe('mintServiceDiscoveryKey', () => {
       additionalEndpoints: ['/api/v1/gw/catalog', DISCOVERY_ENDPOINT],
     });
     expect(result.allowedEndpoints).toEqual([DISCOVERY_ENDPOINT, '/api/v1/gw/catalog']);
+
+    const createArg = mockCreate.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(createArg.data.ownerUserId).toBe('user-1');
+    expect(createArg.data.teamId).toBeUndefined();
   });
 
   it('requires exactly one of teamId / ownerUserId', async () => {
     await expect(
       mintServiceDiscoveryKey({ name: 'x', createdBy: 'u' }),
     ).rejects.toThrow(/exactly one/);
+    expect(mockCreate).not.toHaveBeenCalled();
+
     await expect(
       mintServiceDiscoveryKey({ name: 'x', createdBy: 'u', teamId: 't', ownerUserId: 'u' }),
     ).rejects.toThrow(/exactly one/);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });
 
@@ -138,6 +145,7 @@ describe('authorize() accepts a minted discovery service key', () => {
     expect(auth).not.toBeNull();
     expect(auth?.callerType).toBe('apiKey');
     expect(auth?.teamId).toBe('team-1');
+    expect(auth?.allowedEndpoints).toEqual([DISCOVERY_ENDPOINT]);
     expect(keyAllowsDiscovery(auth?.allowedEndpoints)).toBe(true);
     expect(mockFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { keyHash } }),
