@@ -232,10 +232,19 @@ model Team {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // NAAP-1/NAAP-2: provider-agnostic billing-account binding. A team binds to
+  // exactly ONE billing account via {providerSlug, accountId} (the BPP
+  // `billingAccountRef`). Both nullable + additive: a team with no binding
+  // behaves exactly as before. Used by the usage dashboard (NAAP-2) to scope a
+  // caller's spend to the accounts reachable through their team memberships.
+  billingAccountProviderSlug String?
+  billingAccountId           String?
+
   members        TeamMember[]
   pluginInstalls TeamPluginInstall[]
 
   @@index([ownerId])
+  @@index([billingAccountProviderSlug])
   @@schema("public")
 }
 
@@ -342,6 +351,39 @@ model HistoricalStat {
 
   @@index([service, metric, timestamp])
   @@index([timestamp])
+  @@schema("public")
+}
+
+/// Cross-provider usage telemetry ingested via the BPP ⑥ seam (NAAP-2).
+/// Stores the NEUTRAL provider → NaaP usage payload only — never any
+/// provider-internal metering shape. Aggregated into a cross-provider spend
+/// view (provider column). Write-only on ingest; read by the dashboard BFF.
+model ProviderUsageRecord {
+  id                  String   @id @default(uuid())
+  providerSlug        String
+  accountId           String
+  appId               String?
+
+  windowFrom          DateTime
+  windowTo            DateTime
+
+  sessions            Int      @default(0)
+  tickets             Int      @default(0)
+  feeWei              String? // decimal wei string
+  networkFeeUsdMicros String? // decimal USD-micros string
+  byCapability        Json? // { "<pipeline>:<model>": { tickets, networkFeeUsdMicros } }
+
+  receivedAt          DateTime @default(now())
+
+  // NAAP-2 (M1): the natural key of a usage window. Makes ingest idempotent so a
+  // billing provider that retries a push does not double-count. Account-level
+  // records (no app) are stored with appId = "" (empty-string sentinel) so this
+  // unique key also de-duplicates them — a plain SQL unique index treats NULLs
+  // as distinct, which would let null-app retries through.
+  @@unique([providerSlug, accountId, appId, windowFrom, windowTo], name: "providerUsageWindow", map: "ProviderUsageRecord_window_key")
+  @@index([providerSlug, windowTo])
+  @@index([accountId, windowTo])
+  @@index([appId, windowTo])
   @@schema("public")
 }
 

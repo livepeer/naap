@@ -28,6 +28,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Route billing requests through the generic BillingProviderAdapter registry (/api/v1/billing/{provider}/*). OFF = legacy /billing/pymthouse/* behavior only.',
   },
   {
+    key: 'usage_ingest',
+    enabled: false,
+    description:
+      'Enable cross-provider usage telemetry: the BPP ⑥ ingest endpoint (/api/v1/metrics/ingest) and the spend dashboard BFF (/api/v1/metrics/usage). OFF = both return 404 (no-op).',
+  },
+  {
     key: 'app_registry',
     enabled: false,
     description:
