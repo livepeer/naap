@@ -17,7 +17,7 @@
 export const runtime = 'nodejs';
 
 import { NextRequest } from 'next/server';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { prisma } from '@/lib/db';
 import { success, errors } from '@/lib/api/response';
@@ -42,9 +42,10 @@ function isAuthorized(request: NextRequest): boolean {
   const header = request.headers.get('authorization') || '';
   if (!header.startsWith('Bearer ')) return false;
   const provided = header.slice(7).trim();
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
+  // Compare fixed-length digests so the check stays constant-time regardless of
+  // token length (a raw length check would short-circuit and leak length).
+  const a = createHash('sha256').update(provided).digest();
+  const b = createHash('sha256').update(expected).digest();
   return timingSafeEqual(a, b);
 }
 

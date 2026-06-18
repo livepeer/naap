@@ -136,8 +136,16 @@ export async function GET(request: NextRequest) {
       feeWei: true,
       networkFeeUsdMicros: true,
     },
-    take: MAX_RECORDS,
+    // Fetch one past the cap so we can detect (rather than silently truncate)
+    // an oversized window that would under-count usage/spend.
+    take: MAX_RECORDS + 1,
   });
+
+  if (records.length > MAX_RECORDS) {
+    return errors.badRequest(
+      'Too many usage records for this window; narrow the from/to range and retry',
+    );
+  }
 
   const providers = aggregateSpendByProvider(records);
   return success({ providers });
