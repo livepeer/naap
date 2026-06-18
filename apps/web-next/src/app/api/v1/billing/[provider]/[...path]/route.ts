@@ -240,14 +240,18 @@ async function resolve(
       log('warn', 'billing.adapter.unknown_provider', { provider, correlationId });
       return noStore(errors.notFound('Provider'));
     }
-    if (!adapter.isConfigured()) {
-      return noStore(errors.badRequest(`Provider "${provider}" is not configured`));
-    }
 
+    // Authenticate before probing provider configuration so unauthenticated
+    // callers cannot distinguish "configured" from "not configured" (avoids
+    // leaking provider config state and doing work before rejecting).
     const token = getAuthToken(request);
     if (!token) return noStore(errors.unauthorized('No auth token provided'));
     const sessionUser = await validateSession(token);
     if (!sessionUser) return noStore(errors.unauthorized('Invalid or expired session'));
+
+    if (!adapter.isConfigured()) {
+      return noStore(errors.badRequest(`Provider "${provider}" is not configured`));
+    }
 
     const op = (path?.[0] ?? '').toLowerCase();
     const routeCtx: RouteCtx = {
