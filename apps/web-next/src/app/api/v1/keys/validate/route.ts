@@ -42,6 +42,7 @@ import {
   isNativeKeyToken,
   parseBearer,
 } from '@/lib/dev-api/validate-key';
+import { CAPABILITY_GATE_FLAG, enforceCapabilityGate } from '@/lib/capabilities/enforcement';
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 120;
@@ -164,6 +165,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           });
         }
       }
+    }
+
+    // NAAP-E capability gate. Default OFF → pure pass-through (response is
+    // exactly as before). ON → an optional `X-Requested-Capability` the resolved
+    // plan does not grant is denied (fail closed; an empty grant set denies all).
+    const gate = enforceCapabilityGate({
+      enabled: await isFeatureEnabled(CAPABILITY_GATE_FLAG),
+      granted: capabilities,
+      requested: request.headers.get('x-requested-capability'),
+    });
+    if (!gate.allowed) {
+      log('warn', 'keys.validate.capability_denied', {
+        correlationId,
+        providerSlug: ref.providerSlug,
+        reason: gate.reason,
+      });
+      return noStore(errors.forbidden('Requested capability not granted'));
     }
 
     // Fire-and-forget last-used update; never block validation on it.

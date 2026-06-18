@@ -45,6 +45,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     description:
       'Key validation front door POST /api/v1/keys/validate (resolves naap_ → provider via adapter, BPP ③). OFF = 404 so callers fall back to their direct path (NAAP-C).',
   },
+  {
+    key: 'capability_gate',
+    enabled: false,
+    description:
+      'Enforce key → plan → capability access at the front door and discovery (NAAP-E). OFF = no enforcement (capabilities surfaced only, exactly as today); ON = deny a requested capability not granted by the resolved plan (fail closed).',
+  },
 ];
 
 /**
