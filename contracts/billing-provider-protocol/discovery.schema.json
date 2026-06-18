@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://naap.livepeer.org/contracts/bpp/discovery.schema.json",
+  "title": "BPP ⑦ discovery response",
+  "description": "NaaP → gateway. GET /api/v1/orchestrator-leaderboard/python-gateway?caps=… (auth: Bearer gw_…). The list is already filtered by the plan's capabilities.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["address"],
+    "additionalProperties": false,
+    "properties": {
+      "address": {
+        "type": "string",
+        "format": "uri",
+        "description": "Orchestrator endpoint, e.g. https://orch.example:8935"
+      }
+    }
+  }
+}

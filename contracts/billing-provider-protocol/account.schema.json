@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://naap.livepeer.org/contracts/bpp/account.schema.json",
+  "title": "BPP ⑤ account + member + billingAccountRef",
+  "description": "The billing account is provider-internal; NaaP only ever stores the neutral billingAccountRef pointer. account and account_member are documented so providers expose a consistent shape.",
+  "$comment": "Identity invariant (enforced by the BPP conformance suite, not plain JSON Schema 2020-12): account.id MUST equal billingAccountRef.accountId and account.providerSlug MUST equal billingAccountRef.providerSlug, so the persisted neutral ref can never point at a different account than the one described.",
+  "type": "object",
+  "required": ["account", "billingAccountRef"],
+  "additionalProperties": false,
+  "$defs": {
+    "account": {
+      "type": "object",
+      "required": ["id", "ownerSub", "providerSlug", "billingMode"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ownerSub": { "type": "string", "minLength": 1 },
+        "providerSlug": { "type": "string", "minLength": 1 },
+        "planId": { "type": "string" },
+        "creditBalanceWei": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Decimal wei string."
+        },
+        "billingMode": { "type": "string", "enum": ["delegated", "prepay"] }
+      }
+    },
+    "account_member": {
+      "type": "object",
+      "required": ["accountId", "sub", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "accountId": { "type": "string", "minLength": 1 },
+        "sub": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "enum": ["admin", "member"] }
+      }
+    },
+    "billingAccountRef": {
+      "type": "object",
+      "description": "Provider-agnostic pointer stored NaaP-side. The ONLY account shape NaaP persists.",
+      "required": ["providerSlug", "accountId"],
+      "additionalProperties": false,
+      "properties": {
+        "providerSlug": { "type": "string", "minLength": 1 },
+        "accountId": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "properties": {
+    "account": { "$ref": "#/$defs/account" },
+    "members": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/account_member" }
+    },
+    "billingAccountRef": { "$ref": "#/$defs/billingAccountRef" }
+  }
+}

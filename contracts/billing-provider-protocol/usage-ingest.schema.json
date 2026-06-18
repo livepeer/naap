@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://naap.livepeer.org/contracts/bpp/usage-ingest.schema.json",
+  "title": "BPP ⑥ usage ingest",
+  "description": "Neutral usage payload pushed provider → NaaP at POST {NAAP_METRICS_URL}/api/v1/metrics/ingest. The authoritative cross-provider usage path (NOT validate). OM-backed providers must map their internal meters into this shape; raw OpenMeter field names MUST NOT appear here.",
+  "type": "object",
+  "required": ["providerSlug", "accountId", "window"],
+  "additionalProperties": false,
+  "$defs": {
+    "capabilityUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tickets": { "type": "integer", "minimum": 0 },
+        "networkFeeUsdMicros": { "type": "string", "pattern": "^[0-9]+$" }
+      }
+    }
+  },
+  "properties": {
+    "providerSlug": { "type": "string", "minLength": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "appId": { "type": "string", "minLength": 1 },
+    "window": {
+      "type": "object",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string", "format": "date-time" },
+        "to": { "type": "string", "format": "date-time" }
+      }
+    },
+    "sessions": { "type": "integer", "minimum": 0 },
+    "tickets": { "type": "integer", "minimum": 0 },
+    "feeWei": { "type": "string", "pattern": "^[0-9]+$" },
+    "networkFeeUsdMicros": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "USD micros; for OM-backed providers that meter in fiat."
+    },
+    "byCapability": {
+      "type": "object",
+      "description": "Keyed by generic capability id <pipeline>:<model>.",
+      "additionalProperties": { "$ref": "#/$defs/capabilityUsage" }
+    }
+  }
+}
