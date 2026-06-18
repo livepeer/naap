@@ -3,8 +3,8 @@
  *
  * Server-only. Reports the *presence* of the `PYMTHOUSE_*` env vars and whether
  * the configured issuer/client match the staging reference values. It NEVER
- * reads, returns, or logs the M2M client secret value — only a boolean
- * indicating whether it is set.
+ * returns or logs the M2M client secret value (presence is computed without
+ * exposing it) — only a boolean indicating whether it is set.
  */
 
 import 'server-only';
