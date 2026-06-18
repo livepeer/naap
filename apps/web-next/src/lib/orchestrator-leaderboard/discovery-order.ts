@@ -107,5 +107,21 @@ export function tieredShuffleWithStaticFallback(
   staticFallback: string[],
   options?: TieredShuffleDiscoveryOptions,
 ): string[] {
-  return tieredShuffleDiscoveryAddresses([...discovered, ...staticFallback], options);
+  // Tier the live-ranked discovered set first so it owns the top tiers, then
+  // append static-fallback addresses (not already discovered) shuffled among
+  // themselves. This keeps fallback in the lowest tier — present but never
+  // displacing live-ranked orchestrators via within-tier shuffling.
+  const shuffledDiscovered = tieredShuffleDiscoveryAddresses([...discovered], options);
+
+  const seen = new Set(shuffledDiscovered.map((a) => a.trim()).filter(Boolean));
+  const staticOnly: string[] = [];
+  for (const raw of staticFallback) {
+    const a = raw.trim();
+    if (!a || seen.has(a)) continue;
+    seen.add(a);
+    staticOnly.push(a);
+  }
+
+  const shuffledStatic = tieredShuffleDiscoveryAddresses(staticOnly, options);
+  return [...shuffledDiscovered, ...shuffledStatic];
 }

@@ -21,7 +21,32 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: true,
     description: 'Enable teams collaboration feature (team creation, team switching, team pages)',
   },
+  {
+    key: 'provider_adapters',
+    enabled: false,
+    description:
+      'Route billing requests through the generic BillingProviderAdapter registry (/api/v1/billing/{provider}/*). OFF = legacy /billing/pymthouse/* behavior only.',
+  },
 ];
+
+/**
+ * Read a single feature flag's effective state without writing to the DB.
+ * Falls back to the KNOWN_FLAGS default (or `false`) when the flag row does not
+ * exist yet, so a flag defaulting OFF is a no-op until an admin enables it.
+ */
+export async function isFeatureEnabled(key: string): Promise<boolean> {
+  try {
+    const flag = await prisma.featureFlag.findUnique({
+      where: { key },
+      select: { enabled: true },
+    });
+    if (flag) return flag.enabled;
+  } catch {
+    // Transient DB lookup failures must not break callers: fall through to the
+    // static KNOWN_FLAGS default so a flag defaulting OFF stays a safe no-op.
+  }
+  return KNOWN_FLAGS.find((f) => f.key === key)?.enabled ?? false;
+}
 
 /**
  * Ensure all known flags exist in the database.

@@ -179,7 +179,10 @@ export async function buildStoryboardDefaultDiscovery(
     fromCache = fromCache && collected.fromCache;
     cacheAgeMs = Math.max(cacheAgeMs, collected.cacheAgeMs);
 
-    const staticFleet = [...category.staticOrchestrators];
+    // Respect the provider-scoped denylist: when filtering allows zero
+    // capabilities for this category, do not inject its static fleet.
+    const staticFleet =
+      collected.allowedCapabilities.length > 0 ? [...category.staticOrchestrators] : [];
     staticFleetInjected += staticFleetGaps(collected.discovered, staticFleet).length;
 
     const merged = mergeStaticFleet(collected.discovered, staticFleet);
