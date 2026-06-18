@@ -91,6 +91,7 @@ describe('GET /api/v1/billing/pymthouse/usage', () => {
     expect(fetchUsageForExternalUser).toHaveBeenCalledWith(
       expect.objectContaining({
         externalUserId: 'user-naap-1',
+        includeRetail: true,
       }),
     );
     const json = await res.json();

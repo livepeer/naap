@@ -24,7 +24,6 @@ ChevronUp,
 } from 'lucide-react';
 import { Card, Badge, Modal, Tooltip } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
-import { computeSignerSessionExpiry } from '@pymthouse/builder-sdk/tokens';
 
 const PIPELINE_COLOR: Record<string, string> = {
   'text-to-image':           '#f59e0b',
@@ -135,25 +134,12 @@ interface ApiKey {
 }
 
 /**
- * TODO(backend): return actual token expiry for PymtHouse keys in `expiresAt`
- * (not only the default 90-day TTL fallback) so frontend can rely on server data.
- *
- * Prefer server `expiresAt`; for PymtHouse keys without it, derive from `createdAt`.
+ * Prefer server `expiresAt` when provided. PymtHouse developer keys are long-lived
+ * until revoked (no client-side TTL fallback).
  */
 function resolveApiKeyExpiresAt(key: ApiKey): string | null {
   if (key.expiresAt != null && String(key.expiresAt).trim() !== '') {
     return key.expiresAt;
-  }
-  if (key.billingProvider?.slug === 'pymthouse') {
-    try {
-      const created = new Date(key.createdAt);
-      if (Number.isNaN(created.getTime())) return null;
-      const expiry = computeSignerSessionExpiry(created);
-      if (Number.isNaN(expiry.getTime())) return null;
-      return expiry.toISOString();
-    } catch {
-      return null;
-    }
   }
   return null;
 }
@@ -311,9 +297,16 @@ const PYTHON_GATEWAY_DISCOVERY_BILLING_SLUGS = new Set(['pymthouse', 'daydream']
 
 const DEFAULT_PYMTHOUSE_SIGNER_BASE_URL = 'https://pymthouse.com/api/signer';
 
-function getSignerBaseUrlForBillingProvider(slug: string): string {
+function getSignerBaseUrlForBillingProvider(
+  slug: string,
+  pymthouseSignerUrl?: string | null,
+): string {
   if (slug === 'daydream') {
     return 'https://signer.daydream.live';
+  }
+  const configured = pymthouseSignerUrl?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, '');
   }
   return DEFAULT_PYMTHOUSE_SIGNER_BASE_URL;
 }
@@ -393,6 +386,7 @@ export const DeveloperView: React.FC = () => {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [billingProviders, setBillingProviders] = useState<BillingProviderInfo[] | null>(null);
   const [billingProvidersError, setBillingProvidersError] = useState(false);
+  const [pymthouseSignerUrl, setPymthouseSignerUrl] = useState<string | null>(null);
   const [modalDataLoading, setModalDataLoading] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [newProjectName, setNewProjectName] = useState('');
@@ -714,9 +708,28 @@ result = [...result].sort((a, b) => {
     }
   }, []);
 
+  const loadPymthouseSignerConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/billing/pymthouse/config', { credentials: 'include' });
+      if (!res.ok) {
+        return;
+      }
+      const json = await res.json();
+      const signerUrl = (json.data ?? json)?.signerUrl;
+      if (typeof signerUrl === 'string' && signerUrl.trim()) {
+        setPymthouseSignerUrl(signerUrl.trim());
+      }
+    } catch (err) {
+      console.error('Failed to load PymtHouse signer config:', err);
+    }
+  }, []);
+
   useEffect(() => {
-    if (activeTab === 'usage' || activeTab === 'api-keys') loadBillingProviders();
-  }, [activeTab, loadBillingProviders]);
+    if (activeTab === 'usage' || activeTab === 'api-keys') {
+      loadBillingProviders();
+      void loadPymthouseSignerConfig();
+    }
+  }, [activeTab, loadBillingProviders, loadPymthouseSignerConfig]);
 
   useEffect(() => {
     if (usagePanelProviders.length === 0) return;
@@ -934,8 +947,8 @@ result = [...result].sort((a, b) => {
       const directAccessToken = startData.data?.access_token || startData.access_token;
       const loginSessionId = startData.data?.login_session_id || startData.login_session_id;
 
-      // Server-to-server providers (e.g. PymtHouse) return an opaque signer session
-      // token as `access_token` directly. Browser-redirect providers (e.g. Daydream)
+      // Server-to-server providers (e.g. PymtHouse) return a long-lived pmth_* API key
+      // as `access_token` directly. Browser-redirect providers (e.g. Daydream)
       // hand back only a `login_session_id`; the popup opens a same-origin NaaP
       // redirector that resolves the provider authorization URL server-side, so no
       // remote-controlled URL is ever passed into window.open.
@@ -1041,21 +1054,17 @@ result = [...result].sort((a, b) => {
       }
 
       setCreatedRawKey(providerApiKey);
-      const keyCreatedAt =
-        typeof payload.key?.createdAt === 'string' ? payload.key.createdAt : null;
       const expiresFromApi =
         typeof payload.key?.expiresAt === 'string' ? payload.key.expiresAt : null;
-      const resolvedExpires =
-        providerSlug === 'pymthouse'
-          ? expiresFromApi ||
-            (keyCreatedAt ? computeSignerSessionExpiry(keyCreatedAt).toISOString() : null)
-          : expiresFromApi;
-      setCreatedKeyExpiresAt(resolvedExpires);
+      setCreatedKeyExpiresAt(providerSlug === 'pymthouse' ? null : expiresFromApi);
       setCreatedKeyWarning(payload.warning || 'Store this key securely. It will not be shown again.');
       setCreatedPythonGatewayToken('');
       setGatewayDiscoveryKeyMintError('');
       if (billingProviderSupportsPythonGatewayDiscovery(providerSlug)) {
-        const signerBase = getSignerBaseUrlForBillingProvider(providerSlug).replace(/\/+$/, '');
+        const signerBase = getSignerBaseUrlForBillingProvider(
+          providerSlug,
+          pymthouseSignerUrl,
+        ).replace(/\/+$/, '');
         const selectedPlanId = selectedDiscoveryPlanId.trim();
         const discoveryPath = selectedPlanId
           ? `/api/v1/orchestrator-leaderboard/plans/${encodeURIComponent(selectedPlanId)}/python-gateway`
@@ -1123,7 +1132,7 @@ result = [...result].sort((a, b) => {
       pollAbortControllerRef.current = null;
       setCreating(false);
     }
-  }, [selectedProjectId, newProjectName, newKeyLabel, selectedBillingProviderId, billingProviders, selectedDiscoveryPlanId]);
+  }, [selectedProjectId, newProjectName, newKeyLabel, selectedBillingProviderId, billingProviders, selectedDiscoveryPlanId, pymthouseSignerUrl]);
 
   const handleCopyKey = useCallback(async () => {
     try {
@@ -1877,8 +1886,8 @@ result = [...result].sort((a, b) => {
                           with your app&apos;s Network Price allowlist (
                           <code className="text-slate-300">GET …/manifest</code>
                           ); capabilities outside that list return no orchestrators. Discovery uses a new{' '}
-                          <code className="text-slate-300">gw_…</code> gateway key; the signer still uses your billing provider
-                          secret above.
+                          <code className="text-slate-300">gw_…</code> gateway key; the signer uses your billing provider
+                          <code className="text-slate-300"> pmth_*</code> key (the SDK exchanges it for a signer JWT at runtime).
                         </>
                       ) : (
                         <>
@@ -1962,12 +1971,12 @@ result = [...result].sort((a, b) => {
             <div className="text-center">
               <p className="text-text-primary font-medium">
                 {selectedBillingProvider?.slug === 'pymthouse'
-                  ? 'Creating your PymtHouse billing key...'
+                  ? 'Minting your PymtHouse API key...'
                   : 'Waiting for authentication...'}
               </p>
               <p className="text-sm text-text-secondary mt-1">
                 {selectedBillingProvider?.slug === 'pymthouse'
-                  ? 'Exchanging credentials with PymtHouse. This page updates when your key is ready.'
+                  ? 'Provisioning your account with PymtHouse. This page updates when your key is ready.'
                   : 'Complete sign-in in the new tab. This page updates automatically.'}
               </p>
             </div>
@@ -1989,23 +1998,20 @@ result = [...result].sort((a, b) => {
                 <p className="text-text-secondary mt-0.5">
                   {createdKeyWarning || 'This is the only time your API key will be shown. Copy it now and store it in a safe place.'}
                 </p>
-                {createdKeyExpiresAt && (
+                {createdKeyExpiresAt && !createdRawKey.startsWith('pmth_') && (
                   <p className="text-amber-200 mt-1">
-                    {createdRawKey.startsWith('pmth_')
-                      ? `Valid until ${new Date(createdKeyExpiresAt).toLocaleString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })} (about 90 days from when this key was created).`
-                      : `Expires at ${new Date(createdKeyExpiresAt).toLocaleString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })}.`}
+                    {`Expires at ${new Date(createdKeyExpiresAt).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}.`}
+                  </p>
+                )}
+                {createdRawKey.startsWith('pmth_') && (
+                  <p className="text-text-secondary mt-1">
+                    Long-lived until revoked. The SDK exchanges this key for a short-lived signer session before streaming.
                   </p>
                 )}
               </div>
@@ -2014,8 +2020,9 @@ result = [...result].sort((a, b) => {
               <div className="space-y-2">
                 <label className="block text-xs font-medium text-text-primary">SDK Token (python-gateway)</label>
                 <p className="text-xs text-text-secondary">
-                  Base64 JSON for python-gateway <code className="text-slate-300">--token</code> flag, includes signer
-                  and discovery plan configuration
+                  Base64 JSON for python-gateway <code className="text-slate-300">--token</code> flag — signer, discovery,
+                  and header configuration. For PymtHouse, <code className="text-slate-300">signer_headers</code> carries
+                  your <code className="text-slate-300">pmth_*</code> key; the SDK exchanges it for a signer JWT before streaming.
                 </p>
                 <div className="flex items-start gap-2">
                   <code className="max-h-40 flex-1 overflow-y-auto break-all rounded-lg border border-white/10 bg-bg-tertiary px-3 py-2 font-mono text-xs text-accent-emerald select-all">

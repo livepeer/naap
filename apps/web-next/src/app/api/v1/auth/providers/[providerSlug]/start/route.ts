@@ -3,17 +3,17 @@
  * Start a brokered billing-provider authentication session.
  *
  * - daydream: browser-redirect OAuth (unchanged).
- * - pymthouse: server-to-server Builder API + RFC 8693 token exchange (no browser popup).
- *   NaaP upserts the user, mints a short-lived internal `sign:job` JWT, exchanges it
- *   with the confidential M2M client for a long-lived opaque `pmth_…` signer session,
- *   and returns that token as `access_token`. The frontend skips popup/polling.
+ * - pymthouse: server-to-server PymtHouse user API key mint (Dashboard parity).
+ *   NaaP provisions the app user and mints a long-lived pmth_* key via the Builder
+ *   Apps API. The SDK exchanges that key for a short-lived signer JWT at runtime
+ *   via POST /api/pymthouse/keys/exchange. The frontend skips popup/polling.
  *
- *   The short-lived JWT is never exposed as the developer API key. Callers may
- *   re-mint a fresh signer session via POST /api/v1/billing/pymthouse/token.
+ *   Opaque signer sessions remain available via POST /api/v1/billing/pymthouse/token.
  */
 
 import * as crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { PmtHouseError } from '@pymthouse/builder-sdk';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { validateCSRF } from '@/lib/api/csrf';
@@ -23,22 +23,23 @@ import {
   isPymthouseConfigured,
   PYMTHOUSE_NOT_CONFIGURED_MESSAGE,
 } from '@pymthouse/builder-sdk/config';
-import type { SignerSessionToken } from '@pymthouse/builder-sdk/tokens';
-import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
+import { SIGN_JOB_SCOPE } from '@pymthouse/builder-sdk';
+import { createPymthouseApiKey } from '@/lib/pymthouse-keys-bff';
 import { isRedirectFlowBillingProvider } from '@/lib/billing-providers';
 
 const LOGIN_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 5;
+/** Nominal OAuth-session TTL when pymthouse start completes immediately (key itself is long-lived). */
+const PYMTHOUSE_START_SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
- * PymtHouse: server-to-server Builder mint + issuer token exchange for a durable
- * opaque signer session — no browser redirect.
+ * PymtHouse: provision app user + mint long-lived pmth_* API key (exchangeable by SDK).
  */
 async function executePymthouseUserLink(
   naapUserId: string | null,
   userEmail?: string | null,
-): Promise<SignerSessionToken | null> {
+): Promise<string | null> {
   if (!isPymthouseConfigured()) {
     return null;
   }
@@ -47,10 +48,11 @@ async function executePymthouseUserLink(
     return null;
   }
 
-  return getPmtHouseServerClient().mintSignerSessionForExternalUser({
+  const { apiKey } = await createPymthouseApiKey({
     externalUserId: naapUserId,
-    email: userEmail ?? undefined,
+    email: userEmail,
   });
+  return apiKey;
 }
 
 export async function POST(
@@ -96,23 +98,23 @@ export async function POST(
 
     const loginSessionId = crypto.randomBytes(32).toString('hex');
 
-    // ── PymtHouse: Builder mint + RFC 8693 exchange (opaque pmth session) ───
+    // ── PymtHouse: Builder user API key (pmth_*, SDK exchangeable) ─────────
     if (providerSlug === 'pymthouse') {
-      let token: SignerSessionToken | null;
+      let apiKey: string | null;
       try {
-        token = await executePymthouseUserLink(
+        apiKey = await executePymthouseUserLink(
           naapUserId,
           authenticatedUser?.email,
         );
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error';
+        const msg = err instanceof PmtHouseError ? err.message : err instanceof Error ? err.message : 'Unknown error';
         console.error('[billing-auth:pymthouse] Builder API error:', { msg, err });
         return errors.badRequest(
           'User linking failed; please try again or contact support.',
         );
       }
 
-      if (!token) {
+      if (!apiKey) {
         return errors.badRequest(PYMTHOUSE_NOT_CONFIGURED_MESSAGE);
       }
 
@@ -128,7 +130,7 @@ export async function POST(
           accessToken: null,
           providerUserId: naapUserId,
           redeemedAt: new Date(),
-          expiresAt: new Date(Date.now() + token.expiresIn * 1000),
+          expiresAt: new Date(Date.now() + PYMTHOUSE_START_SESSION_TTL_MS),
         },
       });
 
@@ -136,11 +138,11 @@ export async function POST(
 
       const tokenRes = success({
         auth_url: null,
-        access_token: token.accessToken,
-        token_type: token.tokenType,
-        scope: token.scope,
+        access_token: apiKey,
+        token_type: 'Bearer',
+        scope: SIGN_JOB_SCOPE,
         login_session_id: loginSessionId,
-        expires_in: token.expiresIn,
+        expires_in: Math.floor(PYMTHOUSE_START_SESSION_TTL_MS / 1000),
         poll_after_ms: 0,
       });
       tokenRes.headers.set('Cache-Control', 'no-store');

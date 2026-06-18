@@ -11,7 +11,7 @@ import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
 import { validateCSRF } from '@/lib/api/csrf';
 import { enforceRateLimit } from '@/lib/api/rate-limit';
-import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
+import { mintSignerSessionForExternalUser } from '@/lib/pymthouse-client';
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_PER_USER = 30;
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     try {
-      const session = await getPmtHouseServerClient().mintSignerSessionForExternalUser({
+      const session = await mintSignerSessionForExternalUser({
         externalUserId: authUser.id,
         email: authUser.email ?? undefined,
       });

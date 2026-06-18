@@ -18,49 +18,11 @@ import {
   hashApiKey,
 } from '@naap/database';
 import {
-  computeSignerSessionExpiry,
   decodeJwtExp,
   isLikelyOidcJwt,
-  SIGNER_SESSION_TTL_MS,
 } from '@pymthouse/builder-sdk/tokens';
 
 const PYMTHOUSE_PROVIDER_SLUG = 'pymthouse';
-
-// Throttle window for opportunistic cleanup off the GET path. We must not
-// run a database delete on every list request — GETs should be safe per
-// HTTP semantics, and an unthrottled delete on every read produces
-// unpredictable response times, non-atomic delete+findMany ordering
-// surprises, and elevated connection use under load. A scheduled cron
-// (`/api/cron/cleanup-expired-keys` behind `CRON_SECRET`) should own the
-// authoritative cleanup; this fallback only fires at most once per
-// process per window, and only if we haven't seen a cleanup recently.
-const EXPIRED_KEY_CLEANUP_THROTTLE_MS = 15 * 60 * 1000;
-let lastExpiredKeyCleanupAt = 0;
-
-async function maybeCleanupExpiredPymthouseKeys(userId: string): Promise<void> {
-  const now = Date.now();
-  if (now - lastExpiredKeyCleanupAt < EXPIRED_KEY_CLEANUP_THROTTLE_MS) {
-    return;
-  }
-  lastExpiredKeyCleanupAt = now;
-
-  const expiryCutoff = new Date(now - SIGNER_SESSION_TTL_MS);
-  try {
-    await prisma.devApiKey.deleteMany({
-      where: {
-        userId,
-        billingProvider: { slug: PYMTHOUSE_PROVIDER_SLUG },
-        OR: [
-          { status: 'ACTIVE', createdAt: { lte: expiryCutoff } },
-          { status: 'EXPIRED' },
-        ],
-      },
-    });
-  } catch (err) {
-    // Cleanup is best-effort. Never let a failure here break the read path.
-    console.warn('[developer/keys] Background expired-key cleanup failed:', err);
-  }
-}
 
 /**
  * Strip credential-derived material before returning a DevApiKey to the
@@ -80,10 +42,7 @@ function toSafeDevApiKey<
   const { keyHash: _keyHash, keyLookupId: _keyLookupId, ...rest } = key;
   return {
     ...rest,
-    expiresAt:
-      key.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
-        ? computeSignerSessionExpiry(key.createdAt).toISOString()
-        : null,
+    expiresAt: null,
   };
 }
 
@@ -99,26 +58,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return errors.unauthorized('Invalid or expired session');
     }
 
-    // Fire-and-forget throttled cleanup so the read path remains fast and
-    // mostly side-effect free; expired keys are filtered out of the
-    // response regardless of whether cleanup ran this request.
-    void maybeCleanupExpiredPymthouseKeys(user.id);
-
     const searchParams = request.nextUrl.searchParams;
     const { page, pageSize, skip } = parsePagination(searchParams);
 
-    // Exclude expired PymtHouse keys at the DB layer (mirrors
-    // isExpiredPymthouseKey) so total/totalPages stay aligned with the rows
-    // actually returned, instead of filtering after pagination.
-    const expiryCutoff = new Date(Date.now() - SIGNER_SESSION_TTL_MS);
     const listWhere: Prisma.DevApiKeyWhereInput = {
       userId: user.id,
       NOT: {
         billingProvider: { slug: PYMTHOUSE_PROVIDER_SLUG },
-        OR: [
-          { status: 'EXPIRED' },
-          { status: 'ACTIVE', createdAt: { lte: expiryCutoff } },
-        ],
+        status: 'EXPIRED',
       },
     };
 
@@ -263,7 +210,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       rawApiKey,
       warning:
         provider.slug === PYMTHOUSE_PROVIDER_SLUG
-          ? 'Store this key securely. It expires after about 90 days and will not be shown again.'
+          ? 'Store this key securely. It is long-lived until revoked and will not be shown again.'
           : 'Store this key securely. It will not be shown again.',
     });
   } catch (err) {
