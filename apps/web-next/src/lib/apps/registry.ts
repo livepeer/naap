@@ -69,7 +69,16 @@ export function invalidScopes(scopes: string[]): string[] {
  * `appId`s, so usage attributes separately even within one owning team.
  */
 export function resolveAppAttribution(app: RegisteredApp): AppAttribution {
-  const ownerScope = app.teamId ?? (app.ownerUserId ? `personal:${app.ownerUserId}` : 'unknown');
+  const hasTeam = app.teamId != null;
+  const hasUser = app.ownerUserId != null;
+  // Model invariant: exactly one of teamId / ownerUserId is set. A violation is
+  // data corruption — fail loud rather than silently attributing to "unknown".
+  if (hasTeam === hasUser) {
+    throw new Error(
+      `Application ${app.id} must have exactly one owner (teamId XOR ownerUserId)`,
+    );
+  }
+  const ownerScope = hasTeam ? app.teamId! : `personal:${app.ownerUserId!}`;
   return { appId: app.id, slug: app.slug, ownerScope };
 }
 

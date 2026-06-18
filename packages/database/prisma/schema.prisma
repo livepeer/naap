@@ -319,7 +319,6 @@ model Application {
 
   @@index([teamId])
   @@index([ownerUserId])
-  @@index([slug])
   @@schema("public")
 }
 

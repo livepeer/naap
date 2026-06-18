@@ -97,17 +97,27 @@ export async function POST(request: NextRequest) {
     ? { ownerUserId: ctx.userId }
     : { teamId: ctx.teamId };
 
-  const app = await prisma.application.create({
-    data: {
-      ...ownerData,
-      createdBy: ctx.userId,
-      slug: parsed.data.slug,
-      name: parsed.data.name,
-      type: parsed.data.type,
-      allowedScopes: parsed.data.allowedScopes,
-      allowedCapabilities: parsed.data.allowedCapabilities,
-    },
-  });
+  let app;
+  try {
+    app = await prisma.application.create({
+      data: {
+        ...ownerData,
+        createdBy: ctx.userId,
+        slug: parsed.data.slug,
+        name: parsed.data.name,
+        type: parsed.data.type,
+        allowedScopes: parsed.data.allowedScopes,
+        allowedCapabilities: parsed.data.allowedCapabilities,
+      },
+    });
+  } catch (e) {
+    // The findUnique pre-check above is not race-safe; rely on the DB unique
+    // constraint as the source of truth and map P2002 to a 409.
+    if (e && typeof e === 'object' && 'code' in e && (e as { code?: string }).code === 'P2002') {
+      return errors.conflict('An application with this slug already exists');
+    }
+    throw e;
+  }
 
   log('app.register', {
     correlationId: correlationId(request),

@@ -20,4 +20,3 @@ CREATE TABLE "public"."Application" (
 CREATE UNIQUE INDEX "Application_slug_key" ON "public"."Application"("slug");
 CREATE INDEX "Application_teamId_idx" ON "public"."Application"("teamId");
 CREATE INDEX "Application_ownerUserId_idx" ON "public"."Application"("ownerUserId");
-CREATE INDEX "Application_slug_idx" ON "public"."Application"("slug");
