@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://naap.livepeer.org/contracts/bpp/provider-internal-openmeter.schema.json",
+  "title": "⑨ Provider-internal metering (OpenMeter) — NOT part of the BPP",
+  "description": "DOCUMENTATION ONLY. This is the reference provider's (pymthouse, PR #133) internal metering shape. NaaP MUST NEVER depend on it — it consumes the neutral ⑥ usage-ingest payload only. The conformance suite uses this file's `x-bpp-forbidden-field-names` to assert these names never leak through the BPP seams (② and ⑥).",
+  "x-bpp": "non-bpp",
+  "x-bpp-forbidden-field-names": [
+    "openmeter_subscription_id",
+    "openmeter_customer_id",
+    "network_fee_usd_micros",
+    "fee_wei",
+    "eth_usd_price",
+    "eth_usd_round_id",
+    "eth_usd_observed_at",
+    "external_user_id",
+    "client_id",
+    "model_id",
+    "gateway_request_id",
+    "specversion"
+  ],
+  "type": "object",
+  "required": ["specversion", "type", "source", "data"],
+  "properties": {
+    "specversion": { "type": "string", "const": "1.0" },
+    "type": { "type": "string", "const": "create_signed_ticket" },
+    "source": { "type": "string", "const": "go-livepeer-remote-signer" },
+    "subject": { "type": "string", "description": "<client_id>:<external_user_id>" },
+    "data": {
+      "type": "object",
+      "properties": {
+        "client_id": { "type": "string" },
+        "external_user_id": { "type": "string" },
+        "network_fee_usd_micros": { "type": "string" },
+        "fee_wei": { "type": "string" },
+        "pixels": { "type": "number" },
+        "pipeline": { "type": "string" },
+        "model_id": { "type": "string" },
+        "gateway_request_id": { "type": "string" },
+        "eth_usd_price": { "type": "string" },
+        "eth_usd_round_id": { "type": "string" },
+        "eth_usd_observed_at": { "type": "string" }
+      }
+    }
+  }
+}
