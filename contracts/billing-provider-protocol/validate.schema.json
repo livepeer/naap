@@ -62,17 +62,35 @@
       "description": "OPTIONAL neutral opaque subscription pointer. The provider decides its meaning; it MUST NOT encode a provider-internal identifier name (e.g. openmeter_subscription_id)."
     },
     "signerSession": {
-      "type": "object",
-      "required": ["url", "headers"],
-      "additionalProperties": false,
-      "properties": {
-        "url": { "type": "string", "format": "uri" },
-        "headers": {
+      "description": "OPTIONAL provider-issued signer session, opaque to apps. A provider returns EXACTLY ONE of two neutral forms: (a) a fetchable endpoint {url, headers}, or (b) a token bundle {accessToken, tokenType?, expiresIn?, scope?} (the shape the BillingProviderAdapter / NAAP-C front door return). Each form forbids additional properties, so the two are mutually exclusive.",
+      "oneOf": [
+        {
           "type": "object",
-          "description": "Opaque-to-apps headers, e.g. { \"Authorization\": \"Bearer <provider-token>\" }.",
-          "additionalProperties": { "type": "string" }
+          "title": "Endpoint form",
+          "required": ["url", "headers"],
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string", "format": "uri" },
+            "headers": {
+              "type": "object",
+              "description": "Opaque-to-apps headers, e.g. { \"Authorization\": \"Bearer <provider-token>\" }.",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "title": "Token-bundle form",
+          "required": ["accessToken"],
+          "additionalProperties": false,
+          "properties": {
+            "accessToken": { "type": "string", "minLength": 1 },
+            "tokenType": { "type": "string", "minLength": 1 },
+            "expiresIn": { "type": "integer", "minimum": 0 },
+            "scope": { "type": "string" }
+          }
         }
-      }
+      ]
     }
   }
 }

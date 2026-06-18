@@ -36,6 +36,54 @@ describe('BPP conformance — stub provider', () => {
     expect(report.accountRefMismatches).toEqual([]);
     expect(report.passed).toBe(true);
   });
+
+  // signerSession is a oneOf of an endpoint form {url, headers} and a token
+  // bundle {accessToken, ...}. The default stub uses the endpoint form; a real
+  // BillingProviderAdapter / NAAP-C front door returns the token bundle, so the
+  // validate seam MUST accept that form too (else a conformant provider fails).
+  it('accepts a token-bundle signerSession from validate (adapter/NAAP-C form)', async () => {
+    const tokenized: BppConformanceProvider = {
+      ...createStubBillingProvider(),
+      async validate(key: string) {
+        const base = (await createStubBillingProvider().validate(key)) as Record<string, unknown>;
+        return {
+          ...base,
+          signerSession: {
+            accessToken: 'stub-signer-token',
+            tokenType: 'Bearer',
+            expiresIn: 3600,
+            scope: 'sign:job',
+          },
+        };
+      },
+    };
+    const report = await runConformance(tokenized);
+    const validateSeam = report.seams.find((s) => s.seam === 'validate');
+    expect(validateSeam?.valid, JSON.stringify(validateSeam?.errors, null, 2)).toBe(true);
+    expect(report.passed).toBe(true);
+  });
+
+  // The two forms are mutually exclusive (each forbids extra properties), so
+  // mixing them is a contract violation the suite must reject.
+  it('rejects a signerSession that mixes the endpoint and token-bundle forms', async () => {
+    const mixed: BppConformanceProvider = {
+      ...createStubBillingProvider(),
+      async validate(key: string) {
+        const base = (await createStubBillingProvider().validate(key)) as Record<string, unknown>;
+        return {
+          ...base,
+          signerSession: {
+            url: 'https://signer.stub.example/session',
+            headers: { Authorization: 'Bearer x' },
+            accessToken: 'should-not-be-here',
+          },
+        };
+      },
+    };
+    const report = await runConformance(mixed);
+    expect(report.seams.find((s) => s.seam === 'validate')?.valid).toBe(false);
+    expect(report.passed).toBe(false);
+  });
 });
 
 describe('BPP conformance — negative cases (the suite catches drift)', () => {
