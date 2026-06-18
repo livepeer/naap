@@ -182,6 +182,12 @@ model BillingProvider {
   authType    String   @default("oauth")
   enabled     Boolean  @default(true)
   sortOrder   Int      @default(0)
+  // NAAP-A-db: DB-driven adapter registry. `adapterType` selects which
+  // BillingProviderAdapter implementation backs this provider (many provider
+  // rows may share one adapterType, differentiated by `config`). NULL ⇒ resolve
+  // by `slug` (the pre-NAAP-A-db behavior), so existing rows are unaffected.
+  adapterType String?
+  config      Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
