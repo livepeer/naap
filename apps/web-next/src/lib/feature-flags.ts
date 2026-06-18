@@ -28,6 +28,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Route billing requests through the generic BillingProviderAdapter registry (/api/v1/billing/{provider}/*). OFF = legacy /billing/pymthouse/* behavior only.',
   },
   {
+    key: 'app_registry',
+    enabled: false,
+    description:
+      'Enable the application/service registry (/api/v1/apps/*) so usage and rate limits attribute per registered app. OFF = registry endpoints return 404 (no-op).',
+  },
+  {
     key: 'db_adapter_registry',
     enabled: false,
     description:
