@@ -34,6 +34,24 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Team Seats API + provider-agnostic billingAccountRef binding (/api/v1/teams/{id}/seats/*, /billing-account). OFF = endpoints 404, no-op (NAAP-1).',
   },
   {
+    key: 'usage_ingest',
+    enabled: false,
+    description:
+      'Enable cross-provider usage telemetry: the BPP ⑥ ingest endpoint (/api/v1/metrics/ingest) and the spend dashboard BFF (/api/v1/metrics/usage). OFF = both return 404 (no-op).',
+  },
+  {
+    key: 'app_registry',
+    enabled: false,
+    description:
+      'Enable the application/service registry (/api/v1/apps/*) so usage and rate limits attribute per registered app. OFF = registry endpoints return 404 (no-op).',
+  },
+  {
+    key: 'db_adapter_registry',
+    enabled: false,
+    description:
+      'Resolve the BillingProviderAdapter from the BillingProvider.adapterType DB column (NAAP-A-db) instead of the static slug→adapter map. OFF = static registry (zero regression); falls back to static on any DB miss/error.',
+  },
+  {
     key: 'native_keys',
     enabled: false,
     description:
@@ -53,11 +71,16 @@ export const KNOWN_FLAGS: KnownFlag[] = [
  * exist yet, so a flag defaulting OFF is a no-op until an admin enables it.
  */
 export async function isFeatureEnabled(key: string): Promise<boolean> {
-  const flag = await prisma.featureFlag.findUnique({
-    where: { key },
-    select: { enabled: true },
-  });
-  if (flag) return flag.enabled;
+  try {
+    const flag = await prisma.featureFlag.findUnique({
+      where: { key },
+      select: { enabled: true },
+    });
+    if (flag) return flag.enabled;
+  } catch {
+    // Transient DB lookup failures must not break callers: fall through to the
+    // static KNOWN_FLAGS default so a flag defaulting OFF stays a safe no-op.
+  }
   return KNOWN_FLAGS.find((f) => f.key === key)?.enabled ?? false;
 }
 

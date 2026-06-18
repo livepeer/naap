@@ -26,11 +26,27 @@ export interface ValidateResult {
   signerSession?: SignerSession;
 }
 
-/** Provider-issued signer session, opaque to applications. */
-export interface SignerSession {
-  url?: string;
-  headers?: Record<string, string>;
-  accessToken?: string;
+/**
+ * Provider-issued signer session, opaque to applications.
+ *
+ * Mirrors the C0 `validate.schema.json` `signerSession` oneOf: a provider returns
+ * EXACTLY ONE of two neutral forms — an endpoint to fetch, or a token bundle.
+ * Modelling them as a discriminated union (rather than one bag of optional
+ * fields) keeps the two mutually exclusive, so a value that type-checks here also
+ * passes BPP conformance. The token-bundle form is what the reference provider
+ * (pymthouse) and the NAAP-C validation front door return.
+ */
+export type SignerSession = SignerSessionEndpoint | SignerSessionToken;
+
+/** Endpoint form: a fetchable URL plus opaque-to-apps headers. */
+export interface SignerSessionEndpoint {
+  url: string;
+  headers: Record<string, string>;
+}
+
+/** Token-bundle form: a provider-issued access token (the shape NAAP-C returns). */
+export interface SignerSessionToken {
+  accessToken: string;
   tokenType?: string;
   expiresIn?: number;
   scope?: string;
@@ -102,8 +118,11 @@ export interface BillingProviderAdapter {
   /** BPP usage/telemetry — app-wide usage (admin scope). */
   getAppUsage(input: AppUsageInput): Promise<unknown>;
 
-  /** BPP mintSignerSession — provider-issued, opaque to apps. */
-  mintSignerSession(input: MintSignerSessionInput): Promise<SignerSession>;
+  /**
+   * BPP mintSignerSession — provider-issued, opaque to apps. Always the
+   * token-bundle form (the `/token` endpoint serializes its fields directly).
+   */
+  mintSignerSession(input: MintSignerSessionInput): Promise<SignerSessionToken>;
 
   /** BPP ⑧ — receive a curated orchestrator list for a plan. */
   receiveCuratedOrchestrators(plan: string, list: CuratedOrchestrator[]): Promise<void>;

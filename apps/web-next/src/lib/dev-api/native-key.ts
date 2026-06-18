@@ -16,7 +16,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { hashApiKey } from '@naap/database';
 import { getBillingProviderAdapter } from '@/lib/billing/registry';
-import type { SignerSession } from '@/lib/billing/adapter';
+import type { SignerSessionToken } from '@/lib/billing/adapter';
 import {
   type BillingAccountRef,
   type TeamBillingBinding,
@@ -82,8 +82,12 @@ export interface ResolvedProviderSession {
   reason?: ResolveFailureReason;
   /** Provider-agnostic account pointer the session was minted for. */
   billingAccountRef?: BillingAccountRef;
-  /** Provider-issued session, OPAQUE to applications. */
-  signerSession?: SignerSession;
+  /**
+   * Provider-issued session, OPAQUE to applications. Always the token-bundle
+   * form: `mintSignerSession` returns `SignerSessionToken` (the shape NAAP-C and
+   * the reference provider return).
+   */
+  signerSession?: SignerSessionToken;
 }
 
 /**

@@ -187,6 +187,86 @@ describe('Personalized API: visibility-gate', () => {
 });
 
 
+/**
+ * Mirrors the personal-context composition in route.ts: visible plugins (publish +
+ * visibility gated) are merged with headless providers (publish gated only), then
+ * deduplicated by normalized name with the visible entry winning. This guards the
+ * regression where headless data providers were dropped for non-admins in personal
+ * context, breaking the dashboard's `dashboard:query` event-bus handler.
+ */
+function buildPersonalizedPlugins(
+  globalPlugins: MockPlugin[],
+  publishedPackages: MockPublishedPackage[],
+  isAdmin: boolean
+): MockPlugin[] {
+  const visible = applyFilters(globalPlugins, publishedPackages, isAdmin);
+  const headless = extractHeadlessPlugins(globalPlugins, publishedPackages);
+
+  const seenNames = new Set<string>();
+  return [...visible, ...headless].filter((p) => {
+    const normalized = normalizePluginName(p.name);
+    if (seenNames.has(normalized)) return false;
+    seenNames.add(normalized);
+    return true;
+  });
+}
+
+describe('Personalized API: personal-context headless inclusion', () => {
+  it('includes a HIDDEN headless provider for a non-admin user', () => {
+    const globalPlugins = [
+      makePlugin('public-ui'),
+      makeHeadlessPlugin('dashboard-data-provider'),
+    ];
+    const publishedPackages = [
+      makePackage('public-ui', { visibleToUsers: true }),
+      makePackage('dashboard-data-provider', { visibleToUsers: false }),
+    ];
+
+    const result = buildPersonalizedPlugins(globalPlugins, publishedPackages, false);
+
+    expect(result.map((p) => p.name).sort()).toEqual([
+      'dashboard-data-provider',
+      'public-ui',
+    ]);
+  });
+
+  it('does not duplicate a VISIBLE headless provider', () => {
+    const globalPlugins = [makeHeadlessPlugin('dashboard-data-provider')];
+    const publishedPackages = [
+      makePackage('dashboard-data-provider', { visibleToUsers: true }),
+    ];
+
+    const result = buildPersonalizedPlugins(globalPlugins, publishedPackages, false);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('dashboard-data-provider');
+  });
+
+  it('still excludes a hidden UI (routed) plugin for a non-admin', () => {
+    const globalPlugins = [
+      makeHeadlessPlugin('dashboard-data-provider'),
+      makePlugin('secret-ui'),
+    ];
+    const publishedPackages = [
+      makePackage('dashboard-data-provider', { visibleToUsers: false }),
+      makePackage('secret-ui', { visibleToUsers: false }),
+    ];
+
+    const result = buildPersonalizedPlugins(globalPlugins, publishedPackages, false);
+
+    expect(result.map((p) => p.name)).toEqual(['dashboard-data-provider']);
+  });
+
+  it('excludes an UNPUBLISHED headless provider (publish gate still applies)', () => {
+    const globalPlugins = [makeHeadlessPlugin('draft-provider')];
+    const publishedPackages: MockPublishedPackage[] = [];
+
+    const result = buildPersonalizedPlugins(globalPlugins, publishedPackages, false);
+
+    expect(result).toHaveLength(0);
+  });
+});
+
 describe('Personalized API: preview tester allowlist', () => {
   it('shows hidden plugin to allowlisted user', () => {
     const globalPlugins = [makePlugin('my-wallet'), makePlugin('public-plugin')];

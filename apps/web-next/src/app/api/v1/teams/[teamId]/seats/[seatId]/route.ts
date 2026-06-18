@@ -102,7 +102,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
     if (!token) return noStore(errors.unauthorized('No auth token provided'));
 
     const csrfError = validateCSRF(request, { shadowMode: true });
-    if (csrfError) return csrfError;
+    if (csrfError) return noStore(csrfError);
 
     const user = await validateSession(token);
     if (!user) return noStore(errors.unauthorized('Invalid or expired session'));
@@ -163,7 +163,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
     if (!token) return noStore(errors.unauthorized('No auth token provided'));
 
     const csrfError = validateCSRF(request, { shadowMode: true });
-    if (csrfError) return csrfError;
+    if (csrfError) return noStore(csrfError);
 
     const user = await validateSession(token);
     if (!user) return noStore(errors.unauthorized('Invalid or expired session'));
