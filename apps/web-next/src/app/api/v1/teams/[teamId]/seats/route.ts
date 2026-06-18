@@ -123,7 +123,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     if (!token) return noStore(errors.unauthorized('No auth token provided'));
 
     const csrfError = validateCSRF(request, { shadowMode: true });
-    if (csrfError) return csrfError;
+    if (csrfError) return noStore(csrfError);
 
     const user = await validateSession(token);
     if (!user) return noStore(errors.unauthorized('Invalid or expired session'));
@@ -186,6 +186,16 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       });
       if (existing) {
         return noStore(errors.conflict('User already has a seat in this team'));
+      }
+    } else if (targetEmail) {
+      // Pending invite: guard against duplicate seats for the same email so a
+      // person is not invited twice into the same team.
+      const existingByEmail = await prisma.seat.findFirst({
+        where: { teamId, email: targetEmail },
+        select: { id: true },
+      });
+      if (existingByEmail) {
+        return noStore(errors.conflict('A seat for this email already exists in this team'));
       }
     }
 

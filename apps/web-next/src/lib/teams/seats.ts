@@ -75,9 +75,9 @@ export function allSeatsResolveToSingleRef(
   team: TeamBillingBinding,
   seats: Array<Pick<SeatShape, 'teamId'>>,
 ): boolean {
-  const refs = seats.map((s) => resolveSeatBillingAccountRef(s, team));
   // Any seat not belonging to this team is a programming error → not single.
-  if (refs.some((r, i) => seats[i].teamId !== team.id)) return false;
+  if (seats.some((s) => s.teamId !== team.id)) return false;
+  const refs = seats.map((s) => resolveSeatBillingAccountRef(s, team));
   const distinct = new Set(
     refs
       .filter((r): r is BillingAccountRef => r !== null)

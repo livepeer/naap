@@ -18,14 +18,36 @@ vi.mock('@/lib/orchestrator-leaderboard/provider-restrictions', () => ({
   normalizeBillingProviderSlug: vi.fn((slug?: string | null) => slug?.trim().toLowerCase() || null),
 }));
 
+vi.mock('@/lib/orchestrator-leaderboard/storyboard-default-plan', () => ({
+  STORYBOARD_DEFAULT_PLAN_ID: 'storyboard-default',
+  isStoryboardDefaultDiscoveryEnabled: vi.fn().mockReturnValue(false),
+}));
+
+vi.mock('@/lib/orchestrator-leaderboard/storyboard-default-discovery', () => ({
+  buildStoryboardDefaultDiscovery: vi.fn(),
+}));
+
+vi.mock('@/lib/pymthouse-manifest', () => ({
+  DISCOVERY_RESPONSE_CACHE_CONTROL: 'no-store',
+  ensurePymthouseManifestFresh: vi.fn(),
+}));
+
 import { authorize } from '@/lib/gateway/authorize';
 import { fetchLeaderboard } from '@/lib/orchestrator-leaderboard/query';
 import { isCapabilityAllowedForProvider } from '@/lib/orchestrator-leaderboard/provider-restrictions';
+import { isStoryboardDefaultDiscoveryEnabled } from '@/lib/orchestrator-leaderboard/storyboard-default-plan';
+import { buildStoryboardDefaultDiscovery } from '@/lib/orchestrator-leaderboard/storyboard-default-discovery';
 
 describe('GET /api/v1/orchestrator-leaderboard/python-gateway', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (isCapabilityAllowedForProvider as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (isStoryboardDefaultDiscoveryEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (buildStoryboardDefaultDiscovery as ReturnType<typeof vi.fn>).mockResolvedValue({
+      addresses: ['https://orch-a.test'],
+      byKind: { scope: ['https://orch-a.test'], byoc: [], tool: [] },
+      meta: { staticFleetInjected: 0, fromCache: true, cacheAgeMs: 0 },
+    });
     (authorize as ReturnType<typeof vi.fn>).mockResolvedValue({
       authenticated: true,
       teamId: 'personal:user-1',
@@ -98,5 +120,64 @@ describe('GET /api/v1/orchestrator-leaderboard/python-gateway', () => {
     const req = new NextRequest('http://localhost/api/v1/orchestrator-leaderboard/python-gateway');
     const res = await GET(req);
     expect(res.status).toBe(401);
+  });
+
+  it('delegates to storyboard-default discovery when plan=storyboard-default and the flag is enabled', async () => {
+    (isStoryboardDefaultDiscoveryEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const { GET } = await import('./route');
+    const req = new NextRequest(
+      'http://localhost/api/v1/orchestrator-leaderboard/python-gateway?plan=storyboard-default&billingProvider=pymthouse',
+      { headers: { Authorization: 'Bearer gw_test' } },
+    );
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    expect(buildStoryboardDefaultDiscovery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        billingProviderSlug: 'pymthouse',
+        fetchCapabilityAddresses: expect.any(Function),
+      }),
+    );
+    // Delegation path does not run the per-capability leaderboard loop directly.
+    expect(fetchLeaderboard).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual([{ address: 'https://orch-a.test' }]);
+  });
+
+  it('sets the X-Discovery-Mode: storyboard-default header on the delegated response', async () => {
+    (isStoryboardDefaultDiscoveryEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const { GET } = await import('./route');
+    const req = new NextRequest(
+      'http://localhost/api/v1/orchestrator-leaderboard/python-gateway?plan=storyboard-default',
+      { headers: { Authorization: 'Bearer gw_test' } },
+    );
+
+    const res = await GET(req);
+
+    expect(res.headers.get('X-Discovery-Mode')).toBe('storyboard-default');
+  });
+
+  it('falls through to per-capability behavior when the storyboard-default flag is disabled', async () => {
+    (isStoryboardDefaultDiscoveryEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    const { GET } = await import('./route');
+    const req = new NextRequest(
+      'http://localhost/api/v1/orchestrator-leaderboard/python-gateway?plan=storyboard-default&caps=live-video-to-video/streamdiffusion-sdxl',
+      { headers: { Authorization: 'Bearer gw_test' } },
+    );
+
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+    expect(buildStoryboardDefaultDiscovery).not.toHaveBeenCalled();
+    expect(fetchLeaderboard).toHaveBeenCalledWith(
+      'streamdiffusion-sdxl',
+      'gw_test',
+      req.url,
+      null,
+    );
+    expect(res.headers.get('X-Discovery-Mode')).not.toBe('storyboard-default');
   });
 });
