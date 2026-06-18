@@ -34,6 +34,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Team Seats API + provider-agnostic billingAccountRef binding (/api/v1/teams/{id}/seats/*, /billing-account). OFF = endpoints 404, no-op (NAAP-1).',
   },
   {
+    key: 'usage_ingest',
+    enabled: false,
+    description:
+      'Enable cross-provider usage telemetry: the BPP ⑥ ingest endpoint (/api/v1/metrics/ingest) and the spend dashboard BFF (/api/v1/metrics/usage). OFF = both return 404 (no-op).',
+  },
+  {
     key: 'app_registry',
     enabled: false,
     description:

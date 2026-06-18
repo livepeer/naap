@@ -11,7 +11,7 @@
 
 export const STUB_PROVIDER_SLUG = 'stub';
 
-/** The provider surface the BPP conformance suite exercises (② ④ ⑤ ⑥ ⑧). */
+/** The provider-surface exercised by the BPP conformance suite (② ④ ⑤ ⑥ ⑧). */
 export interface BppConformanceProvider {
   readonly slug: string;
   /** ② validate */
