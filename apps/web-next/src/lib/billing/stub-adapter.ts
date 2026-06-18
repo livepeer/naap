@@ -13,7 +13,7 @@ import {
   type CuratedOrchestrator,
   type MintSignerSessionInput,
   type Plan,
-  type SignerSession,
+  type SignerSessionToken,
   type UsageForExternalUserInput,
   type ValidateResult,
 } from './adapter';
@@ -69,7 +69,7 @@ export class StubAdapter implements BillingProviderAdapter {
     };
   }
 
-  async mintSignerSession(_input: MintSignerSessionInput): Promise<SignerSession> {
+  async mintSignerSession(_input: MintSignerSessionInput): Promise<SignerSessionToken> {
     return {
       accessToken: 'stub-signer-token',
       tokenType: 'Bearer',

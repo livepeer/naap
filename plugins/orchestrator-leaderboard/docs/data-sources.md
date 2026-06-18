@@ -101,6 +101,41 @@ same orchestrator, the resolver builds a cross-reference map to join them.
 
 ---
 
+## Storyboard Default discovery bundle (NAAP-9, Daydream parity)
+
+Default ClickHouse discovery is **per-requested-capability** and only returns
+orchestrators with **warm rows in the last hour** (`semantic.network_capabilities`,
+`warm_bool = 1`). Orchestrators without warm rows for a requested capability are
+**silently dropped** — e.g. the scope staging orchs
+(`orch-staging-1/2/3`, capability `live-video-to-video/scope`).
+
+The **Storyboard Default plan** (`storyboard-default`) is the concrete instance
+of the generic capability gate (NAAP-E). It guarantees a **non-disruptive
+Daydream→NaaP discovery switch** by returning ⊇ the live Daydream set across
+three categories — **scope**, **BYOC**, and **tool** — with a **static-fleet
+fallback** merged into the tier shuffle so no known orchestrator is dropped.
+
+- **Endpoint**: `GET /api/v1/orchestrator-leaderboard/storyboard-default/python-gateway`
+  (also reachable via the default endpoint with `?plan=storyboard-default`).
+- **Static fleet**: the plan's per-category `staticOrchestrators` (mirrors
+  `simple-infra/discovery/staging.json` + `fleet.yaml`, plus the BYOC tool host).
+  Live-ranked orchs keep their order; missing static-fleet addresses are
+  appended into the lowest tier (`tieredShuffleWithStaticFallback`) — present,
+  never displacing live-ranked orchs.
+- **Feature flag**: `STORYBOARD_DEFAULT_DISCOVERY_ENABLED` (default **OFF**).
+  When OFF the dedicated endpoint returns `404` and the `?plan=` param is
+  ignored, so the live Daydream path stays authoritative until parity is proven.
+- **Provider-agnostic**: the pymthouse capability denylist is applied **only**
+  when `billingProviderSlug=pymthouse`; the static-fleet fallback is a property
+  of the *plan*, not of Storyboard.
+- **Golden-set parity test**: the bundle is guarded by a bidirectional
+  golden-set test (`storyboard-default/__tests__/golden-set.test.ts` +
+  `__snapshots__/golden-set.json`) — captured empirically from the live
+  Daydream path (Decision D7) — that fails if any scope address or BYOC/tool
+  capability is silently dropped **or** added.
+
+---
+
 ## Audit log
 
 Every refresh writes a `LeaderboardRefreshAudit` record to the database with:
