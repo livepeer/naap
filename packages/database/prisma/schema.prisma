@@ -60,10 +60,11 @@ model User {
   // Team relations
   ownedTeams      Team[]       @relation("TeamOwner")
   teamMemberships TeamMember[]
+  seats           Seat[]       @relation("UserSeats")
 
   // Platform relations
-  pluginReviews    PluginReview[]
-  feedbacks        Feedback[]
+  pluginReviews PluginReview[]
+  feedbacks     Feedback[]
 
   // Plugin relations - Community
   communityProfile CommunityProfile?
@@ -234,17 +235,50 @@ model Team {
 
   // NAAP-1/NAAP-2: provider-agnostic billing-account binding. A team binds to
   // exactly ONE billing account via {providerSlug, accountId} (the BPP
-  // `billingAccountRef`). Both nullable + additive: a team with no binding
-  // behaves exactly as before. Used by the usage dashboard (NAAP-2) to scope a
-  // caller's spend to the accounts reachable through their team memberships.
+  // `billingAccountRef`), resolved through the BillingProviderAdapter registry
+  // (NAAP-A) — never a provider-specific FK. `accountId` is the provider's
+  // opaque customer/subscription id (e.g. an OpenMeter customer id). Both
+  // nullable + additive: a team with no binding behaves exactly as before. Used
+  // by the usage dashboard (NAAP-2) to scope a caller's spend to the accounts
+  // reachable through their team memberships.
   billingAccountProviderSlug String?
   billingAccountId           String?
 
   members        TeamMember[]
   pluginInstalls TeamPluginInstall[]
+  seats          Seat[]
 
   @@index([ownerId])
   @@index([billingAccountProviderSlug])
+  @@schema("public")
+}
+
+// NAAP-1: A seat is a developer's place in a team. API keys (NAAP-B) are issued
+// to a seat, and a seat resolves (via its team) to a single `billingAccountRef`.
+// Seats are additive: with the `team_seats` flag OFF nothing reads this table.
+model Seat {
+  id          String   @id @default(uuid())
+  teamId      String
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  // null while an invite is pending (no NaaP user has accepted the seat yet).
+  userId      String?
+  user        User?    @relation("UserSeats", fields: [userId], references: [id], onDelete: SetNull)
+  // Invite target email while pending; informational once accepted.
+  email       String?
+  role        String   @default("member") // admin | member | viewer
+  status      String   @default("active") // active | pending | revoked
+  // Per-seat cap on the number of active API keys (NAAP-B).
+  keyLimit    Int      @default(5)
+  invitedBy   String?
+  // Opaque single-use token for the pending-invite accept flow.
+  inviteToken String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@index([teamId, status])
   @@schema("public")
 }
 
@@ -316,21 +350,21 @@ model UserRole {
 /// app. Polymorphic ownership mirrors GatewayApiKey: exactly one of `teamId`
 /// or `ownerUserId` is set. No app is hardcoded — Storyboard is one row here.
 model Application {
-  id                  String   @id @default(uuid())
-  slug                String   @unique
-  name                String
-  type                String   @default("app") // app | service | cli
+  id   String @id @default(uuid())
+  slug String @unique
+  name String
+  type String @default("app") // app | service | cli
 
-  teamId              String? // set for team-scoped apps
-  ownerUserId         String? // set for personal-scoped apps
+  teamId      String? // set for team-scoped apps
+  ownerUserId String? // set for personal-scoped apps
 
   allowedScopes       String[] @default([]) // discovery | gateway | llm | billing | usage
   allowedCapabilities String[] @default([]) // generic capability ids, or "*"
   status              String   @default("active") // active | disabled
 
-  createdBy           String
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([teamId])
   @@index([ownerUserId])
@@ -359,21 +393,21 @@ model HistoricalStat {
 /// provider-internal metering shape. Aggregated into a cross-provider spend
 /// view (provider column). Write-only on ingest; read by the dashboard BFF.
 model ProviderUsageRecord {
-  id                  String   @id @default(uuid())
-  providerSlug        String
-  accountId           String
-  appId               String?
+  id           String  @id @default(uuid())
+  providerSlug String
+  accountId    String
+  appId        String?
 
-  windowFrom          DateTime
-  windowTo            DateTime
+  windowFrom DateTime
+  windowTo   DateTime
 
-  sessions            Int      @default(0)
-  tickets             Int      @default(0)
+  sessions            Int     @default(0)
+  tickets             Int     @default(0)
   feeWei              String? // decimal wei string
   networkFeeUsdMicros String? // decimal USD-micros string
   byCapability        Json? // { "<pipeline>:<model>": { tickets, networkFeeUsdMicros } }
 
-  receivedAt          DateTime @default(now())
+  receivedAt DateTime @default(now())
 
   // NAAP-2 (M1): the natural key of a usage window. Makes ingest idempotent so a
   // billing provider that retries a push does not double-count. Account-level
@@ -429,9 +463,9 @@ model WorkflowPlugin {
   displayName    String
   version        String
   remoteUrl      String
-  bundleUrl      String?  // CDN UMD bundle URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.js)
-  stylesUrl      String?  // CDN styles URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.css)
-  globalName     String?  // UMD global name (e.g., NaapPluginMyWallet)
+  bundleUrl      String? // CDN UMD bundle URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.js)
+  stylesUrl      String? // CDN styles URL (e.g., /cdn/plugins/my-wallet/1.0.0/my-wallet.css)
+  globalName     String? // UMD global name (e.g., NaapPluginMyWallet)
   deploymentType String?  @default("cdn") // 'cdn' | 'container'
   routes         String[]
   enabled        Boolean  @default(true)
@@ -528,34 +562,34 @@ model WebhookSecret {
 }
 
 model PluginPackage {
-  id            String               @id @default(uuid())
-  name          String               @unique
-  displayName   String
-  description   String?
-  category      String               @default("other")
-  author        String?
-  authorEmail   String?
-  repository    String?
-  githubRepo    String?
-  license       String?
-  keywords      String[]
-  icon          String?
-  downloads     Int                  @default(0)
-  rating        Float?
-  deprecated    Boolean              @default(false)
-  isCore        Boolean              @default(false)
-  publishStatus  String               @default("draft")
-  visibleToUsers Boolean              @default(true)
+  id                   String               @id @default(uuid())
+  name                 String               @unique
+  displayName          String
+  description          String?
+  category             String               @default("other")
+  author               String?
+  authorEmail          String?
+  repository           String?
+  githubRepo           String?
+  license              String?
+  keywords             String[]
+  icon                 String?
+  downloads            Int                  @default(0)
+  rating               Float?
+  deprecated           Boolean              @default(false)
+  isCore               Boolean              @default(false)
+  publishStatus        String               @default("draft")
+  visibleToUsers       Boolean              @default(true)
   /// When visibleToUsers is false, only admins and these user IDs see the plugin (sidebar + marketplace).
-  previewTesterUserIds String[]        @default([])
-  publisherId    String?
-  publisher      Publisher?           @relation("PackagePublisher", fields: [publisherId], references: [id])
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  versions       PluginVersion[]
-  installations  PluginInstallation[]
-  deployment     PluginDeployment?
-  reviews        PluginReview[]
+  previewTesterUserIds String[]             @default([])
+  publisherId          String?
+  publisher            Publisher?           @relation("PackagePublisher", fields: [publisherId], references: [id])
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  versions             PluginVersion[]
+  installations        PluginInstallation[]
+  deployment           PluginDeployment?
+  reviews              PluginReview[]
 
   @@index([category])
   @@index([deprecated])
@@ -567,29 +601,29 @@ model PluginPackage {
 }
 
 model PluginVersion {
-  id             String               @id @default(uuid())
+  id             String        @id @default(uuid())
   packageId      String
-  package        PluginPackage        @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  package        PluginPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
   version        String
   manifest       Json
   frontendUrl    String?
   backendImage   String?
   releaseNotes   String?
-  deprecated     Boolean              @default(false)
+  deprecated     Boolean       @default(false)
   deprecationMsg String?
-  downloads      Int                  @default(0)
-  publishedAt    DateTime             @default(now())
+  downloads      Int           @default(0)
+  publishedAt    DateTime      @default(now())
 
   // CDN deployment fields (for UMD bundles)
-  bundleUrl      String?              // CDN URL for the UMD bundle
-  stylesUrl      String?              // CDN URL for styles
-  bundleHash     String?              // Content hash for cache validation
-  bundleSize     Int?                 // Bundle size in bytes
-  deploymentType String?              @default("cdn") // cdn | container
+  bundleUrl      String? // CDN URL for the UMD bundle
+  stylesUrl      String? // CDN URL for styles
+  bundleHash     String? // Content hash for cache validation
+  bundleSize     Int? // Bundle size in bytes
+  deploymentType String? @default("cdn") // cdn | container
 
-  installations  PluginInstallation[]
-  deployments    PluginDeployment[]
-  pinnedByTeams  TeamPluginInstall[]  @relation("PinnedVersion")
+  installations PluginInstallation[]
+  deployments   PluginDeployment[]
+  pinnedByTeams TeamPluginInstall[]  @relation("PinnedVersion")
 
   @@unique([packageId, version])
   @@index([packageId, publishedAt])
@@ -624,34 +658,34 @@ model PluginInstallation {
 // ============================================
 
 model PluginDeployment {
-  id              String                @id @default(uuid())
-  packageId       String                @unique
-  package         PluginPackage         @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  versionId       String
-  version         PluginVersion         @relation(fields: [versionId], references: [id], onDelete: Cascade)
-  status          String                @default("pending")
-  frontendUrl     String?
-  backendUrl      String?
-  containerPort   Int?
-  databaseSchema  String?
+  id             String        @id @default(uuid())
+  packageId      String        @unique
+  package        PluginPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  versionId      String
+  version        PluginVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  status         String        @default("pending")
+  frontendUrl    String?
+  backendUrl     String?
+  containerPort  Int?
+  databaseSchema String?
 
   // CDN deployment fields
-  bundleUrl       String?               // CDN URL for UMD bundle
-  stylesUrl       String?               // CDN URL for styles
-  bundleHash      String?               // Content hash for cache busting
-  bundleSize      Int?                  // Bundle size in bytes
-  deploymentType  String                @default("cdn") // cdn | container
+  bundleUrl      String? // CDN URL for UMD bundle
+  stylesUrl      String? // CDN URL for styles
+  bundleHash     String? // Content hash for cache busting
+  bundleSize     Int? // Bundle size in bytes
+  deploymentType String  @default("cdn") // cdn | container
 
-  activeInstalls  Int                   @default(0)
+  activeInstalls  Int       @default(0)
   deployedAt      DateTime?
   lastHealthCheck DateTime?
   healthStatus    String?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  tenantInstalls  TenantPluginInstall[]
-  teamInstalls    TeamPluginInstall[]
-  slots           PluginDeploymentSlot[]
+  tenantInstalls TenantPluginInstall[]
+  teamInstalls   TeamPluginInstall[]
+  slots          PluginDeploymentSlot[]
 
   @@index([status])
   @@index([healthStatus])
@@ -1167,31 +1201,31 @@ model WalletStakingState {
 }
 
 model WalletOrchestrator {
-  id                  String   @id @default(uuid())
-  address             String   @unique
-  chainId             Int
-  name                String?
-  serviceUri          String?
-  totalStake          String   @default("0")
-  rewardCut           Int      @default(0)
-  feeShare            Int      @default(0)
-  isActive            Boolean  @default(true)
-  activationRound     Int?
-  deactivationRound   Int?
-  totalVolumeETH      String   @default("0")
-  thirtyDayVolumeETH  String   @default("0")
-  ninetyDayVolumeETH  String   @default("0")
-  totalRewardTokens   String   @default("0")
-  lastRewardRound     Int      @default(0)
-  delegatorCount      Int      @default(0)
-  rewardCallRatio     Float    @default(0)
-  syncedAtRound       Int      @default(0)
-  lastSynced          DateTime @default(now())
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  address            String   @unique
+  chainId            Int
+  name               String?
+  serviceUri         String?
+  totalStake         String   @default("0")
+  rewardCut          Int      @default(0)
+  feeShare           Int      @default(0)
+  isActive           Boolean  @default(true)
+  activationRound    Int?
+  deactivationRound  Int?
+  totalVolumeETH     String   @default("0")
+  thirtyDayVolumeETH String   @default("0")
+  ninetyDayVolumeETH String   @default("0")
+  totalRewardTokens  String   @default("0")
+  lastRewardRound    Int      @default(0)
+  delegatorCount     Int      @default(0)
+  rewardCallRatio    Float    @default(0)
+  syncedAtRound      Int      @default(0)
+  lastSynced         DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  roundHistory  WalletOrchestratorRoundHistory[]
-  capabilities  WalletOrchestratorCapability[]
+  roundHistory WalletOrchestratorRoundHistory[]
+  capabilities WalletOrchestratorCapability[]
 
   @@index([chainId, isActive])
   @@index([totalStake])
@@ -1212,16 +1246,16 @@ model WalletSettings {
 }
 
 model WalletStakingSnapshot {
-  id             String   @id @default(uuid())
-  address        String                          // delegator address (lowercase)
-  orchestrator   String                          // delegate address
-  round          Int                             // Livepeer protocol round
-  bondedAmount   String   @default("0")          // principal (wei string)
-  pendingStake   String   @default("0")          // total stake incl. rewards (wei string)
-  pendingFees    String   @default("0")          // ETH fees (wei string)
-  lptPriceUsd    Float    @default(0)
-  ethPriceUsd    Float    @default(0)
-  createdAt      DateTime @default(now())
+  id           String   @id @default(uuid())
+  address      String // delegator address (lowercase)
+  orchestrator String // delegate address
+  round        Int // Livepeer protocol round
+  bondedAmount String   @default("0") // principal (wei string)
+  pendingStake String   @default("0") // total stake incl. rewards (wei string)
+  pendingFees  String   @default("0") // ETH fees (wei string)
+  lptPriceUsd  Float    @default(0)
+  ethPriceUsd  Float    @default(0)
+  createdAt    DateTime @default(now())
 
   @@unique([address, round])
   @@index([address, createdAt])
@@ -1251,7 +1285,7 @@ model WalletOrchestratorCapability {
   orchestrator   WalletOrchestrator @relation(fields: [orchestratorId], references: [id], onDelete: Cascade)
   orchestratorId String
   address        String
-  category       String             // "transcoding" | "realtime_ai" | "ai_batch" | "agent" | "other"
+  category       String // "transcoding" | "realtime_ai" | "ai_batch" | "agent" | "other"
   pipelineId     String?
   serviceURI     String?
   lastChecked    DateTime           @default(now())
@@ -1300,7 +1334,7 @@ model WalletWatchlist {
 
 model WalletMonthlySnapshot {
   id                String   @id @default(uuid())
-  month             String                         // "2026-03" format
+  month             String // "2026-03" format
   walletAddress     String
   orchestratorAddr  String
   bondedAmount      String   @default("0")
@@ -1741,19 +1775,24 @@ model DevApiProject {
 }
 
 model DevApiKey {
-  id                String              @id @default(uuid())
+  id                String          @id @default(uuid())
   userId            String
   projectId         String?
-  project           DevApiProject?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project           DevApiProject?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   billingProviderId String
-  billingProvider   BillingProvider     @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
-  keyLookupId       String?             @unique
+  billingProvider   BillingProvider @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
+  keyLookupId       String?         @unique
   keyPrefix         String
   label             String?
   projectName       String?
-  keyHash           String?             @unique
-  status            DevApiKeyStatus     @default(ACTIVE)
-  createdAt         DateTime            @default(now())
+  keyHash           String?         @unique
+  status            DevApiKeyStatus @default(ACTIVE)
+  // NAAP-1: optional seat/team attribution for keys. Scalar (no cross-schema FK)
+  // and additive — existing user-scoped keys leave these null and behave as
+  // before. NAAP-B issues native `naap_` keys bound to a seat + team.
+  seatId            String?
+  teamId            String?
+  createdAt         DateTime        @default(now())
   lastUsedAt        DateTime?
   revokedAt         DateTime?
 
@@ -1765,6 +1804,8 @@ model DevApiKey {
   @@index([status])
   @@index([keyHash])
   @@index([keyLookupId])
+  @@index([seatId])
+  @@index([teamId])
   @@schema("plugin_developer_api")
 }
 
@@ -1800,9 +1841,9 @@ model PluginReview {
   package     PluginPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
   userId      String
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rating      Int           // 1-5 star rating
-  comment     String?       // Optional review comment
-  displayName String?       // Cached display name at time of review
+  rating      Int // 1-5 star rating
+  comment     String? // Optional review comment
+  displayName String? // Cached display name at time of review
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -1818,12 +1859,12 @@ model PluginReview {
 
 model Feedback {
   id          String   @id @default(uuid())
-  type        String   // bug, feature, general
+  type        String // bug, feature, general
   title       String
   description String
   status      String   @default("open") // open, investigating, roadmap, released, closed
-  releaseTag  String?  // e.g. "v1.2.0" – set when status = released
-  adminNote   String?  // internal admin note
+  releaseTag  String? // e.g. "v1.2.0" – set when status = released
+  adminNote   String? // internal admin note
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userEmail   String?
@@ -1857,23 +1898,23 @@ model FeedbackConfig {
 // Deployment slot for blue-green deployments
 // Each deployment has two slots (blue/green) for zero-downtime updates
 model PluginDeploymentSlot {
-  id              String           @id @default(uuid())
-  deploymentId    String
-  deployment      PluginDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
-  slot            String           // "blue" | "green"
-  version         String           // Version deployed to this slot
-  status          String           @default("inactive") // active, inactive, deploying, failed, draining
-  trafficPercent  Int              @default(0) // 0-100
-  frontendUrl     String?          // CDN URL for this slot's frontend bundle
-  backendUrl      String?          // Container URL for this slot's backend
-  healthStatus    String?          // healthy, unhealthy, unknown
-  lastHealthCheck DateTime?
-  healthCheckFailures Int          @default(0)
-  deployedAt      DateTime?
-  deployedBy      String?
-  metadata        Json?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                  String           @id @default(uuid())
+  deploymentId        String
+  deployment          PluginDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  slot                String // "blue" | "green"
+  version             String // Version deployed to this slot
+  status              String           @default("inactive") // active, inactive, deploying, failed, draining
+  trafficPercent      Int              @default(0) // 0-100
+  frontendUrl         String? // CDN URL for this slot's frontend bundle
+  backendUrl          String? // Container URL for this slot's backend
+  healthStatus        String? // healthy, unhealthy, unknown
+  lastHealthCheck     DateTime?
+  healthCheckFailures Int              @default(0)
+  deployedAt          DateTime?
+  deployedBy          String?
+  metadata            Json?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   @@unique([deploymentId, slot])
   @@index([deploymentId])
@@ -1886,7 +1927,7 @@ model PluginDeploymentSlot {
 model DeploymentEvent {
   id             String   @id @default(uuid())
   deploymentId   String
-  type           String   // deploy_start, deploy_complete, health_check, traffic_shift, rollback, failure
+  type           String // deploy_start, deploy_complete, health_check, traffic_shift, rollback, failure
   fromSlot       String?
   toSlot         String?
   fromVersion    String?
@@ -1896,7 +1937,7 @@ model DeploymentEvent {
   error          String?
   initiatedBy    String?
   metadata       Json?
-  duration       Int?     // Duration in milliseconds
+  duration       Int? // Duration in milliseconds
   createdAt      DateTime @default(now())
 
   @@index([deploymentId])
@@ -1912,21 +1953,21 @@ model DeploymentEvent {
 
 // Time-series metrics for plugin monitoring
 model PluginMetrics {
-  id             String   @id @default(uuid())
-  deploymentId   String
-  slot           String?  // Optional slot identifier for per-slot metrics
-  timestamp      DateTime @default(now())
-  requestCount   Int      @default(0)
-  errorCount     Int      @default(0)
-  latencyP50     Float?
-  latencyP95     Float?
-  latencyP99     Float?
-  latencyAvg     Float?
-  activeUsers    Int      @default(0)
-  uniqueSessions Int      @default(0)
-  memoryUsageMb  Float?
+  id              String   @id @default(uuid())
+  deploymentId    String
+  slot            String? // Optional slot identifier for per-slot metrics
+  timestamp       DateTime @default(now())
+  requestCount    Int      @default(0)
+  errorCount      Int      @default(0)
+  latencyP50      Float?
+  latencyP95      Float?
+  latencyP99      Float?
+  latencyAvg      Float?
+  activeUsers     Int      @default(0)
+  uniqueSessions  Int      @default(0)
+  memoryUsageMb   Float?
   cpuUsagePercent Float?
-  periodSeconds  Int      @default(60) // Aggregation window
+  periodSeconds   Int      @default(60) // Aggregation window
 
   @@index([deploymentId, timestamp])
   @@index([deploymentId, slot, timestamp])
@@ -1940,8 +1981,8 @@ model PluginAlert {
   deploymentId    String
   name            String
   description     String?
-  metric          String    // error_rate, latency_p99, health_check, cpu_usage, memory_usage
-  operator        String    // gt, gte, lt, lte, eq
+  metric          String // error_rate, latency_p99, health_check, cpu_usage, memory_usage
+  operator        String // gt, gte, lt, lte, eq
   threshold       Float
   duration        Int       @default(60)
   severity        String    @default("warning") // critical, warning, info
@@ -1972,53 +2013,53 @@ model PluginAlert {
 /// Upstream service definition — one per third-party API connection.
 /// Polymorphic ownership: exactly one of teamId or ownerUserId must be set.
 model ServiceConnector {
-  id                String   @id @default(uuid())
-  teamId            String?                         // set for team-scoped connectors
-  ownerUserId       String?                         // set for personal connectors
-  slug              String                          // URL-safe identifier, unique per owner scope
-  displayName       String
-  description       String?
-  status            String   @default("draft")      // draft | published | archived
-  visibility        String   @default("private")    // private | team | public
-  version           Int      @default(1)
+  id          String  @id @default(uuid())
+  teamId      String? // set for team-scoped connectors
+  ownerUserId String? // set for personal connectors
+  slug        String // URL-safe identifier, unique per owner scope
+  displayName String
+  description String?
+  status      String  @default("draft") // draft | published | archived
+  visibility  String  @default("private") // private | team | public
+  version     Int     @default(1)
 
   // ── Upstream Config ──
-  upstreamBaseUrl   String
-  allowedHosts      String[]                        // SSRF protection allowlist
-  defaultTimeout    Int      @default(30000)         // ms
-  healthCheckPath   String?
+  upstreamBaseUrl String
+  allowedHosts    String[] // SSRF protection allowlist
+  defaultTimeout  Int      @default(30000) // ms
+  healthCheckPath String?
 
   // ── Auth Config ──
-  authType          String   @default("none")       // none | bearer | header | basic | query
-  authConfig        Json     @default("{}")          // auth-type-specific config (no secrets here)
-  secretRefs        String[]                         // references to SecretVault keys
+  authType   String   @default("none") // none | bearer | header | basic | query
+  authConfig Json     @default("{}") // auth-type-specific config (no secrets here)
+  secretRefs String[] // references to SecretVault keys
 
   // ── Response Config ──
-  responseWrapper   Boolean  @default(true)          // wrap in NaaP envelope
-  streamingEnabled  Boolean  @default(false)         // SSE passthrough
-  errorMapping      Json     @default("{}")          // status code → message mapping
+  responseWrapper  Boolean @default(true) // wrap in NaaP envelope
+  streamingEnabled Boolean @default(false) // SSE passthrough
+  errorMapping     Json    @default("{}") // status code → message mapping
 
   // ── Agent Metadata ──
-  agentDescription    String?
-  agentNotFor         String?
-  inputSchema         Json?
-  outputSchema        Json?
+  agentDescription String?
+  agentNotFor      String?
+  inputSchema      Json?
+  outputSchema     Json?
 
   // ── Meta ──
-  category          String   @default("")
-  tags              String[]
-  createdBy         String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  publishedAt       DateTime?
+  category    String    @default("")
+  tags        String[]
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime?
 
   // ── Relations ──
-  endpoints         ConnectorEndpoint[]
-  apiKeys           GatewayApiKey[]
-  healthChecks      GatewayHealthCheck[]
-  pricing           ConnectorPricing?
-  metrics           ConnectorMetrics[]
-  rankings          ConnectorCapabilityRanking[]
+  endpoints    ConnectorEndpoint[]
+  apiKeys      GatewayApiKey[]
+  healthChecks GatewayHealthCheck[]
+  pricing      ConnectorPricing?
+  metrics      ConnectorMetrics[]
+  rankings     ConnectorCapabilityRanking[]
 
   @@unique([teamId, slug])
   @@unique([ownerUserId, slug])
@@ -2031,43 +2072,43 @@ model ServiceConnector {
 /// Individual route within a connector — maps a consumer-facing
 /// endpoint to an upstream path with optional transforms and policies.
 model ConnectorEndpoint {
-  id                  String   @id @default(uuid())
-  connectorId         String
-  connector           ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  id          String           @id @default(uuid())
+  connectorId String
+  connector   ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  name                String
-  description         String?
-  method              String                          // GET | POST | PUT | PATCH | DELETE
-  path                String                          // consumer path, e.g. /query
-  enabled             Boolean  @default(true)
+  name        String
+  description String?
+  method      String // GET | POST | PUT | PATCH | DELETE
+  path        String // consumer path, e.g. /query
+  enabled     Boolean @default(true)
 
   // ── Upstream Mapping ──
-  upstreamMethod      String?                         // override method if different
-  upstreamPath        String                          // upstream path, e.g. /
-  upstreamContentType String   @default("application/json")
-  upstreamQueryParams Json     @default("{}")
-  upstreamStaticBody  String?                         // static body for GET-as-POST patterns
-  bodyTransform       String   @default("passthrough") // passthrough | extract:field | static | template
-  responseBodyTransform String  @default("none")       // none | envelope | raw | streaming | field-map
-  headerMapping       Json     @default("{}")
+  upstreamMethod        String? // override method if different
+  upstreamPath          String // upstream path, e.g. /
+  upstreamContentType   String  @default("application/json")
+  upstreamQueryParams   Json    @default("{}")
+  upstreamStaticBody    String? // static body for GET-as-POST patterns
+  bodyTransform         String  @default("passthrough") // passthrough | extract:field | static | template
+  responseBodyTransform String  @default("none") // none | envelope | raw | streaming | field-map
+  headerMapping         Json    @default("{}")
 
   // ── Policy ──
-  rateLimit           Int?                            // req/min override (null = use plan)
-  timeout             Int?                            // ms override (null = use connector default)
-  maxRequestSize      Int?                            // bytes
-  maxResponseSize     Int?                            // bytes
-  cacheTtl            Int?                            // seconds (null = no cache)
-  retries             Int      @default(0)
+  rateLimit       Int? // req/min override (null = use plan)
+  timeout         Int? // ms override (null = use connector default)
+  maxRequestSize  Int? // bytes
+  maxResponseSize Int? // bytes
+  cacheTtl        Int? // seconds (null = no cache)
+  retries         Int  @default(0)
 
   // ── Validation ──
-  bodyPattern         String?                         // regex the body must match
-  bodyBlacklist       String[]                        // keywords that must not appear in body
-  bodySchema          Json?                           // JSON Schema for body validation
-  requiredHeaders     String[]
-  examples            Json?                           // example request/response pairs for agents
+  bodyPattern     String? // regex the body must match
+  bodyBlacklist   String[] // keywords that must not appear in body
+  bodySchema      Json? // JSON Schema for body validation
+  requiredHeaders String[]
+  examples        Json? // example request/response pairs for agents
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([connectorId, method, path])
   @@index([connectorId])
@@ -2078,27 +2119,27 @@ model ConnectorEndpoint {
 /// against the gateway. Key material is never stored; only SHA-256 hash.
 /// Polymorphic ownership: exactly one of teamId or ownerUserId must be set.
 model GatewayApiKey {
-  id               String    @id @default(uuid())
-  teamId           String?                           // set for team-scoped keys
-  ownerUserId      String?                           // set for personal keys
-  connectorId      String?                           // null = access all connectors in scope
-  connector        ServiceConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
-  planId           String?
-  plan             GatewayPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  id          String            @id @default(uuid())
+  teamId      String? // set for team-scoped keys
+  ownerUserId String? // set for personal keys
+  connectorId String? // null = access all connectors in scope
+  connector   ServiceConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+  planId      String?
+  plan        GatewayPlan?      @relation(fields: [planId], references: [id], onDelete: SetNull)
 
-  name             String
-  keyHash          String    @unique                 // SHA-256 of the raw key
-  keyPrefix        String                            // first 8 chars for display: gw_abc12345...
-  status           String    @default("active")      // active | revoked | expired
+  name      String
+  keyHash   String @unique // SHA-256 of the raw key
+  keyPrefix String // first 8 chars for display: gw_abc12345...
+  status    String @default("active") // active | revoked | expired
 
-  allowedEndpoints String[]                          // empty = all endpoints
-  allowedIPs       String[]                          // empty = all IPs
+  allowedEndpoints String[] // empty = all endpoints
+  allowedIPs       String[] // empty = all IPs
   expiresAt        DateTime?
   lastUsedAt       DateTime?
 
-  createdBy        String
-  createdAt        DateTime  @default(now())
-  revokedAt        DateTime?
+  createdBy String
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
 
   @@index([teamId])
   @@index([ownerUserId])
@@ -2112,25 +2153,25 @@ model GatewayApiKey {
 /// throughput and usage limits per owner scope.
 /// Polymorphic ownership: exactly one of teamId or ownerUserId must be set.
 model GatewayPlan {
-  id              String   @id @default(uuid())
-  teamId          String?                            // set for team-scoped plans
-  ownerUserId     String?                            // set for personal plans
-  name            String
-  displayName     String
+  id          String  @id @default(uuid())
+  teamId      String? // set for team-scoped plans
+  ownerUserId String? // set for personal plans
+  name        String
+  displayName String
 
-  rateLimit       Int      @default(100)             // requests per minute
-  dailyQuota      Int?                               // null = unlimited
-  monthlyQuota    Int?                               // null = unlimited
-  maxRequestSize  Int      @default(1048576)          // 1 MB
-  maxResponseSize Int      @default(4194304)          // 4 MB
+  rateLimit       Int  @default(100) // requests per minute
+  dailyQuota      Int? // null = unlimited
+  monthlyQuota    Int? // null = unlimited
+  maxRequestSize  Int  @default(1048576) // 1 MB
+  maxResponseSize Int  @default(4194304) // 4 MB
   burstLimit      Int?
 
-  allowedConnectors String[]                         // empty = all team connectors
+  allowedConnectors String[] // empty = all team connectors
 
-  apiKeys         GatewayApiKey[]
+  apiKeys GatewayApiKey[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([teamId, name])
   @@unique([ownerUserId, name])
@@ -2142,26 +2183,26 @@ model GatewayPlan {
 /// Per-request usage log — written asynchronously via waitUntil()
 /// after every gateway request. Used for analytics and billing.
 model GatewayUsageRecord {
-  id                String   @id @default(uuid())
-  teamId            String
-  connectorId       String
-  endpointName      String
-  apiKeyId          String?                          // null if JWT auth
-  callerType        String                           // jwt | apiKey
-  callerId          String
+  id           String  @id @default(uuid())
+  teamId       String
+  connectorId  String
+  endpointName String
+  apiKeyId     String? // null if JWT auth
+  callerType   String // jwt | apiKey
+  callerId     String
 
   method            String
   path              String
   statusCode        Int
   latencyMs         Int
   upstreamLatencyMs Int
-  requestBytes      Int      @default(0)
-  responseBytes     Int      @default(0)
-  cached            Boolean  @default(false)
+  requestBytes      Int     @default(0)
+  responseBytes     Int     @default(0)
+  cached            Boolean @default(false)
   error             String?
   region            String?
 
-  timestamp         DateTime @default(now())
+  timestamp DateTime @default(now())
 
   @@index([teamId, timestamp])
   @@index([connectorId, timestamp])
@@ -2190,14 +2231,14 @@ model GatewayConnectorTemplate {
 /// Upstream health status — recorded periodically by cron job
 /// and on-demand via test-connectivity.
 model GatewayHealthCheck {
-  id            String   @id @default(uuid())
-  connectorId   String
-  connector     ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
-  status        String                               // up | down | degraded
-  latencyMs     Int
-  statusCode    Int?
-  error         String?
-  checkedAt     DateTime @default(now())
+  id          String           @id @default(uuid())
+  connectorId String
+  connector   ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  status      String // up | down | degraded
+  latencyMs   Int
+  statusCode  Int?
+  error       String?
+  checkedAt   DateTime         @default(now())
 
   @@index([connectorId, checkedAt])
   @@schema("plugin_service_gateway")
@@ -2205,26 +2246,26 @@ model GatewayHealthCheck {
 
 /// Connector pricing — per-unit cost, volume tiers, feature pricing.
 model ConnectorPricing {
-  id                    String   @id @default(uuid())
-  connectorId           String   @unique
-  connector             ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  id          String           @id @default(uuid())
+  connectorId String           @unique
+  connector   ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  upstreamCostPerUnit   Float?
-  upstreamUnit          String?
-  upstreamNotes         String?
+  upstreamCostPerUnit Float?
+  upstreamUnit        String?
+  upstreamNotes       String?
 
-  costPerUnit           Float    @default(0)
-  unit                  String   @default("request")
-  currency              String   @default("USD")
+  costPerUnit Float  @default(0)
+  unit        String @default("request")
+  currency    String @default("USD")
 
-  volumeTiers           Json     @default("[]")
-  featurePricing        Json     @default("[]")
+  volumeTiers    Json @default("[]")
+  featurePricing Json @default("[]")
 
-  freeQuota             Int?
-  billingModel          String   @default("per-unit")
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  updatedBy             String
+  freeQuota    Int?
+  billingModel String   @default("per-unit")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  updatedBy    String
 
   @@schema("plugin_service_gateway")
 }
@@ -2232,20 +2273,20 @@ model ConnectorPricing {
 /// Master API key — grants access to all connectors in scope.
 /// Key material is never stored; only SHA-256 hash.
 model GatewayMasterKey {
-  id              String    @id @default(uuid())
-  teamId          String?
-  ownerUserId     String?
-  name            String
-  keyHash         String    @unique
-  keyPrefix       String
-  status          String    @default("active")
-  scopes          String[]  @default(["proxy"])
-  allowedIPs      String[]
-  expiresAt       DateTime?
-  lastUsedAt      DateTime?
-  createdBy       String
-  createdAt       DateTime  @default(now())
-  revokedAt       DateTime?
+  id          String    @id @default(uuid())
+  teamId      String?
+  ownerUserId String?
+  name        String
+  keyHash     String    @unique
+  keyPrefix   String
+  status      String    @default("active")
+  scopes      String[]  @default(["proxy"])
+  allowedIPs  String[]
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
 
   @@index([keyHash])
   @@index([teamId, status])
@@ -2255,32 +2296,32 @@ model GatewayMasterKey {
 
 /// Rolling aggregated performance metrics per connector, computed by cron job.
 model ConnectorMetrics {
-  id                    String   @id @default(uuid())
-  connectorId           String
-  connector             ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  id          String           @id @default(uuid())
+  connectorId String
+  connector   ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  period                String   @default("daily")
-  periodStart           DateTime
+  period      String   @default("daily")
+  periodStart DateTime
 
-  totalRequests         Int      @default(0)
-  errorCount            Int      @default(0)
-  errorRate             Float    @default(0)
-  successRate           Float    @default(1)
+  totalRequests Int   @default(0)
+  errorCount    Int   @default(0)
+  errorRate     Float @default(0)
+  successRate   Float @default(1)
 
-  latencyMeanMs         Float    @default(0)
-  latencyP50Ms          Float    @default(0)
-  latencyP95Ms          Float    @default(0)
-  latencyP99Ms          Float    @default(0)
-  upstreamLatencyMeanMs Float    @default(0)
-  gatewayOverheadMs     Float    @default(0)
+  latencyMeanMs         Float @default(0)
+  latencyP50Ms          Float @default(0)
+  latencyP95Ms          Float @default(0)
+  latencyP99Ms          Float @default(0)
+  upstreamLatencyMeanMs Float @default(0)
+  gatewayOverheadMs     Float @default(0)
 
-  availabilityPercent   Float    @default(100)
-  healthCheckCount      Int      @default(0)
-  healthChecksPassed    Int      @default(0)
+  availabilityPercent Float @default(100)
+  healthCheckCount    Int   @default(0)
+  healthChecksPassed  Int   @default(0)
 
-  throughputRpm         Float    @default(0)
+  throughputRpm Float @default(0)
 
-  computedAt            DateTime @default(now())
+  computedAt DateTime @default(now())
 
   @@unique([connectorId, period, periodStart])
   @@schema("plugin_service_gateway")
@@ -2288,27 +2329,27 @@ model ConnectorMetrics {
 
 /// Admin-curated quality rankings per category for agent tool selection.
 model ConnectorCapabilityRanking {
-  id                    String   @id @default(uuid())
-  connectorId           String
-  connector             ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  id          String           @id @default(uuid())
+  connectorId String
+  connector   ServiceConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  category              String
-  modelName             String?
-  qualityRank           Int
-  qualityScore          Float?
-  speedRank             Int?
-  costEfficiencyRank    Int?
-  totalRanked           Int      @default(0)
+  category           String
+  modelName          String?
+  qualityRank        Int
+  qualityScore       Float?
+  speedRank          Int?
+  costEfficiencyRank Int?
+  totalRanked        Int     @default(0)
 
-  benchmarkSource       String?
-  benchmarkScore        Float?
-  benchmarkUrl          String?
-  notes                 String?
-  capabilityTags        String[] @default([])
+  benchmarkSource String?
+  benchmarkScore  Float?
+  benchmarkUrl    String?
+  notes           String?
+  capabilityTags  String[] @default([])
 
-  createdAt             DateTime @default(now())
-  lastRankedAt          DateTime @default(now())
-  rankedBy              String
+  createdAt    DateTime @default(now())
+  lastRankedAt DateTime @default(now())
+  rankedBy     String
 
   @@unique([connectorId, category, modelName])
   @@index([category, qualityRank])
@@ -2323,24 +2364,24 @@ model ConnectorCapabilityRanking {
 /// and served from cache. External consumers (signers, SDKs) create plans via
 /// the REST API and poll /plans/:id/results for ranked orchestrator lists.
 model DiscoveryPlan {
-  id                    String   @id @default(cuid())
-  billingPlanId         String   @unique
+  id                  String   @id @default(cuid())
+  billingPlanId       String   @unique
   /// daydream — the only supported billing provider in PR #337. PymtHouse (with allowlist intersection) lands in PR #338.
-  billingProviderSlug   String?
-  name                  String
-  description     String?
-  visibility      String   @default("personal") // "personal" | "team" | "public"
-  teamId          String?
-  ownerUserId     String?
-  capabilities    String[]
-  topN            Int      @default(10)
-  slaWeights      Json?
-  slaMinScore     Float?
-  sortBy          String?
-  filters         Json?
-  enabled         Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  billingProviderSlug String?
+  name                String
+  description         String?
+  visibility          String   @default("personal") // "personal" | "team" | "public"
+  teamId              String?
+  ownerUserId         String?
+  capabilities        String[]
+  topN                Int      @default(10)
+  slaWeights          Json?
+  slaMinScore         Float?
+  sortBy              String?
+  filters             Json?
+  enabled             Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@index([billingProviderSlug])
   @@index([teamId, enabled])
@@ -2352,13 +2393,13 @@ model DiscoveryPlan {
 /// Singleton config row for the orchestrator-leaderboard plugin.
 /// Stores admin-configurable refresh interval and last-refresh metadata.
 model LeaderboardConfig {
-  id                    String    @id @default("singleton")
-  refreshIntervalHours  Int       @default(1)
-  membershipStrategy    String    @default("union")
-  lastRefreshedAt       DateTime?
-  lastRefreshedBy       String?
-  knownCapabilities     String[]  @default([])
-  updatedAt             DateTime  @updatedAt
+  id                   String    @id @default("singleton")
+  refreshIntervalHours Int       @default(1)
+  membershipStrategy   String    @default("union")
+  lastRefreshedAt      DateTime?
+  lastRefreshedBy      String?
+  knownCapabilities    String[]  @default([])
+  updatedAt            DateTime  @updatedAt
 
   @@schema("plugin_orchestrator_leaderboard")
 }
