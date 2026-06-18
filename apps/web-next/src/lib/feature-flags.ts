@@ -34,6 +34,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Enable cross-provider usage telemetry: the BPP ⑥ ingest endpoint (/api/v1/metrics/ingest) and the spend dashboard BFF (/api/v1/metrics/usage). OFF = both return 404 (no-op).',
   },
   {
+    key: 'app_registry',
+    enabled: false,
+    description:
+      'Enable the application/service registry (/api/v1/apps/*) so usage and rate limits attribute per registered app. OFF = registry endpoints return 404 (no-op).',
+  },
+  {
     key: 'db_adapter_registry',
     enabled: false,
     description:

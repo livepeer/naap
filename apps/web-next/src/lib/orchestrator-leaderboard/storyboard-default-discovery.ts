@@ -64,6 +64,15 @@ export interface BuildStoryboardDefaultDiscoveryArgs {
   plan?: StoryboardDefaultPlan;
   topN?: number;
   random?: RandomSource;
+  /**
+   * NAAP-3: discovery-driven capability lists per category. The builder is
+   * SOURCE-AGNOSTIC: when this is omitted (the default), each category uses its
+   * committed plan baseline — byte-for-byte identical to today, so the golden
+   * set is preserved. When provided (the BYOC/tool discovery flag is ON), the
+   * given categories use the discovery-driven capability list instead of the
+   * hardcoded constants. `staticOrchestrators` always come from the plan.
+   */
+  categoryCapabilities?: Partial<Record<StoryboardDefaultCategoryKey, readonly string[]>>;
 }
 
 /** Split a full cap path into the short leaderboard capability (after `/`). */
@@ -153,7 +162,14 @@ export async function buildStoryboardDefaultDiscovery(
   const byKind: StoryboardDefaultByKind = { scope: [], byoc: [], tool: [] };
 
   for (const key of STORYBOARD_DEFAULT_CATEGORY_KEYS) {
-    const category = plan[key];
+    const baseCategory = plan[key];
+    // NAAP-3: when a discovery-driven capability list is supplied for this
+    // category, use it in place of the hardcoded plan constants (static-fleet
+    // fallback is unchanged). Omitted → plan baseline → golden-set parity.
+    const overrideCapabilities = args.categoryCapabilities?.[key];
+    const category: StoryboardDefaultCategory = overrideCapabilities
+      ? { capabilities: overrideCapabilities, staticOrchestrators: baseCategory.staticOrchestrators }
+      : baseCategory;
     const collected = await collectCategory(
       category,
       provider,

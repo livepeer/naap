@@ -308,6 +308,36 @@ model UserRole {
 }
 
 // ============================================
+// CORE PLATFORM - APPLICATION REGISTRY (NAAP-D)
+// ============================================
+
+/// Provider-agnostic registry of any application or service that uses NaaP.
+/// Each app presents its `id` (appId) so usage and rate limits attribute per
+/// app. Polymorphic ownership mirrors GatewayApiKey: exactly one of `teamId`
+/// or `ownerUserId` is set. No app is hardcoded — Storyboard is one row here.
+model Application {
+  id                  String   @id @default(uuid())
+  slug                String   @unique
+  name                String
+  type                String   @default("app") // app | service | cli
+
+  teamId              String? // set for team-scoped apps
+  ownerUserId         String? // set for personal-scoped apps
+
+  allowedScopes       String[] @default([]) // discovery | gateway | llm | billing | usage
+  allowedCapabilities String[] @default([]) // generic capability ids, or "*"
+  status              String   @default("active") // active | disabled
+
+  createdBy           String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([teamId])
+  @@index([ownerUserId])
+  @@schema("public")
+}
+
+// ============================================
 // CORE PLATFORM - MONITORING & ANALYTICS
 // ============================================
 
