@@ -51,7 +51,7 @@ describe('NAAP-A — billing provider adapter registry', () => {
       getPlans: async () => [],
       getUsageForExternalUser: async () => ({}),
       getAppUsage: async () => ({}),
-      mintSignerSession: async () => ({}),
+      mintSignerSession: async () => ({ accessToken: 'x' }),
       receiveCuratedOrchestrators: async () => {},
       getCapabilityManifest: async () => [],
     });

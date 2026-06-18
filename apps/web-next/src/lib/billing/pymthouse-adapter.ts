@@ -21,7 +21,7 @@ import {
   type CuratedOrchestrator,
   type MintSignerSessionInput,
   type Plan,
-  type SignerSession,
+  type SignerSessionToken,
   type UsageForExternalUserInput,
   type ValidateResult,
 } from './adapter';
@@ -63,7 +63,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     });
   }
 
-  async mintSignerSession(input: MintSignerSessionInput): Promise<SignerSession> {
+  async mintSignerSession(input: MintSignerSessionInput): Promise<SignerSessionToken> {
     const session = await getPmtHouseServerClient().mintSignerSessionForExternalUser({
       externalUserId: input.externalUserId,
       email: input.email,
