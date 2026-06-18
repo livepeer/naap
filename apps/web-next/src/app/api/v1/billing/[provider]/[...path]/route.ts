@@ -21,7 +21,7 @@ import { enforceRateLimit } from '@/lib/api/rate-limit';
 import { error, errors, getAuthToken, success } from '@/lib/api/response';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { AdapterNotImplementedError, type BillingProviderAdapter } from '@/lib/billing/adapter';
-import { getBillingProviderAdapter } from '@/lib/billing/registry';
+import { resolveBillingProviderAdapterDetailed } from '@/lib/billing/registry-db';
 
 const PROVIDER_ADAPTERS_FLAG = 'provider_adapters';
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -235,11 +235,24 @@ async function resolve(
       return noStore(errors.notFound('Provider'));
     }
 
-    const adapter = getBillingProviderAdapter(provider);
+    // NAAP-A-db: DB-driven resolution when `db_adapter_registry` is ON; falls
+    // back to the static slug→adapter map otherwise (zero-regression).
+    const resolution = await resolveBillingProviderAdapterDetailed(provider);
+    const adapter = resolution.adapter;
     if (!adapter) {
-      log('warn', 'billing.adapter.unknown_provider', { provider, correlationId });
+      log('warn', 'billing.adapter.unknown_provider', {
+        provider,
+        correlationId,
+        source: resolution.source,
+      });
       return noStore(errors.notFound('Provider'));
     }
+    log('info', 'billing.adapter.resolved', {
+      provider,
+      correlationId,
+      source: resolution.source,
+      adapterType: resolution.adapterType,
+    });
 
     // Authenticate before probing provider configuration so unauthenticated
     // callers cannot distinguish "configured" from "not configured" (avoids
