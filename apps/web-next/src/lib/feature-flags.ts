@@ -34,6 +34,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Team Seats API + provider-agnostic billingAccountRef binding (/api/v1/teams/{id}/seats/*, /billing-account). OFF = endpoints 404, no-op (NAAP-1).',
   },
   {
+    key: 'app_registry',
+    enabled: false,
+    description:
+      'Enable the application/service registry (/api/v1/apps/*) so usage and rate limits attribute per registered app. OFF = registry endpoints return 404 (no-op).',
+  },
+  {
     key: 'db_adapter_registry',
     enabled: false,
     description:
