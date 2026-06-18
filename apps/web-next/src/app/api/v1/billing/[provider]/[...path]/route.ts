@@ -68,11 +68,19 @@ function stripCryptoUnitFields(value: unknown): unknown {
   return out;
 }
 
-/** Strict YYYY-MM-DD or ISO 8601 date; returns null when invalid/empty. */
+/**
+ * Strict calendar-date (YYYY-MM-DD) or ISO 8601 date-time; returns null when
+ * invalid/empty. The explicit format gate rejects the permissive/ambiguous
+ * inputs `Date.parse` would otherwise accept, keeping filtering consistent
+ * across clients and environments.
+ */
+const ISO_DATE_RE =
+  /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
 function parseDateParam(raw: string | null): string | null {
   if (raw == null) return null;
   const v = raw.trim();
   if (v === '') return null;
+  if (!ISO_DATE_RE.test(v)) return null;
   const ts = Date.parse(v);
   if (Number.isNaN(ts)) return null;
   return v;
@@ -96,8 +104,8 @@ function mapAdapterError(
     log('warn', event, { provider, correlationId, reason: 'not_implemented', method: e.method });
     return error('NOT_IMPLEMENTED', 'Operation not supported by this provider', 501);
   }
-  const message = e instanceof Error ? e.message : 'Unknown error';
-  log('error', event, { provider, correlationId, message });
+  const errorType = e instanceof Error ? e.name : 'UnknownError';
+  log('error', event, { provider, correlationId, errorType });
   return errors.serviceUnavailable('Billing provider request failed');
 }
 
@@ -257,7 +265,7 @@ async function resolve(
   } catch (err) {
     log('error', 'billing.adapter.unexpected', {
       correlationId,
-      message: err instanceof Error ? err.message : 'unknown',
+      errorType: err instanceof Error ? err.name : 'UnknownError',
     });
     return noStore(errors.internal('Billing request failed'));
   }

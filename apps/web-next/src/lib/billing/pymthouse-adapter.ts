@@ -66,7 +66,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   async mintSignerSession(input: MintSignerSessionInput): Promise<SignerSessionToken> {
     const session = await getPmtHouseServerClient().mintSignerSessionForExternalUser({
       externalUserId: input.externalUserId,
-      email: input.email,
+      ...(input.email != null ? { email: input.email } : {}),
     });
     return {
       accessToken: session.accessToken,

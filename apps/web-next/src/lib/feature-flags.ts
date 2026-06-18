@@ -35,11 +35,16 @@ export const KNOWN_FLAGS: KnownFlag[] = [
  * exist yet, so a flag defaulting OFF is a no-op until an admin enables it.
  */
 export async function isFeatureEnabled(key: string): Promise<boolean> {
-  const flag = await prisma.featureFlag.findUnique({
-    where: { key },
-    select: { enabled: true },
-  });
-  if (flag) return flag.enabled;
+  try {
+    const flag = await prisma.featureFlag.findUnique({
+      where: { key },
+      select: { enabled: true },
+    });
+    if (flag) return flag.enabled;
+  } catch {
+    // Transient DB lookup failures must not break callers: fall through to the
+    // static KNOWN_FLAGS default so a flag defaulting OFF stays a safe no-op.
+  }
   return KNOWN_FLAGS.find((f) => f.key === key)?.enabled ?? false;
 }
 
