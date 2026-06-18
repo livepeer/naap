@@ -226,10 +226,19 @@ model Team {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // NAAP-1/NAAP-2: provider-agnostic billing-account binding. A team binds to
+  // exactly ONE billing account via {providerSlug, accountId} (the BPP
+  // `billingAccountRef`). Both nullable + additive: a team with no binding
+  // behaves exactly as before. Used by the usage dashboard (NAAP-2) to scope a
+  // caller's spend to the accounts reachable through their team memberships.
+  billingAccountProviderSlug String?
+  billingAccountId           String?
+
   members        TeamMember[]
   pluginInstalls TeamPluginInstall[]
 
   @@index([ownerId])
+  @@index([billingAccountProviderSlug])
   @@schema("public")
 }
 
@@ -330,6 +339,12 @@ model ProviderUsageRecord {
 
   receivedAt          DateTime @default(now())
 
+  // NAAP-2 (M1): the natural key of a usage window. Makes ingest idempotent so a
+  // billing provider that retries a push does not double-count. Account-level
+  // records (no app) are stored with appId = "" (empty-string sentinel) so this
+  // unique key also de-duplicates them — a plain SQL unique index treats NULLs
+  // as distinct, which would let null-app retries through.
+  @@unique([providerSlug, accountId, appId, windowFrom, windowTo], name: "providerUsageWindow", map: "ProviderUsageRecord_window_key")
   @@index([providerSlug, windowTo])
   @@index([accountId, windowTo])
   @@index([appId, windowTo])

@@ -77,18 +77,46 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
-  await prisma.providerUsageRecord.create({
-    data: {
+  // Account-level records (no app) use an empty-string sentinel so they share a
+  // single, de-duplicating row in the usage-window unique key (a NULL would be
+  // treated as distinct on every retry).
+  const appId = data.appId ?? '';
+  const windowFrom = new Date(data.window.from);
+  const windowTo = new Date(data.window.to);
+  const values = {
+    sessions: data.sessions ?? 0,
+    tickets: data.tickets ?? 0,
+    feeWei: data.feeWei ?? null,
+    networkFeeUsdMicros: data.networkFeeUsdMicros ?? null,
+    byCapability: data.byCapability ?? undefined,
+  };
+
+  // Idempotent on the usage-window natural key so a provider that retries a push
+  // does not double-count. Backed by a UNIQUE index, this compiles to
+  // INSERT ... ON CONFLICT DO UPDATE, which also covers concurrent retries. A
+  // re-sent window overwrites with the latest values rather than inserting a
+  // duplicate row.
+  await prisma.providerUsageRecord.upsert({
+    where: {
+      providerUsageWindow: {
+        providerSlug: data.providerSlug,
+        accountId: data.accountId,
+        appId,
+        windowFrom,
+        windowTo,
+      },
+    },
+    create: {
       providerSlug: data.providerSlug,
       accountId: data.accountId,
-      appId: data.appId ?? null,
-      windowFrom: new Date(data.window.from),
-      windowTo: new Date(data.window.to),
-      sessions: data.sessions ?? 0,
-      tickets: data.tickets ?? 0,
-      feeWei: data.feeWei ?? null,
-      networkFeeUsdMicros: data.networkFeeUsdMicros ?? null,
-      byCapability: data.byCapability ?? undefined,
+      appId,
+      windowFrom,
+      windowTo,
+      ...values,
+    },
+    update: {
+      ...values,
+      receivedAt: new Date(),
     },
   });
 

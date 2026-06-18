@@ -10,10 +10,14 @@ vi.mock('@/lib/feature-flags', () => ({
   isFeatureEnabled: (...a: unknown[]) => isFeatureEnabled(...a),
 }));
 
+const upsert = vi.fn();
 const create = vi.fn();
 vi.mock('@/lib/db', () => ({
   prisma: {
-    providerUsageRecord: { create: (...a: unknown[]) => create(...a) },
+    providerUsageRecord: {
+      upsert: (...a: unknown[]) => upsert(...a),
+      create: (...a: unknown[]) => create(...a),
+    },
   },
 }));
 
@@ -53,6 +57,7 @@ describe('usage_ingest flag OFF → no-op', () => {
     isFeatureEnabled.mockResolvedValue(false);
     const res = await POST(req(validPayload, { auth: `Bearer ${TOKEN}` }));
     expect(res.status).toBe(404);
+    expect(upsert).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
 });
@@ -72,20 +77,65 @@ describe('usage_ingest flag ON', () => {
     expect(res.status).toBe(401);
   });
 
-  it('accepts a valid neutral payload and stores it', async () => {
-    create.mockResolvedValue({ id: 'rec-1' });
+  it('accepts a valid neutral payload and stores it idempotently', async () => {
+    upsert.mockResolvedValue({ id: 'rec-1' });
     const res = await POST(req(validPayload, { auth: `Bearer ${TOKEN}` }));
     expect(res.status).toBe(200);
-    const arg = create.mock.calls[0][0] as { data: Record<string, unknown> };
-    expect(arg.data.providerSlug).toBe('pymthouse');
-    expect(arg.data.appId).toBe('app_sb');
-    expect(arg.data.windowFrom).toBeInstanceOf(Date);
+    // Idempotent write, never a blind create.
+    expect(create).not.toHaveBeenCalled();
+    const arg = upsert.mock.calls[0][0] as {
+      where: { providerUsageWindow: Record<string, unknown> };
+      create: Record<string, unknown>;
+    };
+    expect(arg.where.providerUsageWindow).toMatchObject({
+      providerSlug: 'pymthouse',
+      accountId: 'acct_1',
+      appId: 'app_sb',
+    });
+    expect(arg.where.providerUsageWindow.windowFrom).toBeInstanceOf(Date);
+    expect(arg.create.providerSlug).toBe('pymthouse');
+    expect(arg.create.appId).toBe('app_sb');
+    expect(arg.create.windowFrom).toBeInstanceOf(Date);
+  });
+
+  it('is idempotent: a duplicate window upserts on the same key (no double-count)', async () => {
+    upsert.mockResolvedValue({ id: 'rec-1' });
+
+    const first = await POST(req(validPayload, { auth: `Bearer ${TOKEN}` }));
+    const second = await POST(req(validPayload, { auth: `Bearer ${TOKEN}` }));
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    // Two identical posts → two upserts, never a create, both keyed identically
+    // so the second collides on the unique window and updates in place.
+    expect(create).not.toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalledTimes(2);
+    const key1 = (upsert.mock.calls[0][0] as { where: { providerUsageWindow: unknown } }).where
+      .providerUsageWindow;
+    const key2 = (upsert.mock.calls[1][0] as { where: { providerUsageWindow: unknown } }).where
+      .providerUsageWindow;
+    expect(key2).toEqual(key1);
+  });
+
+  it('maps an account-level payload (no appId) to the empty-string sentinel', async () => {
+    upsert.mockResolvedValue({ id: 'rec-2' });
+    const accountLevel: Record<string, unknown> = { ...validPayload };
+    delete accountLevel.appId;
+    const res = await POST(req(accountLevel, { auth: `Bearer ${TOKEN}` }));
+    expect(res.status).toBe(200);
+    const arg = upsert.mock.calls[0][0] as {
+      where: { providerUsageWindow: { appId: string } };
+      create: { appId: string };
+    };
+    expect(arg.where.providerUsageWindow.appId).toBe('');
+    expect(arg.create.appId).toBe('');
   });
 
   it('rejects a payload leaking provider-internal fields with 400', async () => {
     const leaky = { ...validPayload, openmeter_subscription_id: '01J...' };
     const res = await POST(req(leaky, { auth: `Bearer ${TOKEN}` }));
     expect(res.status).toBe(400);
+    expect(upsert).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
     const json = await res.json();
     expect(json.error.details.leaked).toContain('openmeter_subscription_id');
@@ -95,6 +145,7 @@ describe('usage_ingest flag ON', () => {
     const bad = { providerSlug: 'pymthouse' }; // missing accountId + window
     const res = await POST(req(bad, { auth: `Bearer ${TOKEN}` }));
     expect(res.status).toBe(400);
+    expect(upsert).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
 });
