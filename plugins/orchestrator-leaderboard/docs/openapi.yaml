@@ -328,6 +328,16 @@ paths:
           in: query
           required: false
           schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - name: plan
+          in: query
+          required: false
+          schema: { type: string, enum: [storyboard-default] }
+          description: |
+            NAAP-9. When `plan=storyboard-default` AND the
+            `STORYBOARD_DEFAULT_DISCOVERY_ENABLED` flag is ON, returns the fixed
+            Storyboard Default bundle (Daydream parity) with a static-fleet
+            fallback merged into the tier shuffle. When the flag is OFF (default)
+            the param is ignored and the per-cap behavior is used.
         - $ref: "#/components/parameters/BillingProviderSlugQuery"
         - name: billingProvider
           in: query
@@ -345,7 +355,7 @@ paths:
             X-Cache-Age:
               schema: { type: integer }
             X-Discovery-Mode:
-              schema: { type: string, enum: [default] }
+              schema: { type: string, enum: [default, storyboard-default] }
           content:
             application/json:
               schema:
@@ -358,6 +368,62 @@ paths:
               schema: { type: string }
         "401":
           description: Unauthorized
+          content:
+            text/plain:
+              schema: { type: string }
+        "500":
+          description: Upstream failure
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /api/v1/orchestrator-leaderboard/storyboard-default/python-gateway:
+    get:
+      tags: [Python Gateway Discovery]
+      summary: Storyboard Default discovery bundle (Daydream parity) — NAAP-9
+      description: |
+        Returns the fixed default-plan orchestrator/capability set (scope
+        staging + BYOC + tool) with a static-fleet fallback merged into the tier
+        shuffle, guaranteeing a non-disruptive Daydream→NaaP discovery switch
+        (golden-set parity). The default plan is the concrete instance of the
+        generic capability gate (NAAP-E), not a Storyboard special-case.
+
+        Gated by `STORYBOARD_DEFAULT_DISCOVERY_ENABLED` (default OFF): when OFF
+        the endpoint returns `404` and the live Daydream path stays
+        authoritative. The pymthouse denylist is applied only when
+        `billingProviderSlug=pymthouse`.
+      operationId: getStoryboardDefaultPythonGateway
+      parameters:
+        - $ref: "#/components/parameters/BillingProviderSlugQuery"
+        - name: billingProvider
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/BillingProviderSlug" }
+          description: Alias for `billingProviderSlug`.
+      responses:
+        "200":
+          description: Default-plan orchestrator addresses (BYOC + tool + scope)
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "private, no-store, must-revalidate" }
+            X-Cache:
+              schema: { type: string, enum: [HIT, MISS] }
+            X-Cache-Age:
+              schema: { type: integer }
+            X-Discovery-Mode:
+              schema: { type: string, enum: [storyboard-default] }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PythonGatewayAddress" }
+        "401":
+          description: Unauthorized
+          content:
+            text/plain:
+              schema: { type: string }
+        "404":
+          description: Disabled (flag OFF — Daydream path authoritative)
           content:
             text/plain:
               schema: { type: string }
