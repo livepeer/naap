@@ -51,6 +51,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     description:
       'Resolve the BillingProviderAdapter from the BillingProvider.adapterType DB column (NAAP-A-db) instead of the static slug→adapter map. OFF = static registry (zero regression); falls back to static on any DB miss/error.',
   },
+  {
+    key: 'native_keys',
+    enabled: false,
+    description:
+      'Native provider-opaque naap_ keys issued to a seat (/api/v1/teams/{id}/seats/{seatId}/keys). OFF = endpoints 404, no-op (NAAP-B).',
+  },
 ];
 
 /**

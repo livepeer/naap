@@ -1775,26 +1775,32 @@ model DevApiProject {
 }
 
 model DevApiKey {
-  id                String          @id @default(uuid())
-  userId            String
-  projectId         String?
-  project           DevApiProject?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  billingProviderId String
-  billingProvider   BillingProvider @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
-  keyLookupId       String?         @unique
-  keyPrefix         String
-  label             String?
-  projectName       String?
-  keyHash           String?         @unique
-  status            DevApiKeyStatus @default(ACTIVE)
+  id                    String          @id @default(uuid())
+  userId                String
+  projectId             String?
+  project               DevApiProject?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  billingProviderId     String
+  billingProvider       BillingProvider @relation(fields: [billingProviderId], references: [id], onDelete: Restrict)
+  keyLookupId           String?         @unique
+  keyPrefix             String
+  label                 String?
+  projectName           String?
+  keyHash               String?         @unique
+  status                DevApiKeyStatus @default(ACTIVE)
   // NAAP-1: optional seat/team attribution for keys. Scalar (no cross-schema FK)
   // and additive — existing user-scoped keys leave these null and behave as
   // before. NAAP-B issues native `naap_` keys bound to a seat + team.
-  seatId            String?
-  teamId            String?
-  createdAt         DateTime        @default(now())
-  lastUsedAt        DateTime?
-  revokedAt         DateTime?
+  seatId                String?
+  teamId                String?
+  // NAAP-B: encrypted, provider-OPAQUE session ref (AES-256-GCM via
+  // @/lib/gateway/encryption). A native `naap_` key maps server-side to the
+  // backing provider session; apps never see provider tokens/URLs. Nullable +
+  // additive — only native keys populate it.
+  providerSessionRefEnc String?
+  providerSessionRefIv  String?
+  createdAt             DateTime        @default(now())
+  lastUsedAt            DateTime?
+  revokedAt             DateTime?
 
   usageLogs DevApiUsageLog[]
 
