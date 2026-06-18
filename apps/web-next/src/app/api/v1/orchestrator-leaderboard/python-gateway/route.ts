@@ -22,6 +22,14 @@ import {
   DISCOVERY_RESPONSE_CACHE_CONTROL,
   ensurePymthouseManifestFresh,
 } from '@/lib/pymthouse-manifest';
+import {
+  buildStoryboardDefaultDiscovery,
+  type CapabilityFetchResult,
+} from '@/lib/orchestrator-leaderboard/storyboard-default-discovery';
+import {
+  isStoryboardDefaultDiscoveryEnabled,
+  STORYBOARD_DEFAULT_PLAN_ID,
+} from '@/lib/orchestrator-leaderboard/storyboard-default-plan';
 
 const DEFAULT_CAPABILITY = 'noop';
 const DEFAULT_TOP_N = 100;
@@ -66,6 +74,70 @@ function resolveTopN(url: URL): number {
   return parsed;
 }
 
+async function handleStoryboardDefaultPlan(
+  request: NextRequest,
+  billingProviderSlug: ReturnType<typeof normalizeBillingProviderSlug>,
+  authToken: string,
+): Promise<Response> {
+  const cookieHeader = request.headers.get('cookie');
+
+  const fetchCapabilityAddresses = async (
+    leaderboardCap: string,
+  ): Promise<CapabilityFetchResult> => {
+    const result = await fetchLeaderboard(leaderboardCap, authToken, request.url, cookieHeader);
+    const addresses: string[] = [];
+    for (const row of result.rows) {
+      const address = row.orch_uri?.trim();
+      if (address) {
+        addresses.push(address);
+      }
+    }
+    return { addresses, fromCache: result.fromCache, cachedAt: result.cachedAt };
+  };
+
+  try {
+    if (billingProviderSlug === 'pymthouse') {
+      await ensurePymthouseManifestFresh();
+    }
+
+    const { addresses, byKind, meta } = await buildStoryboardDefaultDiscovery({
+      fetchCapabilityAddresses,
+      billingProviderSlug,
+    });
+
+    console.info(
+      '[python-gateway] storyboard-default plan served',
+      JSON.stringify({
+        billingProviderSlug: billingProviderSlug ?? 'default',
+        total: addresses.length,
+        scope: byKind.scope.length,
+        byocCaps: byKind.byoc.length,
+        toolCaps: byKind.tool.length,
+        staticFleetInjected: meta.staticFleetInjected,
+        fromCache: meta.fromCache,
+      }),
+    );
+
+    return NextResponse.json(
+      addresses.map((address) => ({ address })),
+      {
+        headers: {
+          'Cache-Control': DISCOVERY_RESPONSE_CACHE_CONTROL,
+          'X-Cache': meta.fromCache ? 'HIT' : 'MISS',
+          'X-Cache-Age': String(meta.cacheAgeMs),
+          'X-Discovery-Mode': 'storyboard-default',
+        },
+      },
+    );
+  } catch (err) {
+    console.error('[python-gateway] storyboard-default plan failed', err);
+    return new NextResponse('Internal server error', {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+}
+
 export async function GET(request: NextRequest): Promise<Response> {
   const auth = await authorize(request);
   if (!auth) {
@@ -83,6 +155,17 @@ export async function GET(request: NextRequest): Promise<Response> {
   const capabilityPairs = resolveCapabilityPairs(url);
   const topN = resolveTopN(url);
   const authToken = getAuthToken(request) || '';
+
+  // NAAP-9: `?plan=storyboard-default` selects the fixed default-plan bundle
+  // (static-fleet merge for scope). Gated OFF by default → falls through to the
+  // existing per-cap behavior so the Daydream path stays authoritative.
+  const planParam = url.searchParams.get('plan')?.trim();
+  if (
+    planParam === STORYBOARD_DEFAULT_PLAN_ID &&
+    isStoryboardDefaultDiscoveryEnabled()
+  ) {
+    return handleStoryboardDefaultPlan(request, billingProvider, authToken);
+  }
 
   try {
     if (billingProvider === 'pymthouse') {

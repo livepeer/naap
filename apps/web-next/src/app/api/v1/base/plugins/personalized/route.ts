@@ -337,9 +337,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         return a.order - b.order;
       });
 
-    // Deduplicate by normalized name
+    // Headless data providers (no routes) must always load regardless of the
+    // visibility gate — they register the event-bus handlers the shell and
+    // dashboard depend on (e.g. dashboard-data-provider serves `dashboard:query`).
+    // Mirror the team-context behavior so personal context never drops them when
+    // their package is hidden/preview-gated. Dedup below keeps any already-merged
+    // (visible) entry, so this only fills gaps for non-admins.
+    const headlessMerged = headlessPlugins.map((plugin) => ({
+      ...plugin,
+      enabled: true,
+      installed: true,
+      isCore: isCorePlugin(plugin.name),
+    }));
+
+    // Deduplicate by normalized name (merged visible plugins win — first occurrence)
     const seenNames = new Set<string>();
-    const personalizedPlugins = mergedPlugins.filter((plugin) => {
+    const personalizedPlugins = [...mergedPlugins, ...headlessMerged].filter((plugin) => {
       const normalized = normalizePluginName(plugin.name);
       if (seenNames.has(normalized)) {
         return false;

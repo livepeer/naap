@@ -4,6 +4,7 @@ import {
   effectiveDiscoveryTierCount,
   tierIndexRanges,
   tieredShuffleDiscoveryAddresses,
+  tieredShuffleWithStaticFallback,
 } from './discovery-order';
 
 describe('effectiveDiscoveryTierCount', () => {
@@ -69,5 +70,23 @@ describe('tieredShuffleDiscoveryAddresses', () => {
     });
     expect(new Set(out)).toEqual(new Set(input));
     expect(out).not.toEqual(input);
+  });
+});
+
+describe('tieredShuffleWithStaticFallback', () => {
+  it('includes static fallback addresses missing from the discovered set', () => {
+    const out = tieredShuffleWithStaticFallback(
+      ['https://a', 'https://b'],
+      ['https://b', 'https://c'],
+      { random: () => 0.999999 },
+    );
+    expect(new Set(out)).toEqual(new Set(['https://a', 'https://b', 'https://c']));
+  });
+
+  it('returns the static fleet when discovery is empty (fallback joins the shuffle)', () => {
+    const out = tieredShuffleWithStaticFallback([], ['https://x', 'https://y'], {
+      random: () => 0,
+    });
+    expect(new Set(out)).toEqual(new Set(['https://x', 'https://y']));
   });
 });
