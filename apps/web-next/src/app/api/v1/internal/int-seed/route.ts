@@ -56,6 +56,60 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!secret || request.headers.get('x-int-seed-secret') !== secret) {
     return notFound();
   }
+
+  // Preview-only diagnostic: probe the pymthouse provider mint path directly so
+  // we can distinguish "not configured" from a live mint error (the front door
+  // collapses both into an opaque 503). Returns the exact error message.
+  if (request.nextUrl.searchParams.get('debug') === 'pymthouse') {
+    const present = (k: string) => {
+      const v = process.env[k];
+      return typeof v === 'string' && v.trim().length > 0;
+    };
+    const out: Record<string, unknown> = {
+      env: {
+        PYMTHOUSE_ISSUER_URL: present('PYMTHOUSE_ISSUER_URL'),
+        PYMTHOUSE_PUBLIC_CLIENT_ID: present('PYMTHOUSE_PUBLIC_CLIENT_ID'),
+        PYMTHOUSE_M2M_CLIENT_ID: present('PYMTHOUSE_M2M_CLIENT_ID'),
+        PYMTHOUSE_M2M_CLIENT_SECRET: present('PYMTHOUSE_M2M_CLIENT_SECRET'),
+        // echo the non-secret id values so we can confirm the exact client id
+        m2mClientIdValue: process.env.PYMTHOUSE_M2M_CLIENT_ID ?? null,
+        issuerValue: process.env.PYMTHOUSE_ISSUER_URL ?? null,
+        publicClientIdValue: process.env.PYMTHOUSE_PUBLIC_CLIENT_ID ?? null,
+      },
+    };
+    try {
+      const { isPymthouseConfigured } = await import('@pymthouse/builder-sdk/config');
+      out.isPymthouseConfigured = isPymthouseConfigured();
+    } catch (e) {
+      out.isPymthouseConfigured = `import_failed: ${e instanceof Error ? e.message : 'err'}`;
+    }
+    const externalUserId =
+      request.nextUrl.searchParams.get('externalUserId')?.trim() ||
+      process.env.INT_SEED_ACCOUNT_ID?.trim() ||
+      'naap-int-e2e-user';
+    try {
+      const { getPmtHouseServerClient } = await import('@/lib/pymthouse-client');
+      const session = await getPmtHouseServerClient().mintSignerSessionForExternalUser({
+        externalUserId,
+      });
+      out.mint = {
+        ok: true,
+        tokenType: session.tokenType,
+        expiresIn: session.expiresIn,
+        scope: session.scope,
+        accessTokenPrefix: String(session.accessToken).slice(0, 12),
+      };
+    } catch (e) {
+      out.mint = {
+        ok: false,
+        externalUserId,
+        name: e instanceof Error ? e.name : 'unknown',
+        message: e instanceof Error ? e.message : String(e),
+      };
+    }
+    return NextResponse.json(out);
+  }
+
   try {
     const total = await prisma.providerUsageRecord.count();
     const byProvider = await prisma.providerUsageRecord.groupBy({
