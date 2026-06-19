@@ -12,7 +12,10 @@ import 'server-only';
 
 import { isPymthouseConfigured } from '@pymthouse/builder-sdk/config';
 
-import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
+import {
+  getPmtHouseServerClient,
+  mintSignerSessionForExternalUserCompat,
+} from '@/lib/pymthouse-client';
 import {
   AdapterNotImplementedError,
   type AppUsageInput,
@@ -64,7 +67,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   }
 
   async mintSignerSession(input: MintSignerSessionInput): Promise<SignerSessionToken> {
-    const session = await getPmtHouseServerClient().mintSignerSessionForExternalUser({
+    const session = await mintSignerSessionForExternalUserCompat({
       externalUserId: input.externalUserId,
       ...(input.email != null ? { email: input.email } : {}),
     });
