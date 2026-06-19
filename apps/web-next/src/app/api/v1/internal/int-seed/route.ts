@@ -183,6 +183,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return notFound();
   }
 
+  // Runtime flag toggle for verification scenarios: flip usage_pull ON/OFF
+  // without a redeploy so the integration runner can prove the flag-OFF legacy
+  // ProviderUsageRecord read vs. the flag-ON live pull. Preview-only.
+  const usagePullParam = request.nextUrl.searchParams.get('usagePull');
+  if (usagePullParam === 'on' || usagePullParam === 'off') {
+    const enabled = usagePullParam === 'on';
+    await prisma.featureFlag.upsert({
+      where: { key: 'usage_pull' },
+      update: { enabled },
+      create: {
+        key: 'usage_pull',
+        enabled,
+        description: KNOWN_FLAGS.find((f) => f.key === 'usage_pull')?.description ?? 'usage_pull',
+      },
+    });
+    return NextResponse.json({ ok: true, usage_pull: enabled });
+  }
+
   try {
     const accountId = process.env.INT_SEED_ACCOUNT_ID?.trim() || 'naap-int-e2e-user';
     const ownerEmail = process.env.INT_SEED_OWNER_EMAIL?.trim() || 'admin@livepeer.org';
