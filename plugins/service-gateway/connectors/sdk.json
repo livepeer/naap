@@ -1,0 +1,54 @@
+{
+  "$schema": "./connector-template.schema.json",
+  "id": "sdk",
+  "name": "SDK Service",
+  "description": "Global (public) NaaP Service Gateway connector fronting the SDK service (sdk.daydream.monster) so any registered application can reach inference, capabilities, and LLM chat through NaaP's gateway at /api/v1/gw/sdk/* (NAAP-5)",
+  "icon": "🧩",
+  "category": "ai",
+  "connector": {
+    "slug": "sdk",
+    "displayName": "SDK Service",
+    "description": "Proxies application requests to the SDK service. Base URL is sourced from SDK_SERVICE_BASE_URL at seed time (default https://sdk.daydream.monster).",
+    "category": "ai",
+    "upstreamBaseUrl": "https://sdk.daydream.monster",
+    "allowedHosts": ["sdk.daydream.monster"],
+    "defaultTimeout": 30000,
+    "healthCheckPath": "/health",
+    "authType": "none",
+    "authConfig": {},
+    "secretRefs": [],
+    "streamingEnabled": true,
+    "responseWrapper": false,
+    "tags": ["sdk", "daydream", "inference", "llm", "capabilities"]
+  },
+  "endpoints": [
+    {
+      "name": "inference",
+      "description": "Run an inference request against the SDK service",
+      "method": "POST",
+      "path": "/inference",
+      "upstreamPath": "/inference",
+      "timeout": 30000,
+      "retries": 0
+    },
+    {
+      "name": "capabilities",
+      "description": "List SDK service capabilities",
+      "method": "GET",
+      "path": "/capabilities",
+      "upstreamPath": "/capabilities",
+      "timeout": 15000,
+      "cacheTtl": 30,
+      "retries": 1
+    },
+    {
+      "name": "llm-chat",
+      "description": "LLM chat completion (streaming-capable)",
+      "method": "POST",
+      "path": "/llm/chat",
+      "upstreamPath": "/llm/chat",
+      "timeout": 60000,
+      "retries": 0
+    }
+  ]
+}

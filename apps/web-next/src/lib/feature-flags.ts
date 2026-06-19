@@ -69,6 +69,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     description:
       'Enforce key → plan → capability access at the front door and discovery (NAAP-E). OFF = no enforcement (capabilities surfaced only, exactly as today); ON = deny a requested capability not granted by the resolved plan (fail closed).',
   },
+  {
+    key: 'sdk_connector',
+    enabled: false,
+    description:
+      'Seed the public "sdk" Service Gateway connector (fronting sdk.daydream.monster at /api/v1/gw/sdk/*) AND accept native naap_ keys at the gateway authorize step (NAAP-5). OFF = no sdk connector seeded and naap_ keys are rejected at the gateway exactly as today (no-op).',
+  },
 ];
 
 /**

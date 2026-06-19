@@ -8,14 +8,46 @@
  * Team isolation: a key from Team A cannot access Team B's connectors.
  */
 
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
+import { isFeatureEnabled } from '@/lib/feature-flags';
+import { parseApiKey, hashApiKey } from '@naap/database';
 import { personalScopeId, isPersonalScope } from './scope';
 import { getOrCreateDefaultPlan } from './default-plan';
 import { matchIPAllowlist } from './types';
 import type { AuthResult, TeamContext } from './types';
+
+/**
+ * Feature flag (default OFF) gating NAAP-5 behaviour: the public `sdk` connector
+ * seed AND acceptance of native `naap_` keys at this gateway authorize step.
+ * With the flag OFF, a `Bearer naap_…` key is rejected here exactly as today
+ * (it would otherwise fall through to the JWT path and fail session validation).
+ */
+export const SDK_CONNECTOR_FLAG = 'sdk_connector';
+
+/** Native `naap_` key prefix (matches @naap/database parseApiKey). */
+const NATIVE_KEY_BEARER_PREFIX = 'Bearer naap_';
+
+function logAuth(level: 'info' | 'warn', event: string, fields: Record<string, unknown>): void {
+  const line = JSON.stringify({ level, event, component: 'gateway.authorize', ...fields });
+  if (level === 'warn') console.warn(line);
+  else console.info(line);
+}
+
+/**
+ * Constant-time comparison of a presented native key against a stored scrypt
+ * hash (mirrors `@/lib/dev-api/native-key#verifyNativeKeyHash`, inlined here to
+ * avoid pulling the server-only billing registry into the gateway bundle).
+ */
+function verifyNativeKeyHash(rawKey: string, storedHash: string | null | undefined): boolean {
+  if (!storedHash) return false;
+  const actual = Buffer.from(hashApiKey(rawKey), 'utf8');
+  const expected = Buffer.from(storedHash, 'utf8');
+  if (actual.length !== expected.length) return false;
+  return timingSafeEqual(actual, expected);
+}
 
 type RateLimiter = { consume: (key: string, points?: number) => Promise<{ allowed: boolean }> };
 let _authFailLimiter: RateLimiter | null = null;
@@ -66,6 +98,28 @@ export async function authorize(request: Request): Promise<AuthResult | null> {
     if (!rl.allowed) return null;
 
     const result = await authorizeApiKey(authHeader.slice(7)); // strip "Bearer "
+    if (!result) {
+      await limiter.consume(clientIP);
+    }
+    return result;
+  }
+
+  // Path 1.5: Native NaaP key auth (naap_ prefix) — NAAP-5, flag-gated.
+  // OFF (default): reject here so behaviour is identical to today (a naap_ key
+  // would otherwise fall through to the JWT path and fail session validation →
+  // 401). ON: resolve the native key via the DevApiKey path so an app holding a
+  // naap_ key can authorize against PUBLIC connectors (e.g. the `sdk` connector).
+  if (authHeader.startsWith(NATIVE_KEY_BEARER_PREFIX)) {
+    if (!(await isFeatureEnabled(SDK_CONNECTOR_FLAG))) {
+      logAuth('warn', 'native_key.rejected_flag_off', {});
+      return null;
+    }
+    const clientIP = getClientIP(request) || 'unknown';
+    const limiter = await getAuthFailLimiter();
+    const rl = await limiter.consume(clientIP, 0);
+    if (!rl.allowed) return null;
+
+    const result = await authorizeNativeKey(authHeader.slice(7)); // strip "Bearer "
     if (!result) {
       await limiter.consume(clientIP);
     }
@@ -245,6 +299,62 @@ async function authorizeApiKey(rawKey: string): Promise<AuthResult | null> {
     dailyQuota,
     monthlyQuota,
     maxRequestSize,
+  };
+}
+
+// ── Native NaaP Key Auth (naap_) — NAAP-5 ──
+
+/**
+ * Authorize a native `naap_` key at the gateway (flag-gated by the caller).
+ *
+ * Resolves the key through the existing DevApiKey path (blind-index lookup by
+ * `keyLookupId` + constant-time hash verify), then maps it to the caller's
+ * scope: a seat/team-bound key uses its `teamId`; otherwise the personal scope
+ * of the key's `userId`. The returned `nativeKey` caller can then authorize
+ * against PUBLIC connectors via {@link verifyConnectorAccess}.
+ *
+ * Capability/quota enforcement remains at the `/api/v1/keys/validate` front door
+ * (NAAP-C/E); at the gateway the key is only authenticated and scoped, and
+ * public-connector access is governed by visibility (any authenticated caller).
+ */
+async function authorizeNativeKey(rawKey: string): Promise<AuthResult | null> {
+  const parsed = parseApiKey(rawKey);
+  if (!parsed) {
+    logAuth('warn', 'native_key.malformed', {});
+    return null;
+  }
+
+  const key = await prisma.devApiKey.findUnique({
+    where: { keyLookupId: parsed.lookupId },
+    select: { id: true, userId: true, keyHash: true, status: true, seatId: true, teamId: true },
+  });
+
+  // Constant-time hash check; uniform failure whether the row is missing or the
+  // secret mismatches (no key enumeration).
+  if (!key || !verifyNativeKeyHash(rawKey, key.keyHash)) {
+    logAuth('warn', 'native_key.not_found_or_mismatch', {});
+    return null;
+  }
+  if (key.status !== 'ACTIVE') {
+    logAuth('warn', 'native_key.inactive', { keyId: key.id, status: key.status });
+    return null;
+  }
+
+  const teamId = key.teamId ?? personalScopeId(key.userId);
+
+  // Fire-and-forget last-used update; never block authorization on it.
+  prisma.devApiKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
+
+  logAuth('info', 'native_key.authorized', {
+    keyId: key.id,
+    scope: key.teamId ? 'team' : 'personal',
+  });
+
+  return {
+    authenticated: true,
+    callerType: 'nativeKey',
+    callerId: key.userId,
+    teamId,
   };
 }
 
