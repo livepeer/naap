@@ -1,0 +1,48 @@
+{
+  "_comment": "NAAP-9 golden set (Daydream parity). Per Decision D7 this is snapshotted empirically from the live Daydream path: scope addresses from signer.daydream.live/discovery/staging.json + orch-staging-3 from simple-infra fleet.yaml; byoc/tool caps from sdk.daydream.monster/capabilities. The committed values below are the staging baseline to reconcile against. The parity test asserts the storyboard-default bundle returns EXACTLY this set (bidirectional: no missing, no extra).",
+  "scope": [
+    "https://orch-staging-1.daydream.monster:8935",
+    "https://orch-staging-2.daydream.monster:8935",
+    "https://orch-staging-3.daydream.monster:8935"
+  ],
+  "byoc": [
+    "nano-banana",
+    "recraft-v4",
+    "flux-schnell",
+    "flux-dev",
+    "ltx-t2v",
+    "ltx-i2v",
+    "kontext-edit",
+    "bg-remove",
+    "topaz-upscale",
+    "chatterbox-tts",
+    "gemini-image",
+    "gemini-text"
+  ],
+  "tool": [
+    "ffmpeg-concat",
+    "ffmpeg-trim",
+    "ffmpeg-overlay",
+    "ffmpeg-export",
+    "ffmpeg-audio-mix",
+    "ffmpeg-loop",
+    "ffmpeg-burn-subtitles",
+    "ffmpeg-grid",
+    "ffmpeg-mux",
+    "pillow-resize",
+    "pillow-watermark",
+    "pillow-format",
+    "pillow-palette",
+    "pillow-grid",
+    "obscura-extract-text",
+    "obscura-extract-markdown",
+    "obscura-extract-links",
+    "hyperframes-caption",
+    "hyperframes-lower-third",
+    "hyperframes-render",
+    "yolo-detect",
+    "yolo-segment",
+    "cad-render",
+    "cad-validate"
+  ]
+}

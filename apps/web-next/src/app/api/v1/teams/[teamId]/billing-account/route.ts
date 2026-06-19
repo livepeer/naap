@@ -100,7 +100,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams): Promis
     if (!token) return noStore(errors.unauthorized('No auth token provided'));
 
     const csrfError = validateCSRF(request, { shadowMode: true });
-    if (csrfError) return csrfError;
+    if (csrfError) return noStore(csrfError);
 
     const user = await validateSession(token);
     if (!user) return noStore(errors.unauthorized('Invalid or expired session'));
@@ -120,7 +120,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams): Promis
 
     const ref = normalizeBillingAccountRef(body);
     if (!ref) {
-      return noStore(errors.badRequest('billingAccountRef requires { providerSlug, accountId }'));
+      return noStore(errors.badRequest('Request body must be { providerSlug, accountId }'));
     }
     // Stay generic: only providers with a registered adapter are bindable.
     if (!isProviderResolvable(ref)) {

@@ -21,7 +21,7 @@ vi.mock('@/lib/api/teams', () => ({
 vi.mock('@/lib/api/csrf', () => ({ validateCSRF: vi.fn(() => null) }));
 
 const prisma = vi.hoisted(() => ({
-  seat: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
+  seat: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
   user: { findUnique: vi.fn() },
 }));
 vi.mock('@/lib/db', () => ({ prisma }));
@@ -43,6 +43,7 @@ beforeEach(() => {
   validateTeamAccess.mockResolvedValue({ team: { id: 'team-1' }, member: { role: 'admin' } });
   prisma.seat.findMany.mockResolvedValue([]);
   prisma.seat.findUnique.mockResolvedValue(null);
+  prisma.seat.findFirst.mockResolvedValue(null);
   prisma.user.findUnique.mockResolvedValue(null);
   prisma.seat.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: 'seat-1',
@@ -125,6 +126,15 @@ describe('POST seats (flag ON)', () => {
     const createArg = prisma.seat.create.mock.calls[0][0].data;
     expect(createArg.userId).toBeNull();
     expect(createArg.inviteToken).toBeTruthy();
+  });
+  it('409 when a seat for the same email already exists (pending invite)', async () => {
+    prisma.seat.findFirst.mockResolvedValue({ id: 'seat-existing' });
+    const res = await POST(
+      req('http://localhost/api/v1/teams/team-1/seats', { method: 'POST', body: { email: 'dupe@b.co', role: 'member' } }),
+      params('team-1'),
+    );
+    expect(res.status).toBe(409);
+    expect(prisma.seat.create).not.toHaveBeenCalled();
   });
   it('creates an ACTIVE seat for an existing user and rejects duplicates', async () => {
     prisma.user.findUnique.mockResolvedValue({ id: 'user-2' });

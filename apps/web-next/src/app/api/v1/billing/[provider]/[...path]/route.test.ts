@@ -12,10 +12,22 @@ vi.mock('@/lib/feature-flags', () => ({
   isFeatureEnabled: (...a: unknown[]) => isFeatureEnabled(...a),
 }));
 
-const getBillingProviderAdapter = vi.fn();
-vi.mock('@/lib/billing/registry', () => ({
-  getBillingProviderAdapter: (...a: unknown[]) => getBillingProviderAdapter(...a),
+// NAAP-A-db: the route resolves adapters via the DB-driven resolver, which
+// falls back to the static registry when the flag is OFF. Mock the resolver and
+// return the static-source shape so these tests stay registry-agnostic.
+const resolveBillingProviderAdapterDetailed = vi.fn();
+vi.mock('@/lib/billing/registry-db', () => ({
+  resolveBillingProviderAdapterDetailed: (...a: unknown[]) =>
+    resolveBillingProviderAdapterDetailed(...a),
 }));
+
+function setResolvedAdapter(adapter: unknown): void {
+  resolveBillingProviderAdapterDetailed.mockResolvedValue({
+    adapter,
+    source: 'static',
+    adapterType: null,
+  });
+}
 
 const validateSession = vi.fn();
 vi.mock('@/lib/api/auth', () => ({
@@ -76,7 +88,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   isFeatureEnabled.mockResolvedValue(true);
   validateSession.mockResolvedValue(authUser());
-  getBillingProviderAdapter.mockReturnValue(makeAdapter());
+  setResolvedAdapter(makeAdapter());
 });
 
 describe('generic /api/v1/billing/{provider}/* — flag OFF (zero regression)', () => {
@@ -87,14 +99,14 @@ describe('generic /api/v1/billing/{provider}/* — flag OFF (zero regression)', 
       params('pymthouse', ['usage']),
     );
     expect(res.status).toBe(404);
-    expect(getBillingProviderAdapter).not.toHaveBeenCalled();
+    expect(resolveBillingProviderAdapterDetailed).not.toHaveBeenCalled();
     expect(validateSession).not.toHaveBeenCalled();
   });
 });
 
 describe('generic billing route — flag ON', () => {
   it('404s for an unknown provider', async () => {
-    getBillingProviderAdapter.mockReturnValue(undefined);
+    setResolvedAdapter(undefined);
     const res = await GET(
       req('http://localhost/api/v1/billing/nope/usage'),
       params('nope', ['usage']),
@@ -108,7 +120,7 @@ describe('generic billing route — flag ON', () => {
       params('Bad_Slug', ['usage']),
     );
     expect(res.status).toBe(404);
-    expect(getBillingProviderAdapter).not.toHaveBeenCalled();
+    expect(resolveBillingProviderAdapterDetailed).not.toHaveBeenCalled();
   });
 
   it('401 without an auth token', async () => {
@@ -121,7 +133,7 @@ describe('generic billing route — flag ON', () => {
 
   it('delegates usage scope=me to the adapter', async () => {
     const adapter = makeAdapter();
-    getBillingProviderAdapter.mockReturnValue(adapter);
+    setResolvedAdapter(adapter);
     const res = await GET(
       req('http://localhost/api/v1/billing/pymthouse/usage?scope=me'),
       params('pymthouse', ['usage']),
@@ -142,7 +154,7 @@ describe('generic billing route — flag ON', () => {
 
   it('delegates token mint to the adapter and returns the session', async () => {
     const adapter = makeAdapter();
-    getBillingProviderAdapter.mockReturnValue(adapter);
+    setResolvedAdapter(adapter);
     const res = await POST(
       req('http://localhost/api/v1/billing/pymthouse/token', { method: 'POST' }),
       params('pymthouse', ['token']),
@@ -161,7 +173,7 @@ describe('generic billing route — flag ON', () => {
         throw new AdapterNotImplementedError('pymthouse', 'mintSignerSession');
       }),
     });
-    getBillingProviderAdapter.mockReturnValue(adapter);
+    setResolvedAdapter(adapter);
     const res = await POST(
       req('http://localhost/api/v1/billing/pymthouse/token', { method: 'POST' }),
       params('pymthouse', ['token']),
@@ -178,7 +190,7 @@ describe('generic billing route — flag ON', () => {
   });
 
   it('400 when the provider is not configured', async () => {
-    getBillingProviderAdapter.mockReturnValue(makeAdapter({ isConfigured: vi.fn(() => false) }));
+    setResolvedAdapter(makeAdapter({ isConfigured: vi.fn(() => false) }));
     const res = await GET(
       req('http://localhost/api/v1/billing/pymthouse/usage'),
       params('pymthouse', ['usage']),
