@@ -173,6 +173,58 @@ describe('pullSpend', () => {
     expect(out.pulled.size).toBe(0); // caller will backfill from the DB
   });
 
+  it('degrades gracefully when the provider pull hangs past the timeout', async () => {
+    vi.useFakeTimers();
+    process.env.USAGE_PULL_TIMEOUT_MS = '5000';
+    // A provider call that never resolves on its own.
+    adapter.getSpend.mockImplementation(() => new Promise<ProviderSpendResult>(() => {}));
+
+    const promise = pullSpend([{ providerSlug: FAKE_SLUG, accountId: 'acct_1' }], WINDOW, OPTS);
+    await vi.advanceTimersByTimeAsync(6000); // past the 5s deadline
+    const out = await promise;
+
+    expect(out.records).toEqual([]);
+    expect(out.pulled.size).toBe(0); // not pulled ⇒ caller backfills from the DB
+  });
+
+  it('enforces the tenant boundary: drops adapter rows outside the requested account', async () => {
+    // A misbehaving adapter leaks another tenant's row alongside the requested one.
+    adapter.getSpend.mockResolvedValue({
+      records: [rec('acct_1', 5), rec('acct_OTHER', 99)],
+    });
+
+    const out = await pullSpend([{ providerSlug: FAKE_SLUG, accountId: 'acct_1' }], WINDOW, OPTS);
+
+    // Only the requested account's row survives — the foreign row never escapes.
+    expect(out.records).toEqual([rec('acct_1', 5)]);
+    expect(out.pulled.has(spendScopeKey({ providerSlug: FAKE_SLUG, accountId: 'acct_1' }))).toBe(
+      true,
+    );
+  });
+
+  it('caches only the in-scope rows after a scope-boundary filter', async () => {
+    adapter.getSpend.mockResolvedValue({
+      records: [rec('acct_1', 5), rec('acct_OTHER', 99)],
+    });
+    const scope = [{ providerSlug: FAKE_SLUG, accountId: 'acct_1' }];
+
+    await pullSpend(scope, WINDOW, OPTS);
+    const second = await pullSpend(scope, WINDOW, OPTS);
+
+    expect(adapter.getSpend).toHaveBeenCalledTimes(1); // served from cache
+    expect(second.records).toEqual([rec('acct_1', 5)]); // foreign row not cached
+  });
+
+  it('keeps all rows for an app-wide pull (no per-account boundary to enforce)', async () => {
+    adapter.getSpend.mockResolvedValue({
+      records: [rec('acct_a', 1), rec('acct_b', 2)],
+    });
+
+    const out = await pullSpend([{ providerSlug: FAKE_SLUG }], WINDOW, OPTS);
+
+    expect(out.records).toEqual([rec('acct_a', 1), rec('acct_b', 2)]);
+  });
+
   it('skips a provider with no pull-capable adapter (push-only)', async () => {
     const out = await pullSpend([{ providerSlug: 'stub', accountId: 'acct_1' }], WINDOW, OPTS);
     expect(out.records).toEqual([]);

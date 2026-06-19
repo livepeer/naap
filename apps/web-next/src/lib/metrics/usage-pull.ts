@@ -21,7 +21,7 @@ import { getBillingProviderAdapter } from '@/lib/billing/registry';
 import type { ProviderSpendScope } from '@/lib/billing/adapter';
 import { listBillingProviderSlugs } from '@/lib/billing/registry';
 import type { UsageRecordLike } from './aggregate';
-import { usagePullCacheTtlMs } from './flags';
+import { usagePullCacheTtlMs, usagePullTimeoutMs } from './flags';
 
 /** A provider account to pull. `accountId` omitted ⇒ app-wide (admin only). */
 export interface SpendScopeRef {
@@ -58,6 +58,53 @@ function log(level: 'info' | 'warn', event: string, fields: Record<string, unkno
 function describeError(err: unknown): string {
   if (err instanceof Error) return err.name || 'Error';
   return typeof err;
+}
+
+/** Thrown when a provider pull exceeds its deadline (caught → DB fallback). */
+class PullTimeoutError extends Error {
+  constructor() {
+    super('provider spend pull timed out');
+    this.name = 'PullTimeoutError';
+  }
+}
+
+/**
+ * Race a provider pull against a deadline so a hung/slow provider call degrades
+ * to the stored DB rows instead of stalling the dashboard request. `ms <= 0`
+ * disables the deadline. The timer is always cleared so we never leak a handle.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  if (ms <= 0) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new PullTimeoutError()), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
+ * Defense-in-depth tenant boundary: for a scoped pull (a single `accountId`),
+ * drop any record the adapter returned that is NOT for that exact account. The
+ * provider is the primary enforcer (a scoped pull asks for one external user),
+ * but a buggy/compromised adapter must never be able to surface another tenant's
+ * rows through the dashboard. App-wide pulls (admin, no `accountId`) keep all
+ * rows. Returns the in-scope records and how many were dropped.
+ */
+function enforceScopeBoundary(
+  scope: SpendScopeRef,
+  records: UsageRecordLike[],
+): { records: UsageRecordLike[]; dropped: number } {
+  if (!scope.accountId) return { records, dropped: 0 };
+  const inScope = records.filter((r) => r.accountId === scope.accountId);
+  return { records: inScope, dropped: records.length - inScope.length };
 }
 
 /**
@@ -102,6 +149,7 @@ export async function pullSpend(
 ): Promise<PullSpendResult> {
   const { startDate, endDate } = resolveSpendWindow(window.from, window.to);
   const ttl = usagePullCacheTtlMs();
+  const timeoutMs = usagePullTimeoutMs();
   const now = Date.now();
   const records: UsageRecordLike[] = [];
   const pulled = new Set<string>();
@@ -128,22 +176,34 @@ export async function pullSpend(
     }
 
     try {
-      const result = await adapter.getSpend({
-        ...(scope.accountId ? { accountId: scope.accountId } : {}),
-        startDate,
-        endDate,
-      } as ProviderSpendScope);
-      records.push(...result.records);
+      const result = await withTimeout(
+        adapter.getSpend({
+          ...(scope.accountId ? { accountId: scope.accountId } : {}),
+          startDate,
+          endDate,
+        } as ProviderSpendScope),
+        timeoutMs,
+      );
+      // Enforce the tenant boundary on the adapter's output before trusting it.
+      const { records: safeRecords, dropped } = enforceScopeBoundary(scope, result.records);
+      if (dropped > 0) {
+        log('warn', 'metrics.usage.pull.scope_violation', {
+          correlationId: opts.correlationId,
+          providerSlug: scope.providerSlug,
+          dropped,
+        });
+      }
+      records.push(...safeRecords);
       pulled.add(key);
       if (ttl > 0) {
-        cache.set(ck, { expiresAt: now + ttl, records: result.records, source: result.source });
+        cache.set(ck, { expiresAt: now + ttl, records: safeRecords, source: result.source });
       }
       log('info', 'metrics.usage.pull.ok', {
         correlationId: opts.correlationId,
         providerSlug: scope.providerSlug,
         appWide: !scope.accountId,
         source: result.source,
-        rows: result.records.length,
+        rows: safeRecords.length,
       });
     } catch (err) {
       // Graceful degradation: this scope falls back to ProviderUsageRecord.

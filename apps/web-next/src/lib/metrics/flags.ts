@@ -28,3 +28,19 @@ export function usagePullCacheTtlMs(): number {
   // Ceiling guards against an accidental huge TTL serving very stale spend.
   return Math.min(parsed, 3_600_000);
 }
+
+/**
+ * Per-scope timeout (ms) for a live provider spend pull. Configurable via
+ * `USAGE_PULL_TIMEOUT_MS`; defaults to 10s. A non-positive value disables the
+ * timeout (await indefinitely — not recommended). A hung provider call hits this
+ * deadline, throws, and is caught so the scope degrades to the stored DB rows
+ * instead of stalling the dashboard request. Clamped to a sane ceiling.
+ */
+export function usagePullTimeoutMs(): number {
+  const raw = process.env.USAGE_PULL_TIMEOUT_MS;
+  if (raw == null || raw.trim() === '') return 10_000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 10_000;
+  if (parsed <= 0) return 0;
+  return Math.min(parsed, 60_000);
+}
