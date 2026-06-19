@@ -83,4 +83,41 @@ describe('aggregateSpendByProvider', () => {
       ]),
     ).toThrow(/non-decimal/);
   });
+
+  it('omits byCapability for legacy/push records that carry none', () => {
+    const rows = aggregateSpendByProvider(records);
+    for (const row of rows) {
+      expect('byCapability' in row).toBe(false);
+    }
+  });
+
+  it('rolls up byCapability per provider when records carry it (pull path)', () => {
+    const rows = aggregateSpendByProvider([
+      {
+        providerSlug: 'pymthouse',
+        accountId: 'acct_a',
+        tickets: 30,
+        networkFeeUsdMicros: '3000',
+        byCapability: {
+          'text-to-image:sdxl': { tickets: 20, networkFeeUsdMicros: '2000' },
+          'live-video:lvx': { tickets: 10, networkFeeUsdMicros: '1000' },
+        },
+      },
+      {
+        providerSlug: 'pymthouse',
+        accountId: 'acct_b',
+        tickets: 5,
+        networkFeeUsdMicros: '500',
+        byCapability: {
+          'text-to-image:sdxl': { tickets: 5, networkFeeUsdMicros: '500' },
+        },
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    const pymt = rows[0];
+    expect(pymt.byCapability).toEqual({
+      'text-to-image:sdxl': { tickets: 25, networkFeeUsdMicros: '2500' },
+      'live-video:lvx': { tickets: 10, networkFeeUsdMicros: '1000' },
+    });
+  });
 });

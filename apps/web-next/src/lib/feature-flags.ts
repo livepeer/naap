@@ -47,6 +47,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Enable cross-provider usage telemetry: the BPP ⑥ ingest endpoint (/api/v1/metrics/ingest) and the spend dashboard BFF (/api/v1/metrics/usage). OFF = both return 404 (no-op).',
   },
   {
+    key: 'usage_pull',
+    enabled: false,
+    description:
+      'Spend dashboard PULLS provider usage live via the provider adapter (e.g. pymthouse M2M client) instead of reading pushed ProviderUsageRecord rows. OFF = reads ProviderUsageRecord exactly as today. ON = pull-first with graceful fallback to ProviderUsageRecord on any pull failure (never 500). Tenant scoping is preserved either way (NAAP-2).',
+  },
+  {
     key: 'app_registry',
     enabled: false,
     description:

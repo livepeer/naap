@@ -12,6 +12,8 @@ import 'server-only';
 
 import { isPymthouseConfigured } from '@pymthouse/builder-sdk/config';
 
+import type { MeScopeUsagePayload, UsageApiResponse } from '@pymthouse/builder-sdk';
+
 import {
   getPmtHouseServerClient,
   mintSignerSessionForExternalUserCompat,
@@ -24,6 +26,9 @@ import {
   type CuratedOrchestrator,
   type MintSignerSessionInput,
   type Plan,
+  type ProviderSpendRecord,
+  type ProviderSpendResult,
+  type ProviderSpendScope,
   type SignerSessionToken,
   type UsageForExternalUserInput,
   type ValidateResult,
@@ -64,6 +69,85 @@ export class PymthouseAdapter implements BillingProviderAdapter {
       ...(input.groupBy ? { groupBy: input.groupBy } : {}),
       ...(input.userId ? { userId: input.userId } : {}),
     });
+  }
+
+  /**
+   * Dashboard PULL: fetch pymthouse spend live via the M2M client and map the
+   * SDK response into neutral `ProviderSpendRecord`s. Provider-internal wire
+   * shapes never escape this method.
+   *
+   *  - Scoped (`accountId` present): `fetchUsageForExternalUser` is bound to that
+   *    one external user, so pymthouse itself enforces the tenant boundary — we
+   *    never even receive another tenant's usage. Yields one record with a
+   *    per-pipeline/model `byCapability` rollup.
+   *  - App-wide (`accountId` omitted): `getUsage(groupBy=user)` returns one row
+   *    per app user, mapped to one record each (route layer restricts app-wide
+   *    pulls to system:admin).
+   */
+  async getSpend(scope: ProviderSpendScope): Promise<ProviderSpendResult> {
+    const client = getPmtHouseServerClient();
+
+    if (scope.accountId) {
+      const payload: MeScopeUsagePayload = await client.fetchUsageForExternalUser({
+        externalUserId: scope.accountId,
+        startDate: scope.startDate,
+        endDate: scope.endDate,
+      });
+      return { records: [this.mapMeScopePayload(scope.accountId, payload)] };
+    }
+
+    const usage: UsageApiResponse = await client.getUsage({
+      startDate: scope.startDate,
+      endDate: scope.endDate,
+      groupBy: 'user',
+    });
+    return {
+      source: usage.source,
+      records: this.mapAppUsage(usage),
+    };
+  }
+
+  /** Map a per-external-user payload → one neutral record (with capability rollup). */
+  private mapMeScopePayload(
+    accountId: string,
+    payload: MeScopeUsagePayload,
+  ): ProviderSpendRecord {
+    const u = payload.currentUser;
+    const byCapability: Record<string, { tickets?: number; networkFeeUsdMicros?: string }> = {};
+    for (const row of u.pipelineModels ?? []) {
+      // Key by pipeline:model so the dashboard can break spend down by capability.
+      byCapability[`${row.pipeline}:${row.modelId}`] = {
+        tickets: row.requestCount,
+        networkFeeUsdMicros: row.networkFeeUsdMicros,
+      };
+    }
+    return {
+      providerSlug: this.slug,
+      accountId,
+      appId: null,
+      // pymthouse meters signed tickets per request; there is no separate session
+      // count on this seam, so sessions stays 0 and tickets carries requestCount.
+      sessions: 0,
+      tickets: u.requestCount,
+      // The fiat (USD-micros) usage path does not return wei; leave it null.
+      feeWei: null,
+      networkFeeUsdMicros: u.networkFeeUsdMicros,
+      ...(Object.keys(byCapability).length > 0 ? { byCapability } : {}),
+    };
+  }
+
+  /** Map an app-wide usage response → one neutral record per app user. */
+  private mapAppUsage(usage: UsageApiResponse): ProviderSpendRecord[] {
+    return (usage.byUser ?? []).map((row) => ({
+      providerSlug: this.slug,
+      // Unattributed rows roll up under "unknown" (matches the Usage API).
+      accountId: row.externalUserId ?? row.endUserId ?? 'unknown',
+      appId: null,
+      sessions: 0,
+      tickets: row.requestCount,
+      feeWei: row.feeWei ?? null,
+      networkFeeUsdMicros: row.networkFeeUsdMicros ?? null,
+    }));
   }
 
   async mintSignerSession(input: MintSignerSessionInput): Promise<SignerSessionToken> {

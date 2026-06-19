@@ -102,3 +102,4 @@ apps/workflows/*/tsconfig.tsbuildinfo
 # (covered by **/.env.* above)
 .pytest_cache
 __pycache__
+.vercel

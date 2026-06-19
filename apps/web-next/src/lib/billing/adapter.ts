@@ -91,6 +91,51 @@ export interface AppUsageInput {
   userId?: string;
 }
 
+/**
+ * Scope for a spend pull (BPP usage, dashboard direction). Either ONE tenant
+ * account (`accountId` present — the provider's external-user/account id from the
+ * NaaP `billingAccountRef` binding) or app-wide (`accountId` omitted, caller must
+ * be authorized for app-wide reads). The window is required so the provider can
+ * bound its query.
+ */
+export interface ProviderSpendScope {
+  /**
+   * Provider external-user/account id to scope to (the NaaP binding's
+   * `accountId`). When omitted the pull is app-wide. A scoped pull MUST only
+   * ever return that one account's usage (the provider enforces the boundary).
+   */
+  accountId?: string;
+  startDate: string;
+  endDate: string;
+}
+
+/**
+ * Neutral spend-pull result. `records` are already mapped into the dashboard's
+ * provider-agnostic `UsageRecordLike` shape — a provider's internal metering
+ * shape (BPP ⑨) never crosses this seam. `source` is purely informational
+ * (e.g. "openmeter" | "postgres").
+ */
+export interface ProviderSpendResult {
+  source?: string;
+  records: ProviderSpendRecord[];
+}
+
+/**
+ * One neutral usage row (structurally compatible with the dashboard's
+ * `UsageRecordLike`). Monetary fields are decimal strings; `byCapability` is an
+ * optional per-pipeline/model rollup keyed `"<pipeline>:<modelId>"`.
+ */
+export interface ProviderSpendRecord {
+  providerSlug: string;
+  accountId: string;
+  appId?: string | null;
+  sessions?: number | null;
+  tickets?: number | null;
+  feeWei?: string | null;
+  networkFeeUsdMicros?: string | null;
+  byCapability?: Record<string, { tickets?: number; networkFeeUsdMicros?: string }>;
+}
+
 export interface MintSignerSessionInput {
   externalUserId: string;
   email?: string;
@@ -117,6 +162,15 @@ export interface BillingProviderAdapter {
 
   /** BPP usage/telemetry — app-wide usage (admin scope). */
   getAppUsage(input: AppUsageInput): Promise<unknown>;
+
+  /**
+   * BPP usage/telemetry (dashboard PULL) — fetch spend live and map it into the
+   * neutral `ProviderSpendRecord` shape for the cross-provider spend dashboard.
+   * Optional: providers that cannot be pulled (only pushed) omit it, and the
+   * dashboard falls back to stored `ProviderUsageRecord` rows. Implementations
+   * MUST honor `scope.accountId` as a hard tenant boundary.
+   */
+  getSpend?(scope: ProviderSpendScope): Promise<ProviderSpendResult>;
 
   /**
    * BPP mintSignerSession — provider-issued, opaque to apps. Always the

@@ -20,6 +20,8 @@
 
 export const runtime = 'nodejs';
 
+import * as crypto from 'node:crypto';
+
 import { NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@/lib/db';
@@ -36,6 +38,8 @@ const INTEGRATION_FLAGS = [
   'key_validation_front_door',
   'app_registry',
   'usage_ingest',
+  // NAAP-2: spend dashboard PULLS usage live via the provider adapter M2M client.
+  'usage_pull',
   'capability_gate',
   'db_adapter_registry',
   'enableTeams',
@@ -262,6 +266,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
+    // 5b. A real Session for the owner so the integration runner can call
+    //     session-authenticated BFFs (e.g. GET /api/v1/metrics/usage) headlessly.
+    //     tokenHash mirrors lib/api/auth.ts `hmacToken` exactly so validateSession
+    //     resolves it. Re-seed clears prior int sessions to stay idempotent.
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const pepper = process.env.SESSION_TOKEN_PEPPER;
+    const sessionTokenHash = pepper
+      ? crypto.createHmac('sha256', pepper).update(sessionToken).digest('hex')
+      : crypto.createHash('sha256').update(sessionToken).digest('hex');
+    await prisma.session.deleteMany({ where: { userId: user.id } });
+    await prisma.session.create({
+      data: {
+        userId: user.id,
+        token: sessionToken,
+        tokenHash: sessionTokenHash,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        versionAtCreation: user.sessionVersion ?? 0,
+      },
+    });
+
+    // 5c. A DISTINCT decoy ProviderUsageRecord for {pymthouse, accountId}. The
+    //     live pull surfaces 42 tickets / 9000 µ$ from OpenMeter; this stored row
+    //     carries deliberately different values (10 tickets / 1234 µ$) so the
+    //     verification can prove: pull-first wins (no double-count), flag-OFF
+    //     reverts to THIS row, and a forced pull failure falls back to THIS row.
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+    const monthEnd = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 0, 23, 59, 59));
+    await prisma.providerUsageRecord.deleteMany({ where: { providerSlug: 'pymthouse', accountId } });
+    await prisma.providerUsageRecord.create({
+      data: {
+        providerSlug: 'pymthouse',
+        accountId,
+        appId: '',
+        windowFrom: monthStart,
+        windowTo: monthEnd,
+        sessions: 5,
+        tickets: 10,
+        feeWei: null,
+        networkFeeUsdMicros: '1234',
+      },
+    });
+
     // 6. Native `naap_` key bound to the seat/team (NAAP-B), mirroring the
     //    seats/keys route exactly (lookupId/prefix/hash + encrypted accountId).
     const { rawKey: naapRaw } = generateNativeApiKey();
@@ -413,6 +459,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       gwKeyId: gw.id,
       gwKeyPrefix: gw.keyPrefix,
       gwRawKey: gw.rawKey,
+      // Session bearer for headless session-authed BFF calls (e.g. /metrics/usage).
+      sessionToken,
+      // The stored decoy row (distinct from the live OpenMeter pull values).
+      decoyProviderUsageRecord: { providerSlug: 'pymthouse', accountId, tickets: 10, sessions: 5, networkFeeUsdMicros: '1234' },
     });
   } catch (err) {
     return NextResponse.json(
