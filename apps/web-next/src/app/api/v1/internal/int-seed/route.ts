@@ -56,6 +56,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const accountId = process.env.INT_SEED_ACCOUNT_ID?.trim() || 'naap-int-e2e-user';
     const ownerEmail = process.env.INT_SEED_OWNER_EMAIL?.trim() || 'admin@livepeer.org';
 
+    // 0. Self-heal schema. The Neon PREVIEW branch can be reset to a snapshot
+    //    that predates the latest (Jun 18) additive migrations. These mirror
+    //    packages/database/prisma/migrations/*_naap2_team_billing_account_ref and
+    //    *_provider_usage_record_idempotency verbatim and are idempotent
+    //    (IF NOT EXISTS), so re-applying is a safe no-op when already migrated.
+    const ensureSchema: string[] = [
+      'ALTER TABLE "public"."Team" ADD COLUMN IF NOT EXISTS "billingAccountProviderSlug" TEXT',
+      'ALTER TABLE "public"."Team" ADD COLUMN IF NOT EXISTS "billingAccountId" TEXT',
+      'CREATE INDEX IF NOT EXISTS "Team_billingAccountProviderSlug_idx" ON "public"."Team"("billingAccountProviderSlug")',
+      'CREATE UNIQUE INDEX IF NOT EXISTS "ProviderUsageRecord_window_key" ON "public"."ProviderUsageRecord" ("providerSlug", "accountId", "appId", "windowFrom", "windowTo")',
+    ];
+    for (const stmt of ensureSchema) {
+      await prisma.$executeRawUnsafe(stmt);
+    }
+
     // 1. Feature flags ON (DB-backed). Preserve descriptions from KNOWN_FLAGS.
     for (const key of INTEGRATION_FLAGS) {
       const known = KNOWN_FLAGS.find((f) => f.key === key);
