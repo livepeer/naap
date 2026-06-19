@@ -40,6 +40,22 @@ interface ConnectorSeed {
   template: string;
   /** Maps secretRef name → env var holding the value. */
   secretMap: Record<string, string>;
+  /**
+   * Feature flag (FeatureFlag.key) that must be ENABLED for this connector to
+   * seed. When the flag row is missing or disabled, the connector is skipped —
+   * so a flag defaulting OFF means the connector simply never exists (no-op).
+   * Omit to seed unconditionally (matches the pre-NAAP-5 connectors).
+   */
+  flag?: string;
+  /**
+   * Optional env var holding the upstream base URL. When set (non-empty) it
+   * overrides the template's `upstreamBaseUrl` and re-derives `allowedHosts`,
+   * so the upstream host is configurable per environment without code changes.
+   * Falls back to `defaultBaseUrl` (then the template value) when unset.
+   */
+  baseUrlEnv?: string;
+  /** Default base URL used when `baseUrlEnv` is unset. */
+  defaultBaseUrl?: string;
 }
 
 const CONNECTOR_SEEDS: ConnectorSeed[] = [
@@ -62,6 +78,16 @@ const CONNECTOR_SEEDS: ConnectorSeed[] = [
     slug: 'naap-discover',
     template: 'naap-discover.json',
     secretMap: {},
+  },
+  {
+    // NAAP-5: public connector fronting the SDK service. Gated behind the
+    // `sdk_connector` flag (default OFF) so it is a no-op until enabled.
+    slug: 'sdk',
+    template: 'sdk.json',
+    secretMap: {},
+    flag: 'sdk_connector',
+    baseUrlEnv: 'SDK_SERVICE_BASE_URL',
+    defaultBaseUrl: 'https://sdk.daydream.monster',
   },
 ];
 
@@ -89,6 +115,26 @@ function encrypt(text: string): { encryptedValue: string; iv: string } {
     encryptedValue: encrypted + ':' + authTag.toString('hex'),
     iv: iv.toString('hex'),
   };
+}
+
+// ── Feature flag check (build-time, DB-direct) ──
+
+/**
+ * Read a feature flag's enabled state directly from the FeatureFlag table.
+ * Mirrors `isFeatureEnabled` semantics: a missing row counts as disabled, so a
+ * flag defaulting OFF means the gated connector is never seeded.
+ */
+async function isFlagEnabled(prisma: PrismaClient, key: string): Promise<boolean> {
+  try {
+    const flag = await prisma.featureFlag.findUnique({
+      where: { key },
+      select: { enabled: true },
+    });
+    return Boolean(flag?.enabled);
+  } catch {
+    // On any lookup error, fail closed (treat as disabled) to preserve no-op.
+    return false;
+  }
 }
 
 // ── Seed one connector ──
@@ -131,6 +177,23 @@ async function seedConnector(
 
   console.log(`[seed-gw] Seeding connector: ${slug}`);
 
+  // Resolve the upstream base URL from env (if the seed opts in), so the host
+  // is configurable per environment. Falls back to the seed default, then the
+  // template value. Re-derive allowedHosts from whichever base URL wins.
+  if (seed.baseUrlEnv) {
+    const envBaseUrl = (process.env[seed.baseUrlEnv] || '').trim();
+    const resolvedBaseUrl = envBaseUrl || seed.defaultBaseUrl || conn.upstreamBaseUrl;
+    if (resolvedBaseUrl && resolvedBaseUrl !== conn.upstreamBaseUrl) {
+      console.log(
+        `[seed-gw]   Base URL for ${slug}: ${resolvedBaseUrl}` +
+          (envBaseUrl ? ` (from ${seed.baseUrlEnv})` : ' (default)'),
+      );
+    }
+    conn.upstreamBaseUrl = resolvedBaseUrl;
+    // Force re-derivation of allowedHosts from the resolved base URL host.
+    conn.allowedHosts = [];
+  }
+
   // Upsert ServiceConnector
   let allowedHosts: string[] = conn.allowedHosts || [];
   if (allowedHosts.length === 0) {
@@ -156,6 +219,19 @@ async function seedConnector(
         data: { authConfig: templateAuthConfig },
       });
       console.log(`[seed-gw]   Updated authConfig for ${slug}`);
+    }
+    // For env-sourced connectors, keep the upstream base URL + allowedHosts in
+    // sync so an env change is picked up on the next deploy (idempotent).
+    if (seed.baseUrlEnv) {
+      const hostsChanged =
+        JSON.stringify([...connector.allowedHosts].sort()) !== JSON.stringify([...allowedHosts].sort());
+      if (connector.upstreamBaseUrl !== conn.upstreamBaseUrl || hostsChanged) {
+        await prisma.serviceConnector.update({
+          where: { id: connector.id },
+          data: { upstreamBaseUrl: conn.upstreamBaseUrl, allowedHosts },
+        });
+        console.log(`[seed-gw]   Updated upstreamBaseUrl/allowedHosts for ${slug}`);
+      }
     }
   } else {
     connector = await prisma.serviceConnector.create({
@@ -289,6 +365,16 @@ async function main() {
 
     let seeded = 0;
     for (const seed of CONNECTOR_SEEDS) {
+      // Flag-gated connectors only seed when their FeatureFlag is enabled.
+      // Missing row or disabled => skip (a flag defaulting OFF is a no-op).
+      if (seed.flag) {
+        const enabled = await isFlagEnabled(prisma, seed.flag);
+        if (!enabled) {
+          console.log(`[seed-gw] ${seed.slug}: flag "${seed.flag}" disabled — skipping`);
+          continue;
+        }
+        console.log(`[seed-gw] ${seed.slug}: flag "${seed.flag}" enabled`);
+      }
       const ok = await seedConnector(prisma, seed, ownerUserId);
       if (ok) seeded++;
     }
