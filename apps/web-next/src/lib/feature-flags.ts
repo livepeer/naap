@@ -15,6 +15,13 @@ export interface KnownFlag {
   description: string;
 }
 
+/**
+ * Canonical key for the NAAP-5 flag (default OFF). Single source of truth shared
+ * by the KNOWN_FLAGS registry and the gateway authorize step so the flag name
+ * cannot silently drift between the two.
+ */
+export const SDK_CONNECTOR_FLAG = 'sdk_connector';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -70,7 +77,7 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Enforce key → plan → capability access at the front door and discovery (NAAP-E). OFF = no enforcement (capabilities surfaced only, exactly as today); ON = deny a requested capability not granted by the resolved plan (fail closed).',
   },
   {
-    key: 'sdk_connector',
+    key: SDK_CONNECTOR_FLAG,
     enabled: false,
     description:
       'Seed the public "sdk" Service Gateway connector (fronting sdk.daydream.monster at /api/v1/gw/sdk/*) AND accept native naap_ keys at the gateway authorize step (NAAP-5). OFF = no sdk connector seeded and naap_ keys are rejected at the gateway exactly as today (no-op).',

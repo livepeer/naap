@@ -12,7 +12,7 @@ import { createHash, timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { getAuthToken, getClientIP } from '@/lib/api/response';
-import { isFeatureEnabled } from '@/lib/feature-flags';
+import { isFeatureEnabled, SDK_CONNECTOR_FLAG } from '@/lib/feature-flags';
 import { parseApiKey, hashApiKey } from '@naap/database';
 import { personalScopeId, isPersonalScope } from './scope';
 import { getOrCreateDefaultPlan } from './default-plan';
@@ -24,11 +24,24 @@ import type { AuthResult, TeamContext } from './types';
  * seed AND acceptance of native `naap_` keys at this gateway authorize step.
  * With the flag OFF, a `Bearer naap_…` key is rejected here exactly as today
  * (it would otherwise fall through to the JWT path and fail session validation).
+ *
+ * Re-exported from the flag registry ({@link SDK_CONNECTOR_FLAG}) so the key has
+ * a single source of truth.
  */
-export const SDK_CONNECTOR_FLAG = 'sdk_connector';
+export { SDK_CONNECTOR_FLAG };
 
 /** Native `naap_` key prefix (matches @naap/database parseApiKey). */
 const NATIVE_KEY_BEARER_PREFIX = 'Bearer naap_';
+
+/**
+ * Constant-time fallback hash used when no DevApiKey row matches the presented
+ * lookup ID. Verifying against this dummy keeps the scrypt work identical for
+ * "unknown lookup ID" and "wrong secret", so response timing cannot be used to
+ * enumerate which `keyLookupId`s exist.
+ */
+const FALLBACK_NATIVE_KEY_HASH = hashApiKey(
+  'naap_0000000000000000_000000000000000000000000000000000000000000000000',
+);
 
 function logAuth(level: 'info' | 'warn', event: string, fields: Record<string, unknown>): void {
   const line = JSON.stringify({ level, event, component: 'gateway.authorize', ...fields });
@@ -329,9 +342,12 @@ async function authorizeNativeKey(rawKey: string): Promise<AuthResult | null> {
     select: { id: true, userId: true, keyHash: true, status: true, seatId: true, teamId: true },
   });
 
-  // Constant-time hash check; uniform failure whether the row is missing or the
-  // secret mismatches (no key enumeration).
-  if (!key || !verifyNativeKeyHash(rawKey, key.keyHash)) {
+  // Constant-time hash check. Always run the scrypt verify — against the real
+  // stored hash when the row exists, otherwise a fixed fallback — so the work
+  // (and thus response timing) is identical whether the lookup ID is unknown or
+  // the secret simply mismatches. This prevents keyLookupId enumeration.
+  const hashMatches = verifyNativeKeyHash(rawKey, key?.keyHash ?? FALLBACK_NATIVE_KEY_HASH);
+  if (!key || !hashMatches) {
     logAuth('warn', 'native_key.not_found_or_mismatch', {});
     return null;
   }
