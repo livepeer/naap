@@ -167,3 +167,57 @@ describe('resolution (provider-agnostic, BPP ③)', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('NAAP-E capability gate', () => {
+  // Front door flag ON; capability_gate toggled per test.
+  const flags = (capabilityGate: boolean) =>
+    isFeatureEnabled.mockImplementation(async (key: string) =>
+      key === 'key_validation_front_door' ? true : key === 'capability_gate' ? capabilityGate : false,
+    );
+
+  it('flag OFF → no enforcement: ungranted capability still passes (200)', async () => {
+    flags(false);
+    const res = await POST(req(rawKey, { 'x-requested-capability': 'tool:not-granted' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.capabilities).toEqual(['text-to-image:sdxl']);
+  });
+
+  it('flag ON + no requested capability → pass-through (200)', async () => {
+    flags(true);
+    expect((await POST(req(rawKey))).status).toBe(200);
+  });
+
+  it('flag ON + granted capability → allow (200)', async () => {
+    flags(true);
+    const res = await POST(req(rawKey, { 'x-requested-capability': 'text-to-image:sdxl' }));
+    expect(res.status).toBe(200);
+  });
+
+  it('flag ON + ungranted capability → deny (403, fail closed)', async () => {
+    flags(true);
+    const res = await POST(req(rawKey, { 'x-requested-capability': 'tool:rogue' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('flag ON + empty grant set + requested capability → deny (403, fail closed)', async () => {
+    flags(true);
+    getBillingProviderAdapter.mockReturnValue(
+      adapterMock({
+        validate: vi.fn(async () => {
+          throw new AdapterNotImplementedError('pymthouse', 'validate');
+        }),
+      }),
+    );
+    const res = await POST(req(rawKey, { 'x-requested-capability': 'text-to-image:sdxl' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('flag ON + wildcard grant → allow any capability (200)', async () => {
+    flags(true);
+    getBillingProviderAdapter.mockReturnValue(
+      adapterMock({ validate: vi.fn(async () => ({ valid: true, capabilities: ['*'] })) }),
+    );
+    const res = await POST(req(rawKey, { 'x-requested-capability': 'tool:anything' }));
+    expect(res.status).toBe(200);
+  });
+});
