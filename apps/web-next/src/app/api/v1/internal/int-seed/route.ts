@@ -39,7 +39,39 @@ const INTEGRATION_FLAGS = [
   'capability_gate',
   'db_adapter_registry',
   'enableTeams',
+  // NAAP-5: public `sdk` Service Gateway connector + naap_ key auth at the gateway.
+  'sdk_connector',
 ] as const;
+
+/**
+ * NAAP-5 public `sdk` connector definition (mirrors
+ * plugins/service-gateway/connectors/sdk.json). Inlined here so the preview seed
+ * can create the ServiceConnector row at runtime — the build-time seed
+ * (bin/seed-gateway-connector.ts) skips it because the `sdk_connector` flag is
+ * only flipped ON later, at runtime, by this route.
+ */
+const SDK_CONNECTOR = {
+  slug: 'sdk',
+  displayName: 'SDK Service',
+  description:
+    'Proxies application requests to the SDK service. Public NaaP Service Gateway connector fronting sdk.daydream.monster (NAAP-5).',
+  category: 'ai',
+  upstreamBaseUrl: 'https://sdk.daydream.monster',
+  allowedHosts: ['sdk.daydream.monster'],
+  defaultTimeout: 30000,
+  healthCheckPath: '/health',
+  authType: 'none',
+  authConfig: {},
+  secretRefs: [] as string[],
+  streamingEnabled: true,
+  responseWrapper: false,
+  tags: ['sdk', 'daydream', 'inference', 'llm', 'capabilities'],
+  endpoints: [
+    { name: 'inference', description: 'Run an inference request against the SDK service', method: 'POST', path: '/inference', upstreamPath: '/inference', timeout: 30000, retries: 0 },
+    { name: 'capabilities', description: 'List SDK service capabilities', method: 'GET', path: '/capabilities', upstreamPath: '/capabilities', timeout: 15000, cacheTtl: 30, retries: 1 },
+    { name: 'llm-chat', description: 'LLM chat completion (streaming-capable)', method: 'POST', path: '/llm/chat', upstreamPath: '/llm/chat', timeout: 60000, retries: 0 },
+  ],
+} as const;
 
 function notFound(): NextResponse {
   return NextResponse.json({ error: 'not_found' }, { status: 404 });
@@ -279,9 +311,93 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
 
+    // 9. NAAP-5: public `sdk` Service Gateway connector (idempotent). The
+    //    build-time seed skips this because the `sdk_connector` flag is flipped
+    //    ON only at runtime (step 1), so create it here so `/api/v1/gw/sdk/*`
+    //    resolves and accepts a `naap_` key when the flag is ON.
+    let sdkConnectorId: string | null = null;
+    {
+      let connector = await prisma.serviceConnector.findFirst({
+        where: { slug: SDK_CONNECTOR.slug, visibility: 'public' },
+      });
+      if (!connector) {
+        connector = await prisma.serviceConnector.create({
+          data: {
+            ownerUserId: user.id,
+            createdBy: user.id,
+            slug: SDK_CONNECTOR.slug,
+            displayName: SDK_CONNECTOR.displayName,
+            description: SDK_CONNECTOR.description,
+            category: SDK_CONNECTOR.category,
+            visibility: 'public',
+            upstreamBaseUrl: SDK_CONNECTOR.upstreamBaseUrl,
+            allowedHosts: [...SDK_CONNECTOR.allowedHosts],
+            defaultTimeout: SDK_CONNECTOR.defaultTimeout,
+            healthCheckPath: SDK_CONNECTOR.healthCheckPath,
+            authType: SDK_CONNECTOR.authType,
+            authConfig: SDK_CONNECTOR.authConfig,
+            secretRefs: [...SDK_CONNECTOR.secretRefs],
+            streamingEnabled: SDK_CONNECTOR.streamingEnabled,
+            responseWrapper: SDK_CONNECTOR.responseWrapper,
+            tags: [...SDK_CONNECTOR.tags],
+            status: 'published',
+            publishedAt: new Date(),
+          },
+        });
+      } else if (connector.status !== 'published') {
+        await prisma.serviceConnector.update({
+          where: { id: connector.id },
+          data: { status: 'published', publishedAt: new Date() },
+        });
+      }
+      sdkConnectorId = connector.id;
+
+      const existingEps = await prisma.connectorEndpoint.findMany({
+        where: { connectorId: connector.id },
+        select: { path: true, method: true },
+      });
+      const existingSet = new Set(existingEps.map((e) => `${e.method}:${e.path}`));
+      for (const ep of SDK_CONNECTOR.endpoints) {
+        if (existingSet.has(`${ep.method}:${ep.path}`)) continue;
+        await prisma.connectorEndpoint.create({
+          data: {
+            connectorId: connector.id,
+            name: ep.name,
+            description: ep.description,
+            method: ep.method,
+            path: ep.path,
+            upstreamPath: ep.upstreamPath,
+            upstreamContentType: 'application/json',
+            bodyTransform: 'passthrough',
+            timeout: ep.timeout,
+            cacheTtl: 'cacheTtl' in ep ? (ep as { cacheTtl?: number }).cacheTtl ?? null : null,
+            retries: ep.retries ?? 0,
+            bodyBlacklist: [],
+          },
+        });
+      }
+
+      const planName = `${SDK_CONNECTOR.slug}-standard`;
+      const existingPlan = await prisma.gatewayPlan.findFirst({
+        where: { ownerUserId: user.id, name: planName },
+      });
+      if (!existingPlan) {
+        await prisma.gatewayPlan.create({
+          data: {
+            ownerUserId: user.id,
+            name: planName,
+            displayName: `${SDK_CONNECTOR.displayName} Standard`,
+            rateLimit: 60,
+            dailyQuota: 1000,
+          },
+        });
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       flags: INTEGRATION_FLAGS,
+      sdkConnectorId,
       providerId: provider.id,
       providerSlug: provider.slug,
       userId: user.id,
