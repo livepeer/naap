@@ -60,6 +60,13 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       return errors.notFound('API key');
     }
 
+    // Hide EXPIRED PymtHouse keys so this single-key endpoint stays consistent
+    // with the list endpoint (which filters them) and the plugin backend GET
+    // /:id handler (which 404s them). Non-PymtHouse keys are unaffected.
+    if (apiKey.billingProvider?.slug === 'pymthouse' && apiKey.status === 'EXPIRED') {
+      return errors.notFound('API key');
+    }
+
     return success({
       key: {
         ...toSafeDevApiKey(apiKey),

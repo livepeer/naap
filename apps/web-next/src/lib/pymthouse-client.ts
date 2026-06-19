@@ -85,6 +85,8 @@ async function exchangeUserJwtForOpaqueSignerSession(
     },
     body: params.toString(),
     cache: 'no-store',
+    // Fail fast instead of hanging if the PymtHouse token endpoint is unresponsive.
+    signal: AbortSignal.timeout(15_000),
   });
 
   let body: Record<string, unknown>;
@@ -125,7 +127,10 @@ async function exchangeUserJwtForOpaqueSignerSession(
   return parseSignerSessionExchange({
     access_token: accessToken,
     token_type: 'Bearer',
-    expires_in: expiresIn ?? 0,
+    // Fall back to a conservative 5-minute TTL when the provider omits
+    // `expires_in`; a 0 here would mark the session as immediately expired and
+    // disable the SDK's proactive (80%-of-TTL) refresh / reuse.
+    expires_in: expiresIn ?? 300,
     scope: scopeOut,
     issued_token_type: issuedTokenType ?? REQUESTED_ACCESS_TOKEN_TYPE,
   });

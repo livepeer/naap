@@ -6,6 +6,23 @@ import 'server-only';
 
 import { getPymthouseIssuerUrlFromEnv } from '@pymthouse/builder-sdk/config';
 
+/**
+ * Validate and normalize an http(s) URL, trimming any trailing slashes.
+ * Returns `null` for malformed values so misconfiguration surfaces at config
+ * time rather than as an opaque fetch failure at request time.
+ */
+function normalizeHttpUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
 function issuerOriginFromIssuerUrl(issuerUrl: string): string {
   return issuerUrl.replace(/\/api\/v1\/oidc\/?$/i, '').replace(/\/+$/, '');
 }
@@ -14,7 +31,7 @@ function issuerOriginFromIssuerUrl(issuerUrl: string): string {
 export function resolvePymthouseSignerUrl(): string | null {
   const fromEnv = process.env.PYMTHOUSE_SIGNER_URL?.trim();
   if (fromEnv) {
-    return fromEnv.replace(/\/+$/, '');
+    return normalizeHttpUrl(fromEnv);
   }
   const issuerUrl = getPymthouseIssuerUrlFromEnv();
   if (!issuerUrl) {
@@ -32,7 +49,7 @@ function readM2mBaseConfig():
       signerUrl: string;
     }
   | null {
-  const issuerUrl = process.env.PYMTHOUSE_ISSUER_URL?.trim();
+  const issuerUrl = normalizeHttpUrl(process.env.PYMTHOUSE_ISSUER_URL?.trim() ?? '');
   const m2mClientId = process.env.PYMTHOUSE_M2M_CLIENT_ID?.trim();
   const m2mClientSecret = process.env.PYMTHOUSE_M2M_CLIENT_SECRET?.trim();
   if (!issuerUrl || !m2mClientId || !m2mClientSecret) {

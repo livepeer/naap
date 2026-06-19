@@ -84,6 +84,8 @@ export async function ensureAppUserProvisioned(
         status: 'active',
       }),
       cache: 'no-store',
+      // Fail fast instead of hanging if the Builder Apps API is unresponsive.
+      signal: AbortSignal.timeout(10_000),
     },
   );
   if (!response.ok && response.status !== 409) {
@@ -111,6 +113,8 @@ export async function createPymthouseApiKey(input: {
     },
     body: JSON.stringify(input.label ? { label: input.label } : {}),
     cache: 'no-store',
+    // Fail fast instead of hanging if the Builder Apps API is unresponsive.
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!response.ok) {
