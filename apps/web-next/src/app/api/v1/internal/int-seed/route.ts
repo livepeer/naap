@@ -45,6 +45,47 @@ function notFound(): NextResponse {
   return NextResponse.json({ error: 'not_found' }, { status: 404 });
 }
 
+/**
+ * GET readback (preview-only, same guard): summarize the ingested BPP ⑥
+ * ProviderUsageRecord rows so the integration round can evidence the
+ * `/metrics/ingest` → spend data-source without a browser session. Returns
+ * counts + a small sample; never secrets/PII.
+ */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const secret = process.env.INT_SEED_SECRET;
+  if (!secret || request.headers.get('x-int-seed-secret') !== secret) {
+    return notFound();
+  }
+  try {
+    const total = await prisma.providerUsageRecord.count();
+    const byProvider = await prisma.providerUsageRecord.groupBy({
+      by: ['providerSlug'],
+      _count: { _all: true },
+      _sum: { sessions: true, tickets: true },
+    });
+    const sample = await prisma.providerUsageRecord.findMany({
+      take: 3,
+      orderBy: { receivedAt: 'desc' },
+      select: {
+        providerSlug: true,
+        accountId: true,
+        appId: true,
+        sessions: true,
+        tickets: true,
+        windowFrom: true,
+        windowTo: true,
+        receivedAt: true,
+      },
+    });
+    return NextResponse.json({ ok: true, total, byProvider, sample });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : 'readback_failed' },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const secret = process.env.INT_SEED_SECRET;
   if (!secret || request.headers.get('x-int-seed-secret') !== secret) {
