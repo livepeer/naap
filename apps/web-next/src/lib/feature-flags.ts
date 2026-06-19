@@ -15,6 +15,13 @@ export interface KnownFlag {
   description: string;
 }
 
+/**
+ * Canonical key for the NAAP-5 flag (default OFF). Single source of truth shared
+ * by the KNOWN_FLAGS registry and the gateway authorize step so the flag name
+ * cannot silently drift between the two.
+ */
+export const SDK_CONNECTOR_FLAG = 'sdk_connector';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -28,10 +35,58 @@ export const KNOWN_FLAGS: KnownFlag[] = [
       'Route billing requests through the generic BillingProviderAdapter registry (/api/v1/billing/{provider}/*). OFF = legacy /billing/pymthouse/* behavior only.',
   },
   {
+    key: 'team_seats',
+    enabled: false,
+    description:
+      'Team Seats API + provider-agnostic billingAccountRef binding (/api/v1/teams/{id}/seats/*, /billing-account). OFF = endpoints 404, no-op (NAAP-1).',
+  },
+  {
+    key: 'usage_ingest',
+    enabled: false,
+    description:
+      'Enable cross-provider usage telemetry: the BPP ⑥ ingest endpoint (/api/v1/metrics/ingest) and the spend dashboard BFF (/api/v1/metrics/usage). OFF = both return 404 (no-op).',
+  },
+  {
+    key: 'usage_pull',
+    enabled: false,
+    description:
+      'Spend dashboard PULLS provider usage live via the provider adapter (e.g. pymthouse M2M client) instead of reading pushed ProviderUsageRecord rows. OFF = reads ProviderUsageRecord exactly as today. ON = pull-first with graceful fallback to ProviderUsageRecord on any pull failure (never 500). Tenant scoping is preserved either way (NAAP-2).',
+  },
+  {
+    key: 'app_registry',
+    enabled: false,
+    description:
+      'Enable the application/service registry (/api/v1/apps/*) so usage and rate limits attribute per registered app. OFF = registry endpoints return 404 (no-op).',
+  },
+  {
     key: 'db_adapter_registry',
     enabled: false,
     description:
       'Resolve the BillingProviderAdapter from the BillingProvider.adapterType DB column (NAAP-A-db) instead of the static slug→adapter map. OFF = static registry (zero regression); falls back to static on any DB miss/error.',
+  },
+  {
+    key: 'native_keys',
+    enabled: false,
+    description:
+      'Native provider-opaque naap_ keys issued to a seat (/api/v1/teams/{id}/seats/{seatId}/keys). OFF = endpoints 404, no-op (NAAP-B).',
+  },
+  {
+    key: 'key_validation_front_door',
+    enabled: false,
+    description:
+      'Key validation front door POST /api/v1/keys/validate (resolves naap_ → provider via adapter, BPP ③). OFF = 404 so callers fall back to their direct path (NAAP-C).',
+  },
+  {
+    key: 'capability_gate',
+    enabled: false,
+    description:
+      'Enforce key → plan → capability access at the front door and discovery (NAAP-E). OFF = no enforcement (capabilities surfaced only, exactly as today); ON = deny a requested capability not granted by the resolved plan (fail closed).',
+  },
+  {
+    key: SDK_CONNECTOR_FLAG,
+    enabled: false,
+    description:
+      'Seed the public "sdk" Service Gateway connector (fronting sdk.daydream.monster at /api/v1/gw/sdk/*) AND accept native naap_ keys at the gateway authorize step (NAAP-5). OFF = no sdk connector seeded and naap_ keys are rejected at the gateway exactly as today (no-op).',
   },
 ];
 

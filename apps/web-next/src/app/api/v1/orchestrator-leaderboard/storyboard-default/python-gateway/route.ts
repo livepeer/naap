@@ -24,6 +24,10 @@ import {
   type CapabilityFetchResult,
 } from '@/lib/orchestrator-leaderboard/storyboard-default-discovery';
 import { isStoryboardDefaultDiscoveryEnabled } from '@/lib/orchestrator-leaderboard/storyboard-default-plan';
+import {
+  isByocToolDiscoveryEnabled,
+  resolveByocToolCapabilities,
+} from '@/lib/orchestrator-leaderboard/byoc-tool-discovery';
 
 export async function GET(request: NextRequest): Promise<Response> {
   if (!isStoryboardDefaultDiscoveryEnabled()) {
@@ -63,9 +67,17 @@ export async function GET(request: NextRequest): Promise<Response> {
   };
 
   try {
+    // NAAP-3: when discovery is ON, drive byoc/tool capability lists from the
+    // live fleet instead of the hardcoded plan constants. OFF (default) →
+    // undefined → the committed baseline is used (golden-set parity preserved).
+    const categoryCapabilities = isByocToolDiscoveryEnabled()
+      ? await resolveByocToolCapabilities()
+      : undefined;
+
     const { addresses, byKind, meta } = await buildStoryboardDefaultDiscovery({
       fetchCapabilityAddresses,
       billingProviderSlug,
+      categoryCapabilities,
     });
 
     const out = addresses.map((address) => ({ address }));
