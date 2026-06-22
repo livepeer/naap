@@ -8,6 +8,7 @@ import {
   categoryOfCapability,
   isWellFormedCapabilityId,
   normalizeCapabilities,
+  normalizeProviderCapabilities,
   parseCapabilityId,
 } from './taxonomy';
 
@@ -66,5 +67,42 @@ describe('NAAP-E taxonomy — categories + normalize', () => {
   it('normalizes a non-array to []', () => {
     expect(normalizeCapabilities(null)).toEqual([]);
     expect(normalizeCapabilities(undefined)).toEqual([]);
+  });
+});
+
+describe('NAAP-E taxonomy — normalizeProviderCapabilities (O2: canonical `:` format)', () => {
+  it('coerces the legacy `<pipeline>/<scope>` slash form to the canonical `:` form', () => {
+    expect(normalizeProviderCapabilities(['live-video-to-video/scope'])).toEqual([
+      'live-video-to-video:scope',
+    ]);
+  });
+
+  it('leaves already-canonical colon ids and the wildcard unchanged', () => {
+    expect(normalizeProviderCapabilities(['text-to-image:sdxl', '*'])).toEqual([
+      'text-to-image:sdxl',
+      '*',
+    ]);
+  });
+
+  it('coerces, de-duplicates across separator variants, and drops malformed ids', () => {
+    expect(
+      normalizeProviderCapabilities([
+        'live-video-to-video/scope',
+        'live-video-to-video:scope', // same as the slash form after coercion
+        'tool:ffmpeg-concat',
+        'garbage',
+        '',
+      ]),
+    ).toEqual(['live-video-to-video:scope', 'tool:ffmpeg-concat']);
+  });
+
+  it('only the FIRST separator is coerced (a colon already present wins)', () => {
+    // `a:b/c` already has a colon → not coerced → `a:b/c` is malformed → dropped.
+    expect(normalizeProviderCapabilities(['a:b/c'])).toEqual([]);
+  });
+
+  it('normalizes a non-array to []', () => {
+    expect(normalizeProviderCapabilities(null)).toEqual([]);
+    expect(normalizeProviderCapabilities(undefined)).toEqual([]);
   });
 });
