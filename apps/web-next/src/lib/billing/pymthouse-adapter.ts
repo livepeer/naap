@@ -15,6 +15,8 @@ import { isPymthouseConfigured } from '@pymthouse/builder-sdk/config';
 import type { MeScopeUsagePayload, UsageApiResponse } from '@pymthouse/builder-sdk';
 
 import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
+import { isFeatureEnabled, PYMTHOUSE_BPP_VALIDATE_FLAG } from '@/lib/feature-flags';
+import { resolvePymthouseCapabilities } from './pymthouse-capabilities';
 import {
   AdapterNotImplementedError,
   type AppUsageInput,
@@ -40,10 +42,27 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     return isPymthouseConfigured();
   }
 
-  async validate(_key: string): Promise<ValidateResult> {
-    // BPP ② validate is provider-side (PYMT-3) and not yet C0-shaped on the NaaP
-    // side; do not fabricate identity/capabilities here.
-    throw new AdapterNotImplementedError(this.slug, 'validate');
+  /**
+   * BPP ② — resolve a validated account's capabilities live from pymthouse.
+   *
+   * The front door passes `billingAccountRef.accountId` here (the provider
+   * `externalUserId`); see `pymthouse-capabilities.ts` for the O1 subject-identity
+   * rationale. Gated behind `PYMTHOUSE_BPP_VALIDATE_FLAG` (default OFF): when OFF
+   * this throws `AdapterNotImplementedError` exactly as before, so the front door
+   * falls back to an empty capability set (zero regression). Provider errors
+   * propagate so the front door fails CLOSED.
+   */
+  async validate(externalUserId: string): Promise<ValidateResult> {
+    if (!(await isFeatureEnabled(PYMTHOUSE_BPP_VALIDATE_FLAG))) {
+      throw new AdapterNotImplementedError(this.slug, 'validate');
+    }
+    const resolved = await resolvePymthouseCapabilities(externalUserId);
+    return {
+      valid: true,
+      capabilities: resolved.capabilities,
+      quota: resolved.quota,
+      ...(resolved.subscriptionRef ? { subscriptionRef: resolved.subscriptionRef } : {}),
+    };
   }
 
   async getPlans(): Promise<Plan[]> {

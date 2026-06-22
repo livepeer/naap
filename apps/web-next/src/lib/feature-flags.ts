@@ -22,6 +22,15 @@ export interface KnownFlag {
  */
 export const SDK_CONNECTOR_FLAG = 'sdk_connector';
 
+/**
+ * Canonical key for the pymthouse BPP ② live capability-resolution flag (default
+ * OFF). When OFF, `PymthouseAdapter.validate()` throws `AdapterNotImplementedError`
+ * exactly as before, so the front door falls back to an empty capability set
+ * (today's behavior). Shared by KNOWN_FLAGS and the adapter so the name cannot
+ * drift. Requires the provider's `BPP_VALIDATE_V2` posture in the same env.
+ */
+export const PYMTHOUSE_BPP_VALIDATE_FLAG = 'pymthouse_bpp_validate';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -87,6 +96,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: false,
     description:
       'Seed the public "sdk" Service Gateway connector (fronting sdk.daydream.monster at /api/v1/gw/sdk/*) AND accept native naap_ keys at the gateway authorize step (NAAP-5). OFF = no sdk connector seeded and naap_ keys are rejected at the gateway exactly as today (no-op).',
+  },
+  {
+    key: PYMTHOUSE_BPP_VALIDATE_FLAG,
+    enabled: false,
+    description:
+      'Resolve a validated key\'s capabilities LIVE from the pymthouse provider (BPP ②) via the M2M client, keyed on the account\'s externalUserId, and surface them at the validation front door. OFF = PymthouseAdapter.validate() is unimplemented (front door falls back to an empty capability set, exactly as today). Requires the provider\'s BPP_VALIDATE_V2 posture in the same environment; pairs with capability_gate (also default OFF).',
   },
 ];
 

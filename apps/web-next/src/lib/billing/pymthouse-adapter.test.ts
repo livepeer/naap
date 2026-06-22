@@ -4,16 +4,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchUsageForExternalUser = vi.fn();
 const getUsage = vi.fn();
+const getUserSubscription = vi.fn();
+const listBillingProducts = vi.fn();
 
 vi.mock('@/lib/pymthouse-client', () => ({
-  getPmtHouseServerClient: () => ({ fetchUsageForExternalUser, getUsage }),
+  getPmtHouseServerClient: () => ({
+    fetchUsageForExternalUser,
+    getUsage,
+    getUserSubscription,
+    listBillingProducts,
+  }),
 }));
 
 vi.mock('@pymthouse/builder-sdk/config', () => ({
   isPymthouseConfigured: () => true,
 }));
 
+const isFeatureEnabled = vi.fn();
+vi.mock('@/lib/feature-flags', () => ({
+  isFeatureEnabled: (...a: unknown[]) => isFeatureEnabled(...a),
+  PYMTHOUSE_BPP_VALIDATE_FLAG: 'pymthouse_bpp_validate',
+}));
+
 import { PymthouseAdapter } from './pymthouse-adapter';
+import { AdapterNotImplementedError } from './adapter';
+import { resetPymthouseCapabilityCacheForTests } from './pymthouse-capabilities';
 
 const WINDOW = { startDate: '2026-01-01T00:00:00.000Z', endDate: '2026-01-31T23:59:59.999Z' };
 
@@ -21,11 +36,63 @@ let adapter: PymthouseAdapter;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetPymthouseCapabilityCacheForTests();
+  isFeatureEnabled.mockResolvedValue(false);
   adapter = new PymthouseAdapter();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  resetPymthouseCapabilityCacheForTests();
+});
+
+describe('PymthouseAdapter.validate (BPP ② live capabilities, flag-gated)', () => {
+  it('flag OFF → throws AdapterNotImplementedError (zero regression, no provider call)', async () => {
+    isFeatureEnabled.mockResolvedValue(false);
+    await expect(adapter.validate('acct_om_1')).rejects.toBeInstanceOf(AdapterNotImplementedError);
+    expect(getUserSubscription).not.toHaveBeenCalled();
+  });
+
+  it('flag ON + delegated account (no subscription) → wildcard capabilities', async () => {
+    isFeatureEnabled.mockResolvedValue(true);
+    getUserSubscription.mockResolvedValue({ externalUserId: 'acct_om_1', subscription: null });
+
+    const res = await adapter.validate('acct_om_1');
+    expect(getUserSubscription).toHaveBeenCalledWith('acct_om_1');
+    expect(res.valid).toBe(true);
+    expect(res.capabilities).toEqual(['*']);
+    expect(res.quota).toBeNull();
+  });
+
+  it('flag ON + plan-backed account → mapped, taxonomy-normalized capabilities', async () => {
+    isFeatureEnabled.mockResolvedValue(true);
+    getUserSubscription.mockResolvedValue({
+      externalUserId: 'acct_om_1',
+      subscription: { id: 'sub_1', status: 'active', planId: 'plan_pro', createdAt: 'x' },
+    });
+    listBillingProducts.mockResolvedValue({
+      apiVersion: 1,
+      products: [
+        {
+          id: 'plan_pro',
+          capabilities: [
+            { pipeline: 'text-to-image', modelId: 'flux-dev' },
+            { pipeline: 'live-video-to-video', modelId: 'scope' },
+          ],
+        },
+      ],
+    });
+
+    const res = await adapter.validate('acct_om_1');
+    expect(res.capabilities).toEqual(['text-to-image:flux-dev', 'live-video-to-video:scope']);
+    expect(res.subscriptionRef).toBe('sub_1');
+  });
+
+  it('flag ON + provider error → propagates (front door fails closed)', async () => {
+    isFeatureEnabled.mockResolvedValue(true);
+    getUserSubscription.mockRejectedValue(new Error('provider down'));
+    await expect(adapter.validate('acct_om_1')).rejects.toThrow('provider down');
+  });
 });
 
 describe('PymthouseAdapter.getSpend', () => {
