@@ -55,10 +55,25 @@ interface CacheEntry {
 }
 
 let cache = new Map<string, CacheEntry>();
+let lastSweepAt = 0;
 
 /** Vitest / isolated tests: clear the per-account capability cache. */
 export function resetPymthouseCapabilityCacheForTests(): void {
   cache = new Map<string, CacheEntry>();
+  lastSweepAt = 0;
+}
+
+/**
+ * Purge expired entries so unique-account traffic cannot grow the process-wide
+ * cache without bound. Bounded overhead: sweeps at most once per TTL window.
+ */
+function sweepExpiredCache(now: number, ttl: number): void {
+  if (ttl <= 0 || cache.size === 0) return;
+  if (now - lastSweepAt < ttl) return;
+  for (const [key, entry] of cache) {
+    if (now - entry.at >= ttl) cache.delete(key);
+  }
+  lastSweepAt = now;
 }
 
 /** Effective cache TTL (configurable via env, like the usage-pull cache). */
@@ -112,6 +127,7 @@ export async function resolvePymthouseCapabilities(
 ): Promise<PymthouseCapabilityResolution> {
   const now = Date.now();
   const ttl = cacheTtlMs();
+  sweepExpiredCache(now, ttl);
 
   if (!opts?.skipCache && ttl > 0) {
     const hit = cache.get(externalUserId);
@@ -122,6 +138,7 @@ export async function resolvePymthouseCapabilities(
       });
       return hit.data;
     }
+    if (hit) cache.delete(externalUserId);
   }
 
   const client = getPmtHouseServerClient();

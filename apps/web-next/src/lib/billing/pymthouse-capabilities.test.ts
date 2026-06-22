@@ -159,4 +159,23 @@ describe('resolvePymthouseCapabilities — short-TTL cache (per-account, tenant-
 
     expect(getUserSubscription).toHaveBeenCalledTimes(2);
   });
+
+  it('expired entries are swept (no unbounded growth) and re-resolve after TTL', async () => {
+    process.env.PYMTHOUSE_CAPABILITY_CACHE_TTL_MS = '1000';
+    getUserSubscription.mockResolvedValue(subscription(null));
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      await resolvePymthouseCapabilities('acct_evict');
+      expect(getUserSubscription).toHaveBeenCalledTimes(1);
+
+      // Past TTL: the next resolution sweeps the stale entry and re-hits.
+      vi.setSystemTime(2000);
+      await resolvePymthouseCapabilities('acct_evict');
+      expect(getUserSubscription).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
