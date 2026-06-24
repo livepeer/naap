@@ -118,7 +118,20 @@ export async function buildAdapterForProviderInstance(
       return undefined;
     }
     const client = createPmtHouseClient({ ...config, m2mClientSecret });
-    return new PymthouseAdapter({ client, isConfigured: () => true });
+    return new PymthouseAdapter({
+      client,
+      isConfigured: () => true,
+      // Per-instance signer-session exchange binds to THIS app's issuer/creds so
+      // the opaque `pmth_…` mint targets the right token endpoint (not global env).
+      signerExchange: {
+        issuerUrl: config.issuerUrl,
+        m2mClientId: config.m2mClientId,
+        m2mClientSecret,
+        ...(config.allowInsecureHttp !== undefined
+          ? { allowInsecureHttp: config.allowInsecureHttp }
+          : {}),
+      },
+    });
   }
   return undefined;
 }

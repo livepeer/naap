@@ -14,7 +14,12 @@ import { isPymthouseConfigured } from '@pymthouse/builder-sdk/config';
 
 import type { MeScopeUsagePayload, PmtHouseClient, UsageApiResponse } from '@pymthouse/builder-sdk';
 
-import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
+import {
+  getPmtHouseServerClient,
+  mintOpaqueSignerSessionForExternalUser,
+  mintSignerSessionForExternalUser,
+  type PymthouseSignerExchangeConfig,
+} from '@/lib/pymthouse-client';
 import { isFeatureEnabled, PYMTHOUSE_BPP_VALIDATE_FLAG } from '@/lib/feature-flags';
 import { resolvePymthouseCapabilities } from './pymthouse-capabilities';
 import {
@@ -47,6 +52,13 @@ export const PYMTHOUSE_ADAPTER_SLUG = 'pymthouse';
 export interface PymthouseAdapterOptions {
   client?: PmtHouseClient;
   isConfigured?: () => boolean;
+  /**
+   * Per-instance signer-session exchange config (issuer + M2M creds). Required
+   * alongside a `client` override so {@link PymthouseAdapter.mintSignerSession}
+   * exchanges against THIS app's token endpoint. Omitted for the global-env
+   * adapter, which uses the `PYMTHOUSE_*` env exchange.
+   */
+  signerExchange?: PymthouseSignerExchangeConfig;
 }
 
 export class PymthouseAdapter implements BillingProviderAdapter {
@@ -54,10 +66,12 @@ export class PymthouseAdapter implements BillingProviderAdapter {
 
   private readonly clientOverride?: PmtHouseClient;
   private readonly isConfiguredOverride?: () => boolean;
+  private readonly signerExchange?: PymthouseSignerExchangeConfig;
 
   constructor(options: PymthouseAdapterOptions = {}) {
     this.clientOverride = options.client;
     this.isConfiguredOverride = options.isConfigured;
+    this.signerExchange = options.signerExchange;
   }
 
   /**
@@ -197,11 +211,30 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     }));
   }
 
+  /**
+   * Mint an OPAQUE `pmth_…` signer session for the account.
+   *
+   * Uses the NaaP opaque-session workaround (upsert user → mint user JWT →
+   * token-exchange WITHOUT `resource`) rather than the SDK 0.4.3
+   * `PmtHouseClient.mintSignerSessionForExternalUser`, which sets `resource` and
+   * is routed by PymtHouse to signer-JWT exchange (no opaque `pmth_…` session) —
+   * causing the validate front door's signer mint to fail. For a per-instance
+   * adapter the exchange binds to THAT app's issuer/creds; the global-env adapter
+   * uses the `PYMTHOUSE_*` env path.
+   */
   async mintSignerSession(input: MintSignerSessionInput): Promise<SignerSessionToken> {
-    const session = await this.client().mintSignerSessionForExternalUser({
-      externalUserId: input.externalUserId,
-      ...(input.email != null ? { email: input.email } : {}),
-    });
+    const session =
+      this.clientOverride && this.signerExchange
+        ? await mintOpaqueSignerSessionForExternalUser({
+            client: this.clientOverride,
+            exchange: this.signerExchange,
+            externalUserId: input.externalUserId,
+            ...(input.email != null ? { email: input.email } : {}),
+          })
+        : await mintSignerSessionForExternalUser({
+            externalUserId: input.externalUserId,
+            ...(input.email != null ? { email: input.email } : {}),
+          });
     return {
       accessToken: session.accessToken,
       tokenType: session.tokenType,

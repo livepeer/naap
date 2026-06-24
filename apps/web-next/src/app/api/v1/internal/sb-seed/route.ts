@@ -191,6 +191,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     };
   }
 
+  // Document the SDK 0.4.3 bug: the RAW client method (what the adapter used to
+  // call) sets `resource` and is routed to signer-JWT exchange instead of an
+  // opaque pmth_ session — this is the call that made the validate front door 503.
+  try {
+    const { getPmtHouseServerClient } = await import('@/lib/pymthouse-client');
+    const raw = await getPmtHouseServerClient().mintSignerSessionForExternalUser({
+      externalUserId: accountId,
+    });
+    out.rawSdkSignerMint = {
+      ok: true,
+      accessTokenPrefix: (raw.accessToken || '').slice(0, 6),
+    };
+  } catch (e) {
+    out.rawSdkSignerMint = { ok: false, error: e instanceof Error ? e.message : 'raw_failed' };
+  }
+
   try {
     const team = await prisma.team.findUnique({
       where: { slug: TEAM_SLUG },

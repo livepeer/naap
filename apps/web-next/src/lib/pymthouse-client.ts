@@ -78,17 +78,20 @@ export function resetPmtHouseServerClientForTests(): void {
 }
 
 /**
- * Exchange a short-lived user JWT for an opaque `pmth_…` signer session.
- *
- * `@pymthouse/builder-sdk@0.4.3` `PmtHouseClient.mintSignerSessionForExternalUser` sets
- * `resource` to the OIDC issuer URL. Current PymtHouse routes that to signer-JWT
- * exchange (no `issued_token_type`, returns another JWT). Omitting `resource` selects
- * gateway opaque-session exchange instead.
+ * Non-secret connection params + M2M secret needed to perform the opaque
+ * signer-session token-exchange. Mirrors {@link PmtHouseClientConfig} but only
+ * the subset the exchange step needs, so a per-`ProviderInstance` adapter can
+ * exchange against ITS app's token endpoint/creds (not the global env).
  */
-async function exchangeUserJwtForOpaqueSignerSession(
-  userJwt: string,
-  scope: string = SIGN_JOB_SCOPE,
-): Promise<SignerSessionToken> {
+export interface PymthouseSignerExchangeConfig {
+  issuerUrl: string;
+  m2mClientId: string;
+  m2mClientSecret: string;
+  allowInsecureHttp?: boolean;
+}
+
+/** Resolve the global `PYMTHOUSE_*` env into a signer-exchange config (or throw). */
+function globalSignerExchangeConfig(): PymthouseSignerExchangeConfig {
   const env = readPymthouseEnv();
   if (!env) {
     throw new PmtHouseError(PYMTHOUSE_NOT_CONFIGURED_MESSAGE, {
@@ -96,11 +99,32 @@ async function exchangeUserJwtForOpaqueSignerSession(
       code: 'pymthouse_required',
     });
   }
+  return {
+    issuerUrl: env.issuerUrl,
+    m2mClientId: env.m2mClientId,
+    m2mClientSecret: env.m2mClientSecret,
+  };
+}
 
+/**
+ * Exchange a short-lived user JWT for an opaque `pmth_…` signer session, using an
+ * EXPLICIT connection config (per-instance or global).
+ *
+ * `@pymthouse/builder-sdk@0.4.3` `PmtHouseClient.mintSignerSessionForExternalUser` sets
+ * `resource` to the OIDC issuer URL. Current PymtHouse routes that to signer-JWT
+ * exchange (no `issued_token_type`, returns another JWT). Omitting `resource` selects
+ * gateway opaque-session exchange instead.
+ */
+async function exchangeUserJwtForOpaqueSignerSessionWith(
+  userJwt: string,
+  cfg: PymthouseSignerExchangeConfig,
+  scope: string = SIGN_JOB_SCOPE,
+): Promise<SignerSessionToken> {
   const allowInsecureHttp =
-    process.env.PYMTHOUSE_ALLOW_INSECURE_HTTP === '1' || env.issuerUrl.startsWith('http:');
+    cfg.allowInsecureHttp ??
+    (process.env.PYMTHOUSE_ALLOW_INSECURE_HTTP === '1' || cfg.issuerUrl.startsWith('http:'));
 
-  const as = await loadAuthorizationServer(env.issuerUrl, fetch, { allowInsecureHttp });
+  const as = await loadAuthorizationServer(cfg.issuerUrl, fetch, { allowInsecureHttp });
   const tokenEndpoint = as.token_endpoint;
   if (!tokenEndpoint) {
     throw new PmtHouseError('OIDC discovery document is missing token_endpoint', {
@@ -121,7 +145,7 @@ async function exchangeUserJwtForOpaqueSignerSession(
   const response = await fetch(tokenEndpoint, {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${Buffer.from(`${env.m2mClientId}:${env.m2mClientSecret}`).toString('base64')}`,
+      Authorization: `Basic ${Buffer.from(`${cfg.m2mClientId}:${cfg.m2mClientSecret}`).toString('base64')}`,
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
     },
@@ -178,25 +202,49 @@ async function exchangeUserJwtForOpaqueSignerSession(
   });
 }
 
-/** Mint an opaque `pmth_…` signer session for a NaaP user (workaround for SDK 0.4.3 routing). */
-export async function mintSignerSessionForExternalUser(input: {
+/**
+ * Mint an opaque `pmth_…` signer session for a NaaP user against an EXPLICIT
+ * client + exchange config (workaround for SDK 0.4.3 `resource` routing).
+ *
+ * This is the multi-app-safe core: the per-`ProviderInstance` adapter passes ITS
+ * client + ITS app's exchange config so the upsert/user-token/exchange all bind
+ * to the same app. The global path ({@link mintSignerSessionForExternalUser})
+ * delegates here with the env client + env config.
+ */
+export async function mintOpaqueSignerSessionForExternalUser(input: {
+  client: PmtHouseClient;
+  exchange: PymthouseSignerExchangeConfig;
   externalUserId: string;
   email?: string;
   scope?: string;
 }): Promise<SignerSessionToken> {
-  const client = getPmtHouseServerClient();
   const scope = input.scope?.trim() || SIGN_JOB_SCOPE;
 
-  await client.upsertAppUser({
+  await input.client.upsertAppUser({
     externalUserId: input.externalUserId,
     email: input.email,
     status: 'active',
   });
 
-  const userToken = await client.mintUserAccessToken({
+  const userToken = await input.client.mintUserAccessToken({
     externalUserId: input.externalUserId,
     scope,
   });
 
-  return exchangeUserJwtForOpaqueSignerSession(userToken.access_token, scope);
+  return exchangeUserJwtForOpaqueSignerSessionWith(userToken.access_token, input.exchange, scope);
+}
+
+/** Mint an opaque `pmth_…` signer session for a NaaP user (global `PYMTHOUSE_*` env). */
+export async function mintSignerSessionForExternalUser(input: {
+  externalUserId: string;
+  email?: string;
+  scope?: string;
+}): Promise<SignerSessionToken> {
+  return mintOpaqueSignerSessionForExternalUser({
+    client: getPmtHouseServerClient(),
+    exchange: globalSignerExchangeConfig(),
+    externalUserId: input.externalUserId,
+    ...(input.email != null ? { email: input.email } : {}),
+    ...(input.scope != null ? { scope: input.scope } : {}),
+  });
 }
