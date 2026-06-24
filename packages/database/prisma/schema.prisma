@@ -197,6 +197,38 @@ model BillingProvider {
   @@schema("public")
 }
 
+// NAAP P0 — per-app provider instance (multi-app foundation).
+//
+// `BillingProvider` stays the adapter-TYPE catalog (slug @unique, one row per
+// provider family). `ProviderInstance` is the per-APP row: MANY instances may
+// share one `adapterType` (e.g. multiple pymthouse apps), each with its own
+// credentials. Per-app creds live here OUT of global env:
+//   - `config` holds NON-SECRET connection params only
+//     (e.g. { issuerUrl, publicClientId, m2mClientId, allowInsecureHttp }).
+//   - `secretRef` points at a `SecretVault.key` holding the M2M client secret;
+//     it NEVER stores the secret value itself.
+// Gated by the `provider_instances` flag (default OFF): with the flag OFF this
+// table is never read and resolution falls back to the global PYMTHOUSE_* env
+// single-app path (zero regression). Expand-only / additive — no existing
+// column or constraint changes.
+model ProviderInstance {
+  id          String   @id @default(uuid())
+  adapterType String
+  slug        String   @unique
+  displayName String
+  config      Json?
+  secretRef   String?
+  status      String   @default("active")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([adapterType])
+  @@index([enabled])
+  @@schema("public")
+}
+
 model BillingProviderOAuthSession {
   loginSessionId    String    @id
   state             String    @unique

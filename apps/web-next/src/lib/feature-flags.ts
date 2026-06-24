@@ -31,6 +31,18 @@ export const SDK_CONNECTOR_FLAG = 'sdk_connector';
  */
 export const PYMTHOUSE_BPP_VALIDATE_FLAG = 'pymthouse_bpp_validate';
 
+/**
+ * Canonical key for the multi-app `ProviderInstance` foundation (P0, default
+ * OFF). When OFF, billing-provider resolution falls back to the global
+ * `PYMTHOUSE_*` env single-app path EXACTLY as today (zero regression) and the
+ * `ProviderInstance` table is never read. When ON, the adapter registry can
+ * resolve a per-`ProviderInstance` adapter built from that instance's non-secret
+ * `config` + a `secretRef` → `SecretVault` M2M secret, so multiple pymthouse
+ * apps can coexist. Shared by KNOWN_FLAGS and the registry so the name cannot
+ * drift.
+ */
+export const PROVIDER_INSTANCES_FLAG = 'provider_instances';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -102,6 +114,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: false,
     description:
       'Resolve a validated key\'s capabilities LIVE from the pymthouse provider (BPP ②) via the M2M client, keyed on the account\'s externalUserId, and surface them at the validation front door. OFF = PymthouseAdapter.validate() is unimplemented (front door falls back to an empty capability set, exactly as today). Requires the provider\'s BPP_VALIDATE_V2 posture in the same environment; pairs with capability_gate (also default OFF).',
+  },
+  {
+    key: PROVIDER_INSTANCES_FLAG,
+    enabled: false,
+    description:
+      'Multi-app foundation (P0): resolve a per-ProviderInstance billing adapter built from the instance\'s non-secret config + a secretRef → SecretVault M2M secret, so multiple pymthouse apps can coexist. OFF = ProviderInstance table is never read and resolution falls back to the global PYMTHOUSE_* env single-app path exactly as today (zero regression).',
   },
 ];
 

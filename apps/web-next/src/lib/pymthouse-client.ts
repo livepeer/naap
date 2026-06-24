@@ -15,7 +15,7 @@ import {
   type SignerSessionToken,
 } from '@pymthouse/builder-sdk';
 import { createPmtHouseClientFromEnv } from '@pymthouse/builder-sdk/env';
-import type { PmtHouseClient } from '@pymthouse/builder-sdk';
+import { PmtHouseClient } from '@pymthouse/builder-sdk';
 
 const TOKEN_EXCHANGE_GRANT = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const SUBJECT_ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
@@ -28,6 +28,48 @@ export function getPmtHouseServerClient(): PmtHouseClient {
     cached = createPmtHouseClientFromEnv();
   }
   return cached;
+}
+
+/**
+ * Non-secret connection params for a pymthouse instance, plus the resolved M2M
+ * client secret. Mirrors the env shape `createPmtHouseClientFromEnv` builds, but
+ * sourced explicitly (e.g. from a `ProviderInstance.config` + `SecretVault`)
+ * rather than from global `PYMTHOUSE_*` env. The secret is passed in resolved;
+ * this module never reads or logs it.
+ */
+export interface PmtHouseClientConfig {
+  issuerUrl: string;
+  publicClientId: string;
+  m2mClientId: string;
+  m2mClientSecret: string;
+  allowInsecureHttp?: boolean;
+}
+
+/**
+ * Build a `PmtHouseClient` from an explicit per-instance config (NOT global
+ * env), so multiple pymthouse apps can coexist in one process. Unlike
+ * `getPmtHouseServerClient()` this is NOT a process singleton — the caller owns
+ * caching (e.g. the registry caches per `ProviderInstance.id`). Logging matches
+ * the env client: structured `[pymthouse]` lines that never include the secret.
+ */
+export function createPmtHouseClient(config: PmtHouseClientConfig): PmtHouseClient {
+  return new PmtHouseClient({
+    issuerUrl: config.issuerUrl,
+    publicClientId: config.publicClientId,
+    m2mClientId: config.m2mClientId,
+    m2mClientSecret: config.m2mClientSecret,
+    allowInsecureHttp: config.allowInsecureHttp ?? config.issuerUrl.startsWith('http:'),
+    logger: {
+      debug: (message: string, details?: unknown) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.debug(`[pymthouse] ${message}`, details ?? {});
+        }
+      },
+      warn: (message: string, details?: unknown) => {
+        console.warn(`[pymthouse] ${message}`, details ?? {});
+      },
+    },
+  });
 }
 
 /** Vitest / isolated tests: clear module-level singleton. */
