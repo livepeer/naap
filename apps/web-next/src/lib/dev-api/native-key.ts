@@ -16,7 +16,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { hashApiKey } from '@naap/database';
 import { getBillingProviderAdapter } from '@/lib/billing/registry';
-import type { SignerSessionToken } from '@/lib/billing/adapter';
+import type { BillingProviderAdapter, SignerSessionToken } from '@/lib/billing/adapter';
 import {
   type BillingAccountRef,
   type TeamBillingBinding,
@@ -70,6 +70,18 @@ export interface NativeKeyRecord {
   teamId: string | null;
 }
 
+/**
+ * P2 per-subscription binding override. When the caller has resolved the key's
+ * subscription hop (`key → Subscription → ProviderInstance`), it passes the
+ * resolved per-instance adapter + account pointer here; the resolver mints
+ * against THIS adapter/account instead of the team's legacy `billingAccountRef`.
+ * Absent/null ⇒ today's exact path (zero regression).
+ */
+export interface SubscriptionBindingOverride {
+  adapter: BillingProviderAdapter;
+  billingAccountRef: BillingAccountRef;
+}
+
 export type ResolveFailureReason =
   | 'revoked'
   | 'unbound_seat'
@@ -98,21 +110,32 @@ export interface ResolvedProviderSession {
  *
  * @param key   the stored key record (status + seat/team attribution)
  * @param team  the seat's team billing binding, or null if unresolved
+ * @param opts  optional email + a P2 per-subscription binding `override`
  */
 export async function resolveNativeKeyToProviderSession(
   key: NativeKeyRecord,
   team: TeamBillingBinding | null,
-  opts?: { email?: string },
+  opts?: { email?: string; override?: SubscriptionBindingOverride | null },
 ): Promise<ResolvedProviderSession> {
   // Revocation/expiry invalidates instantly — before touching any provider.
   if (key.status !== 'ACTIVE') return { valid: false, reason: 'revoked' };
   if (!key.teamId) return { valid: false, reason: 'unbound_seat' };
   if (!team || team.id !== key.teamId) return { valid: false, reason: 'team_unbound' };
 
-  const ref = teamBillingAccountRef(team);
-  if (!ref) return { valid: false, reason: 'team_unbound' };
+  // P2: when a per-subscription binding is supplied, mint against THAT instance
+  // adapter + account. Otherwise fall through to today's exact team-account path.
+  let ref: BillingAccountRef;
+  let adapter: BillingProviderAdapter | undefined;
+  if (opts?.override) {
+    ref = opts.override.billingAccountRef;
+    adapter = opts.override.adapter;
+  } else {
+    const legacyRef = teamBillingAccountRef(team);
+    if (!legacyRef) return { valid: false, reason: 'team_unbound' };
+    ref = legacyRef;
+    adapter = getBillingProviderAdapter(ref.providerSlug);
+  }
 
-  const adapter = getBillingProviderAdapter(ref.providerSlug);
   if (!adapter || !adapter.isConfigured()) {
     return { valid: false, reason: 'provider_unavailable', billingAccountRef: ref };
   }

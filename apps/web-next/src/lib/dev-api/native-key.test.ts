@@ -141,3 +141,49 @@ describe('resolveNativeKeyToProviderSession — provider-agnostic mapping', () =
     expect(res.signerSession).toBeUndefined();
   });
 });
+
+describe('resolveNativeKeyToProviderSession — P2 per-subscription override', () => {
+  it('mints against the override instance adapter + account (not the team path)', async () => {
+    const instanceAdapter = fakeAdapter('pymthouse');
+    const res = await resolveNativeKeyToProviderSession(activeKey, pymtTeam, {
+      email: 'u@e.co',
+      override: {
+        adapter: instanceAdapter as never,
+        billingAccountRef: { providerSlug: 'pymthouse', accountId: 'acct_sub_42' },
+      },
+    });
+    expect(res.valid).toBe(true);
+    // Account comes from the subscription binding, NOT team.billingAccountId.
+    expect(res.billingAccountRef).toEqual({ providerSlug: 'pymthouse', accountId: 'acct_sub_42' });
+    expect(instanceAdapter.mintSignerSession).toHaveBeenCalledWith(
+      expect.objectContaining({ externalUserId: 'acct_sub_42', email: 'u@e.co' }),
+    );
+    // The legacy global-registry adapter is never consulted in override mode.
+    expect(getBillingProviderAdapter).not.toHaveBeenCalled();
+  });
+
+  it('revocation still short-circuits before any override adapter call', async () => {
+    const instanceAdapter = fakeAdapter('pymthouse');
+    const res = await resolveNativeKeyToProviderSession({ ...activeKey, status: 'REVOKED' }, pymtTeam, {
+      override: {
+        adapter: instanceAdapter as never,
+        billingAccountRef: { providerSlug: 'pymthouse', accountId: 'acct_sub_42' },
+      },
+    });
+    expect(res.valid).toBe(false);
+    expect(res.reason).toBe('revoked');
+    expect(instanceAdapter.mintSignerSession).not.toHaveBeenCalled();
+  });
+
+  it('fails safe when the override instance adapter is unconfigured', async () => {
+    const instanceAdapter = fakeAdapter('pymthouse', { isConfigured: vi.fn(() => false) });
+    const res = await resolveNativeKeyToProviderSession(activeKey, pymtTeam, {
+      override: {
+        adapter: instanceAdapter as never,
+        billingAccountRef: { providerSlug: 'pymthouse', accountId: 'acct_sub_42' },
+      },
+    });
+    expect(res.valid).toBe(false);
+    expect(res.reason).toBe('provider_unavailable');
+  });
+});
