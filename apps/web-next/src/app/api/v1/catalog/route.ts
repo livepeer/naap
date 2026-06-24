@@ -6,8 +6,9 @@
  *   → { instances: [{ providerInstanceId, slug, displayName, adapterType, plans[] }] }
  *
  * Lists the apps/plans a developer can subscribe to across all enabled
- * `ProviderInstance`s. Plans are empty in P3 — the synced `ProviderPlan` model +
- * plan-spec pull land in P4; the catalog "exposes what exists" (the instances).
+ * `ProviderInstance`s. Each instance's `plans[]` is populated from the synced
+ * `ProviderPlan` rows when `plan_spec_sync` is ON (P4); when OFF the catalog
+ * exposes the instances with empty `plans[]` (P3 behavior — what exists today).
  *
  * Gated behind `multi_subscription` (default OFF): 404 when OFF, so the catalog
  * is inert/hidden and the current single-app dashboard is unchanged. Never emits
