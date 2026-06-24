@@ -220,6 +220,16 @@ async function seedConnector(
       });
       console.log(`[seed-gw]   Updated authConfig for ${slug}`);
     }
+    // Sync authType from template so a re-seed picks up a template change (e.g.
+    // the SDK connector moving to "passthrough"). No-op when the DB value already
+    // matches the template, so this never alters an unchanged connector.
+    if (connector.authType !== conn.authType) {
+      await prisma.serviceConnector.update({
+        where: { id: connector.id },
+        data: { authType: conn.authType },
+      });
+      console.log(`[seed-gw]   Updated authType for ${slug}: ${connector.authType} → ${conn.authType}`);
+    }
     // For env-sourced connectors, keep the upstream base URL + allowedHosts in
     // sync so an env change is picked up on the next deploy (idempotent).
     if (seed.baseUrlEnv) {

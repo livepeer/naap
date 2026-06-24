@@ -30,6 +30,7 @@ import { basicAuth } from './auth/basic';
 import { queryAuth } from './auth/query';
 import { awsS3Auth } from './auth/aws-s3';
 import { noneAuth } from './auth/none';
+import { passthroughAuth } from './auth/passthrough';
 
 registry.registerAuth(bearerAuth);
 registry.registerAuth(headerAuth);
@@ -37,6 +38,7 @@ registry.registerAuth(basicAuth);
 registry.registerAuth(queryAuth);
 registry.registerAuth(awsS3Auth);
 registry.registerAuth(noneAuth);
+registry.registerAuth(passthroughAuth);
 
 // ── Response Transforms ──
 import { envelopeResponse } from './response/envelope';

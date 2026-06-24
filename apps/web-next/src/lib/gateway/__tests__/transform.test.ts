@@ -214,6 +214,46 @@ describe('buildUpstreamRequest', () => {
 
       expect(result.headers.get('Authorization')).toBeNull();
     });
+
+    // ── AUTH-FWD (NAAP-5): authType "passthrough" forwards the consumer bearer ──
+    it('forwards the consumer Authorization header upstream for authType=passthrough', () => {
+      const config = makeConfig({
+        connector: { authType: 'passthrough', authConfig: {} },
+      });
+      const request = new Request('https://example.com', {
+        headers: { authorization: 'Bearer naap_caller_key' },
+      });
+      const result = buildUpstreamRequest(request, config, {}, null, '/query');
+
+      expect(result.headers.get('Authorization')).toBe('Bearer naap_caller_key');
+    });
+
+    it('adds no Authorization for passthrough when the consumer sent none', () => {
+      const config = makeConfig({
+        connector: { authType: 'passthrough', authConfig: {} },
+      });
+      const request = new Request('https://example.com');
+      const result = buildUpstreamRequest(request, config, {}, null, '/query');
+
+      expect(result.headers.get('Authorization')).toBeNull();
+    });
+
+    it('does NOT forward the consumer Authorization for any non-passthrough connector (INV: other connectors unchanged)', () => {
+      for (const authType of ['none', 'bearer', 'basic', 'header', 'query', 'aws-s3']) {
+        const config = makeConfig({
+          connector: { authType, authConfig: {} },
+        });
+        const request = new Request('https://example.com', {
+          headers: { authorization: 'Bearer naap_caller_key' },
+        });
+        const result = buildUpstreamRequest(request, config, {}, null, '/query');
+
+        // The fresh upstream Headers must never carry the *consumer's* bearer for
+        // a non-passthrough connector. (bearer/basic/etc. inject their own
+        // connector-owned credential from secrets, never the caller's token.)
+        expect(result.headers.get('Authorization')).not.toBe('Bearer naap_caller_key');
+      }
+    });
   });
 
   describe('header mapping', () => {
