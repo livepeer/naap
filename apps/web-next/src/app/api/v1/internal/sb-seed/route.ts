@@ -169,6 +169,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     out.providerInstance = { error: e instanceof Error ? e.message : 'instance_read_failed' };
   }
 
+  // Signer-mint diagnostic (BPP signer path). Capability resolution above proves
+  // the builder M2M read path works; this isolates whether the per-user signer
+  // token mint (upsertAppUser → mintUserAccessToken → exchange) works for this
+  // app's M2M client, which is what the validate front door needs.
+  try {
+    const { mintSignerSessionForExternalUser } = await import('@/lib/pymthouse-client');
+    const session = await mintSignerSessionForExternalUser({
+      externalUserId: accountId,
+      email: 'storyboard-preview@livepeer.org',
+    });
+    out.signerMint = {
+      ok: true,
+      accessTokenPresent: !!session.accessToken,
+      accessTokenPrefix: (session.accessToken || '').slice(0, 6),
+    };
+  } catch (e) {
+    out.signerMint = {
+      ok: false,
+      error: e instanceof Error ? e.message : 'signer_mint_failed',
+    };
+  }
+
   try {
     const team = await prisma.team.findUnique({
       where: { slug: TEAM_SLUG },
