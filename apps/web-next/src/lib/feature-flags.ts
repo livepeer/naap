@@ -43,6 +43,16 @@ export const PYMTHOUSE_BPP_VALIDATE_FLAG = 'pymthouse_bpp_validate';
  */
 export const PROVIDER_INSTANCES_FLAG = 'provider_instances';
 
+/**
+ * Canonical key for the multi-subscription model (P1, default OFF). When OFF, a
+ * key resolves via today's `key → team → single billingAccountRef` path and the
+ * `Subscription` table is never consulted (zero regression). When ON, a key
+ * MAY carry a `DevApiKey.subscriptionId` and resolution can hop through the
+ * subscription (the per-key resolution wiring itself lands in a later phase).
+ * Shared by KNOWN_FLAGS and the subscription resolver so the name cannot drift.
+ */
+export const MULTI_SUBSCRIPTION_FLAG = 'multi_subscription';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -120,6 +130,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: false,
     description:
       'Multi-app foundation (P0): resolve a per-ProviderInstance billing adapter built from the instance\'s non-secret config + a secretRef → SecretVault M2M secret, so multiple pymthouse apps can coexist. OFF = ProviderInstance table is never read and resolution falls back to the global PYMTHOUSE_* env single-app path exactly as today (zero regression).',
+  },
+  {
+    key: MULTI_SUBSCRIPTION_FLAG,
+    enabled: false,
+    description:
+      'Multi-subscription model (P1): a team may hold many concurrent Subscriptions and a DevApiKey may link to one via DevApiKey.subscriptionId. OFF = the Subscription table is never consulted and a key resolves via today\'s key → team → single billingAccountRef path (zero regression). A null subscriptionId always resolves the legacy way even when ON.',
   },
 ];
 
