@@ -64,7 +64,9 @@ const SDK_CONNECTOR = {
   allowedHosts: ['sdk.daydream.monster'],
   defaultTimeout: 30000,
   healthCheckPath: '/health',
-  authType: 'none',
+  // NAAP-5 (#404): forward the consumer's own `naap_` bearer upstream so the SDK
+  // service can validate the key and mint its own signer/payment tickets.
+  authType: 'passthrough',
   authConfig: {},
   secretRefs: [] as string[],
   streamingEnabled: true,
@@ -408,10 +410,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             publishedAt: new Date(),
           },
         });
-      } else if (connector.status !== 'published') {
-        await prisma.serviceConnector.update({
+      } else if (
+        connector.status !== 'published' ||
+        connector.authType !== SDK_CONNECTOR.authType
+      ) {
+        // Re-seed sync: republish AND upgrade authType (e.g. a connector seeded
+        // before #404 with authType "none" is upgraded to "passthrough" so the
+        // gateway forwards the consumer bearer upstream).
+        connector = await prisma.serviceConnector.update({
           where: { id: connector.id },
-          data: { status: 'published', publishedAt: new Date() },
+          data: {
+            status: 'published',
+            publishedAt: connector.publishedAt ?? new Date(),
+            authType: SDK_CONNECTOR.authType,
+            authConfig: SDK_CONNECTOR.authConfig,
+          },
         });
       }
       sdkConnectorId = connector.id;
