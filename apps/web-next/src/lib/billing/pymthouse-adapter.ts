@@ -12,7 +12,7 @@ import 'server-only';
 
 import { isPymthouseConfigured } from '@pymthouse/builder-sdk/config';
 
-import type { MeScopeUsagePayload, UsageApiResponse } from '@pymthouse/builder-sdk';
+import type { MeScopeUsagePayload, PmtHouseClient, UsageApiResponse } from '@pymthouse/builder-sdk';
 
 import { getPmtHouseServerClient } from '@/lib/pymthouse-client';
 import { isFeatureEnabled, PYMTHOUSE_BPP_VALIDATE_FLAG } from '@/lib/feature-flags';
@@ -35,11 +35,42 @@ import {
 
 export const PYMTHOUSE_ADAPTER_SLUG = 'pymthouse';
 
+/**
+ * Optional per-instance overrides (P0, `provider_instances`). When omitted the
+ * adapter behaves EXACTLY as before — it talks to the global `PYMTHOUSE_*` env
+ * singleton (`getPmtHouseServerClient()`) and reports configuration via
+ * `isPymthouseConfigured()`. When the registry builds a per-`ProviderInstance`
+ * adapter it injects a `client` constructed from that instance's config/secret
+ * (so multiple pymthouse apps coexist) and an `isConfigured` that reflects the
+ * instance.
+ */
+export interface PymthouseAdapterOptions {
+  client?: PmtHouseClient;
+  isConfigured?: () => boolean;
+}
+
 export class PymthouseAdapter implements BillingProviderAdapter {
   readonly slug = PYMTHOUSE_ADAPTER_SLUG;
 
+  private readonly clientOverride?: PmtHouseClient;
+  private readonly isConfiguredOverride?: () => boolean;
+
+  constructor(options: PymthouseAdapterOptions = {}) {
+    this.clientOverride = options.client;
+    this.isConfiguredOverride = options.isConfigured;
+  }
+
+  /**
+   * The pymthouse client backing this adapter. Defaults to the global-env
+   * process singleton (today's behavior) unless a per-instance client was
+   * injected at construction.
+   */
+  private client(): PmtHouseClient {
+    return this.clientOverride ?? getPmtHouseServerClient();
+  }
+
   isConfigured(): boolean {
-    return isPymthouseConfigured();
+    return this.isConfiguredOverride ? this.isConfiguredOverride() : isPymthouseConfigured();
   }
 
   /**
@@ -70,7 +101,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   }
 
   async getUsageForExternalUser(input: UsageForExternalUserInput): Promise<unknown> {
-    return getPmtHouseServerClient().fetchUsageForExternalUser({
+    return this.client().fetchUsageForExternalUser({
       externalUserId: input.externalUserId,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -79,7 +110,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   }
 
   async getAppUsage(input: AppUsageInput): Promise<unknown> {
-    return getPmtHouseServerClient().getUsage({
+    return this.client().getUsage({
       startDate: input.startDate,
       endDate: input.endDate,
       ...(input.groupBy ? { groupBy: input.groupBy } : {}),
@@ -101,7 +132,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
    *    pulls to system:admin).
    */
   async getSpend(scope: ProviderSpendScope): Promise<ProviderSpendResult> {
-    const client = getPmtHouseServerClient();
+    const client = this.client();
 
     if (scope.accountId) {
       const payload: MeScopeUsagePayload = await client.fetchUsageForExternalUser({
@@ -167,7 +198,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   }
 
   async mintSignerSession(input: MintSignerSessionInput): Promise<SignerSessionToken> {
-    const session = await getPmtHouseServerClient().mintSignerSessionForExternalUser({
+    const session = await this.client().mintSignerSessionForExternalUser({
       externalUserId: input.externalUserId,
       ...(input.email != null ? { email: input.email } : {}),
     });

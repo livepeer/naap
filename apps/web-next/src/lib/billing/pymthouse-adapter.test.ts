@@ -95,6 +95,32 @@ describe('PymthouseAdapter.validate (BPP ② live capabilities, flag-gated)', ()
   });
 });
 
+describe('PymthouseAdapter per-instance client (P0, zero regression)', () => {
+  it('default constructor → talks to the global-env client singleton (today\'s behavior)', async () => {
+    getUsage.mockResolvedValue({ byUser: [] });
+    const a = new PymthouseAdapter();
+    await a.getAppUsage(WINDOW);
+    // `getUsage` is the env client mock from getPmtHouseServerClient().
+    expect(getUsage).toHaveBeenCalled();
+  });
+
+  it('injected client → uses that client instead of the env singleton', async () => {
+    const instanceGetUsage = vi.fn().mockResolvedValue({ byUser: [] });
+    const a = new PymthouseAdapter({
+      client: { getUsage: instanceGetUsage } as never,
+      isConfigured: () => true,
+    });
+    await a.getAppUsage(WINDOW);
+    expect(instanceGetUsage).toHaveBeenCalled();
+    expect(getUsage).not.toHaveBeenCalled();
+  });
+
+  it('isConfigured honors the injected override, else delegates to the env check', () => {
+    expect(new PymthouseAdapter({ isConfigured: () => false }).isConfigured()).toBe(false);
+    expect(new PymthouseAdapter().isConfigured()).toBe(true);
+  });
+});
+
 describe('PymthouseAdapter.getSpend', () => {
   it('scoped pull: asks the provider for ONE external user and maps to a neutral record', async () => {
     fetchUsageForExternalUser.mockResolvedValue({
