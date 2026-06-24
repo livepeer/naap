@@ -144,5 +144,18 @@ function buildUpstreamHeaders(
   const traceId = request.headers.get('x-trace-id');
   if (traceId) headers.set('x-trace-id', traceId);
 
+  // Authorization passthrough (NAAP-5 / SDK gateway). For connectors explicitly
+  // configured with authType "passthrough", forward the consumer's own
+  // Authorization header upstream verbatim, so the upstream service can validate
+  // the caller's bearer (e.g. the SDK service authenticates the `naap_` key and
+  // mints its own signer/payment tickets). EVERY other authType leaves the fresh
+  // Headers object without an inbound Authorization — byte-for-byte today's
+  // behavior (zero regression). Done here, not in the auth strategy, because this
+  // is the only step with access to the original consumer request.
+  if (connectorAuthType === 'passthrough') {
+    const inboundAuthorization = request.headers.get('authorization');
+    if (inboundAuthorization) headers.set('Authorization', inboundAuthorization);
+  }
+
   return headers;
 }

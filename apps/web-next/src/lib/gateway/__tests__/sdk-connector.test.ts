@@ -50,8 +50,11 @@ describe('sdk connector definition (sdk.json)', () => {
     expect(def.connector.allowedHosts).toContain('sdk.daydream.monster');
   });
 
-  it('uses no upstream auth/secrets (the SDK service authenticates the naap_ key itself)', () => {
-    expect(def.connector.authType).toBe('none');
+  it('forwards the consumer bearer upstream via authType "passthrough" and holds no upstream secrets (the SDK service authenticates the naap_ key itself)', () => {
+    // NAAP-5: the SDK service validates the presented naap_ key and mints its
+    // own signer/payment tickets, so the gateway must forward the consumer's
+    // Authorization header upstream rather than inject a connector credential.
+    expect(def.connector.authType).toBe('passthrough');
     expect(def.connector.secretRefs).toEqual([]);
   });
 
@@ -90,7 +93,7 @@ describe('sdk connector public resolution', () => {
       allowedHosts: ['sdk.daydream.monster'],
       defaultTimeout: 30000,
       healthCheckPath: '/health',
-      authType: 'none',
+      authType: 'passthrough',
       authConfig: {},
       secretRefs: [],
       responseWrapper: false,
