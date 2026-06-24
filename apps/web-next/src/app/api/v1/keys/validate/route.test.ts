@@ -18,6 +18,11 @@ vi.mock('@/lib/billing/registry', () => ({
   getBillingProviderAdapter: (...a: unknown[]) => getBillingProviderAdapter(...a),
 }));
 
+const resolveKeyProviderBinding = vi.fn();
+vi.mock('@/lib/billing/key-provider-binding', () => ({
+  resolveKeyProviderBinding: (...a: unknown[]) => resolveKeyProviderBinding(...a),
+}));
+
 const prisma = vi.hoisted(() => ({
   devApiKey: { findUnique: vi.fn(), update: vi.fn() },
   team: { findUnique: vi.fn() },
@@ -66,6 +71,8 @@ beforeEach(() => {
   });
   prisma.devApiKey.update.mockResolvedValue({});
   getBillingProviderAdapter.mockReturnValue(adapterMock());
+  // Default: legacy binding → today's exact path (existing tests unchanged).
+  resolveKeyProviderBinding.mockResolvedValue({ mode: 'legacy', reason: 'flag_off' });
 });
 
 describe('flag OFF (zero regression / fallback)', () => {
@@ -165,6 +172,69 @@ describe('resolution (provider-agnostic, BPP ③)', () => {
   it('400 for a malformed X-App-Id', async () => {
     const res = await POST(req(rawKey, { 'x-app-id': 'bad id!' }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe('P2 per-key subscription resolution (multi_subscription)', () => {
+  it('INV: legacy binding (flag OFF / null subscriptionId) is byte-for-byte today', async () => {
+    // Default binding is legacy. Resolution uses team account + global adapter.
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(200);
+    const d = (await res.json()).data;
+    expect(d.billingAccount).toEqual({ id: 'acct_om_1', providerSlug: 'pymthouse' });
+    // The key's subscriptionId is consulted via the binding resolver…
+    expect(resolveKeyProviderBinding).toHaveBeenCalledTimes(1);
+    // …and on legacy the global registry adapter IS used (today's path).
+    expect(getBillingProviderAdapter).toHaveBeenCalledWith('pymthouse');
+  });
+
+  it('flag ON + linked subscription → per-instance adapter + per-account scoping', async () => {
+    prisma.devApiKey.findUnique.mockResolvedValue({
+      id: 'key-1', userId: 'user-1', keyHash, status: 'ACTIVE',
+      seatId: 'seat-1', teamId: 'team-1', subscriptionId: 'sub-1',
+    });
+    // A DISTINCT per-instance adapter (different account + capabilities) so we
+    // can prove resolution scoped to the subscription, not the team account.
+    const instanceAdapter = adapterMock({
+      slug: 'pymthouse',
+      mintSignerSession: vi.fn(async () => ({ accessToken: 'instance-tok', tokenType: 'Bearer', expiresIn: 3600 })),
+      validate: vi.fn(async () => ({ valid: true, capabilities: ['video:gen'], quota: { remaining: 3 } })),
+    });
+    resolveKeyProviderBinding.mockResolvedValue({
+      mode: 'subscription',
+      subscription: { id: 'sub-1', teamId: 'team-1', providerInstanceId: 'inst-1', providerPlanId: null, accountId: 'acct_sub_99', status: 'active', appId: null },
+      adapter: instanceAdapter,
+      billingAccountRef: { providerSlug: 'pymthouse', accountId: 'acct_sub_99' },
+    });
+
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(200);
+    const d = (await res.json()).data;
+
+    // Account + capabilities + signer all come from the SUBSCRIPTION/instance.
+    expect(d.billingAccount).toEqual({ id: 'acct_sub_99', providerSlug: 'pymthouse' });
+    expect(d.capabilities).toEqual(['video:gen']);
+    expect(d.quota).toEqual({ remaining: 3 });
+    expect(d.signerSession.accessToken).toBe('instance-tok');
+    // Per-account scoping: validate + mint keyed off the subscription account.
+    expect(instanceAdapter.validate).toHaveBeenCalledWith('acct_sub_99');
+    expect(instanceAdapter.mintSignerSession).toHaveBeenCalledWith(
+      expect.objectContaining({ externalUserId: 'acct_sub_99' }),
+    );
+    // The global env adapter is NEVER consulted in subscription mode.
+    expect(getBillingProviderAdapter).not.toHaveBeenCalled();
+    // The binding resolver received the key's subscriptionId + teamId.
+    expect(resolveKeyProviderBinding).toHaveBeenCalledWith({ subscriptionId: 'sub-1', teamId: 'team-1' });
+  });
+
+  it('subscription mode still fails safe (503) when the instance adapter is unconfigured', async () => {
+    resolveKeyProviderBinding.mockResolvedValue({
+      mode: 'subscription',
+      subscription: { id: 'sub-1', teamId: 'team-1', providerInstanceId: 'inst-1', providerPlanId: null, accountId: 'acct_sub_99', status: 'active', appId: null },
+      adapter: adapterMock({ isConfigured: vi.fn(() => false) }),
+      billingAccountRef: { providerSlug: 'pymthouse', accountId: 'acct_sub_99' },
+    });
+    expect((await POST(req(rawKey))).status).toBe(503);
   });
 });
 

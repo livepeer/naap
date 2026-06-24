@@ -30,6 +30,7 @@ import { isFeatureEnabled } from '@/lib/feature-flags';
 import { parseApiKey } from '@naap/database';
 import { AdapterNotImplementedError } from '@/lib/billing/adapter';
 import { getBillingProviderAdapter } from '@/lib/billing/registry';
+import { resolveKeyProviderBinding } from '@/lib/billing/key-provider-binding';
 import {
   resolveNativeKeyToProviderSession,
   verifyNativeKeyHash,
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         status: true,
         seatId: true,
         teamId: true,
+        subscriptionId: true,
       },
     });
     // Constant-time hash check; uniform failure whether the row is missing or
@@ -128,9 +130,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         })
       : null;
 
+    // P2: resolve the per-key subscription hop. `multi_subscription` OFF or a
+    // null `subscriptionId` ⇒ `legacy`, so the native-key resolver + capability
+    // lookup below take today's exact team-account / global-env path. ON + a
+    // linked, active, same-team subscription ⇒ a per-instance adapter scoped to
+    // the subscription's account (per-key auth/capabilities/usage). Never
+    // hard-fails: missing/inactive/unresolved ⇒ legacy.
+    const binding = await resolveKeyProviderBinding({
+      subscriptionId: key.subscriptionId,
+      teamId: key.teamId,
+    });
+
     const resolved = await resolveNativeKeyToProviderSession(
       { status: key.status, seatId: key.seatId, teamId: key.teamId },
       team,
+      binding.mode === 'subscription'
+        ? { override: { adapter: binding.adapter, billingAccountRef: binding.billingAccountRef } }
+        : undefined,
     );
     if (!resolved.valid || !resolved.signerSession || !resolved.billingAccountRef) {
       // Map fail-safe reasons: provider lag → 503; binding issues → 403.
@@ -151,7 +167,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // CLOSED to an empty capability set — the key is still valid; NAAP-E gates.
     let capabilities: string[] = [];
     let quota: { remaining: number; resetAt?: string } | null = null;
-    const adapter = getBillingProviderAdapter(ref.providerSlug);
+    // Capability resolution scopes to the SAME adapter/account the signer used:
+    // the per-instance adapter in subscription mode, else today's slug→adapter.
+    const adapter =
+      binding.mode === 'subscription' ? binding.adapter : getBillingProviderAdapter(ref.providerSlug);
     if (adapter) {
       try {
         const v = await adapter.validate(ref.accountId);
@@ -202,6 +221,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       providerSlug: ref.providerSlug,
       hasApp: Boolean(appId),
       capabilityCount: capabilities.length,
+      subscriptionScoped: binding.mode === 'subscription',
     });
     return noStore(success(body));
   } catch (err) {

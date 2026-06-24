@@ -168,6 +168,57 @@ export async function resolveAdapterForProviderInstance(
   instanceSlug: string,
   fallbackAdapterType: string = PYMTHOUSE_ADAPTER_SLUG,
 ): Promise<InstanceAdapterResolution> {
+  return resolveInstanceAdapter(
+    () =>
+      prisma.providerInstance.findUnique({
+        where: { slug: instanceSlug },
+        select: PROVIDER_INSTANCE_SELECT,
+      }),
+    fallbackAdapterType,
+  );
+}
+
+/**
+ * Same as {@link resolveAdapterForProviderInstance} but keyed by the
+ * `ProviderInstance.id`. Used by the per-key subscription hop (P2), where the
+ * `Subscription` row stores `providerInstanceId` rather than the instance slug.
+ * Identical flag-gating + fallback semantics (zero regression when OFF).
+ */
+export async function resolveAdapterForProviderInstanceById(
+  providerInstanceId: string,
+  fallbackAdapterType: string = PYMTHOUSE_ADAPTER_SLUG,
+): Promise<InstanceAdapterResolution> {
+  return resolveInstanceAdapter(
+    () =>
+      prisma.providerInstance.findUnique({
+        where: { id: providerInstanceId },
+        select: PROVIDER_INSTANCE_SELECT,
+      }),
+    fallbackAdapterType,
+  );
+}
+
+const PROVIDER_INSTANCE_SELECT = {
+  id: true,
+  adapterType: true,
+  slug: true,
+  config: true,
+  secretRef: true,
+  enabled: true,
+} as const;
+
+/** Shared flag-gate + per-config build + fallback, parameterized by the lookup. */
+async function resolveInstanceAdapter(
+  lookup: () => Promise<{
+    id: string;
+    adapterType: string;
+    slug: string;
+    config: unknown;
+    secretRef: string | null;
+    enabled: boolean;
+  } | null>,
+  fallbackAdapterType: string,
+): Promise<InstanceAdapterResolution> {
   let flagOn = false;
   try {
     flagOn = await isFeatureEnabled(PROVIDER_INSTANCES_FLAG);
@@ -185,17 +236,7 @@ export async function resolveAdapterForProviderInstance(
   }
 
   try {
-    const row = await prisma.providerInstance.findUnique({
-      where: { slug: instanceSlug },
-      select: {
-        id: true,
-        adapterType: true,
-        slug: true,
-        config: true,
-        secretRef: true,
-        enabled: true,
-      },
-    });
+    const row = await lookup();
 
     if (!row || !row.enabled) {
       return {
