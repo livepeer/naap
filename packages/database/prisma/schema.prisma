@@ -197,6 +197,97 @@ model BillingProvider {
   @@schema("public")
 }
 
+// NAAP P0 — per-app provider instance (multi-app foundation).
+//
+// `BillingProvider` stays the adapter-TYPE catalog (slug @unique, one row per
+// provider family). `ProviderInstance` is the per-APP row: MANY instances may
+// share one `adapterType` (e.g. multiple pymthouse apps), each with its own
+// credentials. Per-app creds live here OUT of global env:
+//   - `config` holds NON-SECRET connection params only
+//     (e.g. { issuerUrl, publicClientId, m2mClientId, allowInsecureHttp }).
+//   - `secretRef` points at a `SecretVault.key` holding the M2M client secret;
+//     it NEVER stores the secret value itself.
+// Gated by the `provider_instances` flag (default OFF): with the flag OFF this
+// table is never read and resolution falls back to the global PYMTHOUSE_* env
+// single-app path (zero regression). Expand-only / additive — no existing
+// column or constraint changes.
+model ProviderInstance {
+  id          String   @id @default(uuid())
+  adapterType String
+  slug        String   @unique
+  displayName String
+  config      Json?
+  secretRef   String?
+  status      String   @default("active")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([adapterType])
+  @@index([enabled])
+  @@schema("public")
+}
+
+// NAAP P1 — Subscription (multi-subscription model).
+//
+// A team may hold MANY concurrent subscriptions (vs today's single
+// `Team.billingAccountRef`). Each row points at a `ProviderInstance` (the
+// configured app) and carries the provider's opaque `accountId`. `providerPlanId`
+// stays NULLABLE until the synced plan-spec model lands (P4). `appId` optionally
+// attributes the subscription to a registered `Application`. Cross-schema FKs are
+// avoided (scalar references), matching the NAAP-1 pattern. Expand-only/additive;
+// gated by `multi_subscription` (default OFF) so nothing reads it until enabled.
+model Subscription {
+  id                 String   @id @default(uuid())
+  teamId             String
+  providerInstanceId String
+  providerPlanId     String?
+  accountId          String
+  status             String   @default("active")
+  appId              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([teamId, status])
+  @@index([providerInstanceId])
+  @@schema("public")
+}
+
+// NAAP P4 — synced provider plan-spec (Deliverable 2, PULL direction).
+//
+// The Source-of-Truth for a provider app's published plans, pulled per
+// `ProviderInstance` (using THAT instance's creds, never global env) from the
+// provider's plan API and upserted here keyed `[providerInstanceId,
+// providerPlanId]`. `capabilities` are normalized `pipeline/modelId` strings;
+// `discoveryPolicy`/`sla`/`pricing` keep the provider's policy blobs. `revision`
+// is a content fingerprint so re-running the sync is idempotent and only a
+// changed spec re-generates the per-app `DiscoveryPlan`. `source` records how
+// the row arrived ("pull" today; "push" reserved for the optional ingest seam).
+// Cross-schema FKs avoided (scalar `providerInstanceId`). Expand-only/additive;
+// gated by `plan_spec_sync` (default OFF) so nothing reads or writes it until
+// enabled — discovery stays exactly today's static behavior when OFF.
+model ProviderPlan {
+  id                 String   @id @default(uuid())
+  providerInstanceId String
+  providerPlanId     String
+  name               String
+  capabilities       String[]
+  sla                Json?
+  pricing            Json?
+  discoveryPolicy    Json?
+  revision           String
+  source             String   @default("pull")
+  enabled            Boolean  @default(true)
+  syncedAt           DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([providerInstanceId, providerPlanId])
+  @@index([providerInstanceId])
+  @@schema("public")
+}
+
 model BillingProviderOAuthSession {
   loginSessionId    String    @id
   state             String    @unique
@@ -1798,6 +1889,12 @@ model DevApiKey {
   // additive — only native keys populate it.
   providerSessionRefEnc String?
   providerSessionRefIv  String?
+  // NAAP P1: optional link to a Subscription (multi-app). Scalar (no cross-schema
+  // FK; Subscription lives in `public`), nullable + additive. NULL ⇒ today's
+  // `key → team → single billingAccountRef` resolution (zero regression); a set
+  // value is consulted only when `multi_subscription` is ON (per-key resolution
+  // wiring lands in a later phase).
+  subscriptionId        String?
   createdAt             DateTime        @default(now())
   lastUsedAt            DateTime?
   revokedAt             DateTime?
@@ -1812,6 +1909,7 @@ model DevApiKey {
   @@index([keyLookupId])
   @@index([seatId])
   @@index([teamId])
+  @@index([subscriptionId])
   @@schema("plugin_developer_api")
 }
 

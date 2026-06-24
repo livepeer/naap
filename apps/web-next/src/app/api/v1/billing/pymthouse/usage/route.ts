@@ -125,6 +125,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           externalUserId: sessionUser.id,
           startDate,
           endDate,
+          includeRetail: true,
         });
         return noStore(success(stripCryptoUnitFields(body)));
       } catch (e) {

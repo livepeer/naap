@@ -8,7 +8,9 @@ import { z } from 'zod';
 
 // ── Connector Schemas ──
 
-export const authTypeEnum = z.enum(['none', 'bearer', 'header', 'basic', 'query', 'aws-s3']);
+// 'passthrough' forwards the consumer's own Authorization header upstream
+// (NAAP-5 / SDK gateway) instead of injecting a connector-owned credential.
+export const authTypeEnum = z.enum(['none', 'bearer', 'header', 'basic', 'query', 'aws-s3', 'passthrough']);
 
 export const visibilityEnum = z.enum(['private', 'team', 'public']);
 

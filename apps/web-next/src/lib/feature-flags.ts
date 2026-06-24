@@ -22,6 +22,50 @@ export interface KnownFlag {
  */
 export const SDK_CONNECTOR_FLAG = 'sdk_connector';
 
+/**
+ * Canonical key for the pymthouse BPP ② live capability-resolution flag (default
+ * OFF). When OFF, `PymthouseAdapter.validate()` throws `AdapterNotImplementedError`
+ * exactly as before, so the front door falls back to an empty capability set
+ * (today's behavior). Shared by KNOWN_FLAGS and the adapter so the name cannot
+ * drift. Requires the provider's `BPP_VALIDATE_V2` posture in the same env.
+ */
+export const PYMTHOUSE_BPP_VALIDATE_FLAG = 'pymthouse_bpp_validate';
+
+/**
+ * Canonical key for the multi-app `ProviderInstance` foundation (P0, default
+ * OFF). When OFF, billing-provider resolution falls back to the global
+ * `PYMTHOUSE_*` env single-app path EXACTLY as today (zero regression) and the
+ * `ProviderInstance` table is never read. When ON, the adapter registry can
+ * resolve a per-`ProviderInstance` adapter built from that instance's non-secret
+ * `config` + a `secretRef` → `SecretVault` M2M secret, so multiple pymthouse
+ * apps can coexist. Shared by KNOWN_FLAGS and the registry so the name cannot
+ * drift.
+ */
+export const PROVIDER_INSTANCES_FLAG = 'provider_instances';
+
+/**
+ * Canonical key for the multi-subscription model (P1, default OFF). When OFF, a
+ * key resolves via today's `key → team → single billingAccountRef` path and the
+ * `Subscription` table is never consulted (zero regression). When ON, a key
+ * MAY carry a `DevApiKey.subscriptionId` and resolution can hop through the
+ * subscription (the per-key resolution wiring itself lands in a later phase).
+ * Shared by KNOWN_FLAGS and the subscription resolver so the name cannot drift.
+ */
+export const MULTI_SUBSCRIPTION_FLAG = 'multi_subscription';
+
+/**
+ * Canonical key for the plan-spec → per-app discovery sync (P4, Deliverable 2,
+ * default OFF). When OFF, the `ProviderPlan` table is never read or written, no
+ * sync runs, the catalog exposes no plans, and discovery is EXACTLY today's
+ * static `storyboard-default` / manual behavior (golden-set parity, zero
+ * regression). When ON, a per-`ProviderInstance` pull upserts `ProviderPlan`
+ * rows and auto-generates per-app `DiscoveryPlan`s, and the validate front door
+ * may expose the per-key discovery URL (key → subscription → ProviderPlan →
+ * DiscoveryPlan). Shared by KNOWN_FLAGS and the sync/discovery resolver so the
+ * name cannot drift.
+ */
+export const PLAN_SPEC_SYNC_FLAG = 'plan_spec_sync';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -87,6 +131,30 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: false,
     description:
       'Seed the public "sdk" Service Gateway connector (fronting sdk.daydream.monster at /api/v1/gw/sdk/*) AND accept native naap_ keys at the gateway authorize step (NAAP-5). OFF = no sdk connector seeded and naap_ keys are rejected at the gateway exactly as today (no-op).',
+  },
+  {
+    key: PYMTHOUSE_BPP_VALIDATE_FLAG,
+    enabled: false,
+    description:
+      'Resolve a validated key\'s capabilities LIVE from the pymthouse provider (BPP ②) via the M2M client, keyed on the account\'s externalUserId, and surface them at the validation front door. OFF = PymthouseAdapter.validate() is unimplemented (front door falls back to an empty capability set, exactly as today). Requires the provider\'s BPP_VALIDATE_V2 posture in the same environment; pairs with capability_gate (also default OFF).',
+  },
+  {
+    key: PROVIDER_INSTANCES_FLAG,
+    enabled: false,
+    description:
+      'Multi-app foundation (P0): resolve a per-ProviderInstance billing adapter built from the instance\'s non-secret config + a secretRef → SecretVault M2M secret, so multiple pymthouse apps can coexist. OFF = ProviderInstance table is never read and resolution falls back to the global PYMTHOUSE_* env single-app path exactly as today (zero regression).',
+  },
+  {
+    key: MULTI_SUBSCRIPTION_FLAG,
+    enabled: false,
+    description:
+      'Multi-subscription model (P1): a team may hold many concurrent Subscriptions and a DevApiKey may link to one via DevApiKey.subscriptionId. OFF = the Subscription table is never consulted and a key resolves via today\'s key → team → single billingAccountRef path (zero regression). A null subscriptionId always resolves the legacy way even when ON.',
+  },
+  {
+    key: PLAN_SPEC_SYNC_FLAG,
+    enabled: false,
+    description:
+      'Plan-spec → per-app discovery sync (P4): pull each ProviderInstance\'s published plans into ProviderPlan rows and auto-generate per-app DiscoveryPlans; the validate front door may expose the per-key discovery URL (key → subscription → ProviderPlan → DiscoveryPlan). OFF = no sync runs, ProviderPlan is never read/written, the catalog exposes no plans, and discovery is exactly today\'s static storyboard-default behavior (golden-set parity, zero regression).',
   },
 ];
 

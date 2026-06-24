@@ -12,12 +12,16 @@ import 'server-only';
 
 import { isPymthouseConfigured } from '@pymthouse/builder-sdk/config';
 
-import type { MeScopeUsagePayload, UsageApiResponse } from '@pymthouse/builder-sdk';
+import type { MeScopeUsagePayload, PmtHouseClient, UsageApiResponse } from '@pymthouse/builder-sdk';
 
 import {
   getPmtHouseServerClient,
-  mintSignerSessionForExternalUserCompat,
+  mintOpaqueSignerSessionForExternalUser,
+  mintSignerSessionForExternalUser,
+  type PymthouseSignerExchangeConfig,
 } from '@/lib/pymthouse-client';
+import { isFeatureEnabled, PYMTHOUSE_BPP_VALIDATE_FLAG } from '@/lib/feature-flags';
+import { resolvePymthouseCapabilities } from './pymthouse-capabilities';
 import {
   AdapterNotImplementedError,
   type AppUsageInput,
@@ -36,17 +40,74 @@ import {
 
 export const PYMTHOUSE_ADAPTER_SLUG = 'pymthouse';
 
+/**
+ * Optional per-instance overrides (P0, `provider_instances`). When omitted the
+ * adapter behaves EXACTLY as before — it talks to the global `PYMTHOUSE_*` env
+ * singleton (`getPmtHouseServerClient()`) and reports configuration via
+ * `isPymthouseConfigured()`. When the registry builds a per-`ProviderInstance`
+ * adapter it injects a `client` constructed from that instance's config/secret
+ * (so multiple pymthouse apps coexist) and an `isConfigured` that reflects the
+ * instance.
+ */
+export interface PymthouseAdapterOptions {
+  client?: PmtHouseClient;
+  isConfigured?: () => boolean;
+  /**
+   * Per-instance signer-session exchange config (issuer + M2M creds). Required
+   * alongside a `client` override so {@link PymthouseAdapter.mintSignerSession}
+   * exchanges against THIS app's token endpoint. Omitted for the global-env
+   * adapter, which uses the `PYMTHOUSE_*` env exchange.
+   */
+  signerExchange?: PymthouseSignerExchangeConfig;
+}
+
 export class PymthouseAdapter implements BillingProviderAdapter {
   readonly slug = PYMTHOUSE_ADAPTER_SLUG;
 
-  isConfigured(): boolean {
-    return isPymthouseConfigured();
+  private readonly clientOverride?: PmtHouseClient;
+  private readonly isConfiguredOverride?: () => boolean;
+  private readonly signerExchange?: PymthouseSignerExchangeConfig;
+
+  constructor(options: PymthouseAdapterOptions = {}) {
+    this.clientOverride = options.client;
+    this.isConfiguredOverride = options.isConfigured;
+    this.signerExchange = options.signerExchange;
   }
 
-  async validate(_key: string): Promise<ValidateResult> {
-    // BPP ② validate is provider-side (PYMT-3) and not yet C0-shaped on the NaaP
-    // side; do not fabricate identity/capabilities here.
-    throw new AdapterNotImplementedError(this.slug, 'validate');
+  /**
+   * The pymthouse client backing this adapter. Defaults to the global-env
+   * process singleton (today's behavior) unless a per-instance client was
+   * injected at construction.
+   */
+  private client(): PmtHouseClient {
+    return this.clientOverride ?? getPmtHouseServerClient();
+  }
+
+  isConfigured(): boolean {
+    return this.isConfiguredOverride ? this.isConfiguredOverride() : isPymthouseConfigured();
+  }
+
+  /**
+   * BPP ② — resolve a validated account's capabilities live from pymthouse.
+   *
+   * The front door passes `billingAccountRef.accountId` here (the provider
+   * `externalUserId`); see `pymthouse-capabilities.ts` for the O1 subject-identity
+   * rationale. Gated behind `PYMTHOUSE_BPP_VALIDATE_FLAG` (default OFF): when OFF
+   * this throws `AdapterNotImplementedError` exactly as before, so the front door
+   * falls back to an empty capability set (zero regression). Provider errors
+   * propagate so the front door fails CLOSED.
+   */
+  async validate(externalUserId: string): Promise<ValidateResult> {
+    if (!(await isFeatureEnabled(PYMTHOUSE_BPP_VALIDATE_FLAG))) {
+      throw new AdapterNotImplementedError(this.slug, 'validate');
+    }
+    const resolved = await resolvePymthouseCapabilities(externalUserId);
+    return {
+      valid: true,
+      capabilities: resolved.capabilities,
+      quota: resolved.quota,
+      ...(resolved.subscriptionRef ? { subscriptionRef: resolved.subscriptionRef } : {}),
+    };
   }
 
   async getPlans(): Promise<Plan[]> {
@@ -54,7 +115,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   }
 
   async getUsageForExternalUser(input: UsageForExternalUserInput): Promise<unknown> {
-    return getPmtHouseServerClient().fetchUsageForExternalUser({
+    return this.client().fetchUsageForExternalUser({
       externalUserId: input.externalUserId,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -63,7 +124,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   }
 
   async getAppUsage(input: AppUsageInput): Promise<unknown> {
-    return getPmtHouseServerClient().getUsage({
+    return this.client().getUsage({
       startDate: input.startDate,
       endDate: input.endDate,
       ...(input.groupBy ? { groupBy: input.groupBy } : {}),
@@ -85,7 +146,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
    *    pulls to system:admin).
    */
   async getSpend(scope: ProviderSpendScope): Promise<ProviderSpendResult> {
-    const client = getPmtHouseServerClient();
+    const client = this.client();
 
     if (scope.accountId) {
       const payload: MeScopeUsagePayload = await client.fetchUsageForExternalUser({
@@ -150,11 +211,30 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     }));
   }
 
+  /**
+   * Mint an OPAQUE `pmth_…` signer session for the account.
+   *
+   * Uses the NaaP opaque-session workaround (upsert user → mint user JWT →
+   * token-exchange WITHOUT `resource`) rather than the SDK 0.4.3
+   * `PmtHouseClient.mintSignerSessionForExternalUser`, which sets `resource` and
+   * is routed by PymtHouse to signer-JWT exchange (no opaque `pmth_…` session) —
+   * causing the validate front door's signer mint to fail. For a per-instance
+   * adapter the exchange binds to THAT app's issuer/creds; the global-env adapter
+   * uses the `PYMTHOUSE_*` env path.
+   */
   async mintSignerSession(input: MintSignerSessionInput): Promise<SignerSessionToken> {
-    const session = await mintSignerSessionForExternalUserCompat({
-      externalUserId: input.externalUserId,
-      ...(input.email != null ? { email: input.email } : {}),
-    });
+    const session =
+      this.clientOverride && this.signerExchange
+        ? await mintOpaqueSignerSessionForExternalUser({
+            client: this.clientOverride,
+            exchange: this.signerExchange,
+            externalUserId: input.externalUserId,
+            ...(input.email != null ? { email: input.email } : {}),
+          })
+        : await mintSignerSessionForExternalUser({
+            externalUserId: input.externalUserId,
+            ...(input.email != null ? { email: input.email } : {}),
+          });
     return {
       accessToken: session.accessToken,
       tokenType: session.tokenType,

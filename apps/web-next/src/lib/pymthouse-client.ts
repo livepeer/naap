@@ -5,9 +5,21 @@
 
 import 'server-only';
 
+import {
+  loadAuthorizationServer,
+  PmtHouseError,
+  PYMTHOUSE_NOT_CONFIGURED_MESSAGE,
+  readPymthouseEnv,
+  SIGN_JOB_SCOPE,
+  parseSignerSessionExchange,
+  type SignerSessionToken,
+} from '@pymthouse/builder-sdk';
 import { createPmtHouseClientFromEnv } from '@pymthouse/builder-sdk/env';
-import { getPymthouseIssuerUrlFromEnv } from '@pymthouse/builder-sdk/config';
-import type { PmtHouseClient } from '@pymthouse/builder-sdk';
+import { PmtHouseClient } from '@pymthouse/builder-sdk';
+
+const TOKEN_EXCHANGE_GRANT = 'urn:ietf:params:oauth:grant-type:token-exchange';
+const SUBJECT_ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
+const REQUESTED_ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
 
 let cached: PmtHouseClient | null = null;
 
@@ -18,98 +30,221 @@ export function getPmtHouseServerClient(): PmtHouseClient {
   return cached;
 }
 
+/**
+ * Non-secret connection params for a pymthouse instance, plus the resolved M2M
+ * client secret. Mirrors the env shape `createPmtHouseClientFromEnv` builds, but
+ * sourced explicitly (e.g. from a `ProviderInstance.config` + `SecretVault`)
+ * rather than from global `PYMTHOUSE_*` env. The secret is passed in resolved;
+ * this module never reads or logs it.
+ */
+export interface PmtHouseClientConfig {
+  issuerUrl: string;
+  publicClientId: string;
+  m2mClientId: string;
+  m2mClientSecret: string;
+  allowInsecureHttp?: boolean;
+}
+
+/**
+ * Build a `PmtHouseClient` from an explicit per-instance config (NOT global
+ * env), so multiple pymthouse apps can coexist in one process. Unlike
+ * `getPmtHouseServerClient()` this is NOT a process singleton — the caller owns
+ * caching (e.g. the registry caches per `ProviderInstance.id`). Logging matches
+ * the env client: structured `[pymthouse]` lines that never include the secret.
+ */
+export function createPmtHouseClient(config: PmtHouseClientConfig): PmtHouseClient {
+  return new PmtHouseClient({
+    issuerUrl: config.issuerUrl,
+    publicClientId: config.publicClientId,
+    m2mClientId: config.m2mClientId,
+    m2mClientSecret: config.m2mClientSecret,
+    allowInsecureHttp: config.allowInsecureHttp ?? config.issuerUrl.startsWith('http:'),
+    logger: {
+      debug: (message: string, details?: unknown) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.debug(`[pymthouse] ${message}`, details ?? {});
+        }
+      },
+      warn: (message: string, details?: unknown) => {
+        console.warn(`[pymthouse] ${message}`, details ?? {});
+      },
+    },
+  });
+}
+
 /** Vitest / isolated tests: clear module-level singleton. */
 export function resetPmtHouseServerClientForTests(): void {
   cached = null;
 }
 
-const TOKEN_EXCHANGE_GRANT = 'urn:ietf:params:oauth:grant-type:token-exchange';
-const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
+/**
+ * Non-secret connection params + M2M secret needed to perform the opaque
+ * signer-session token-exchange. Mirrors {@link PmtHouseClientConfig} but only
+ * the subset the exchange step needs, so a per-`ProviderInstance` adapter can
+ * exchange against ITS app's token endpoint/creds (not the global env).
+ */
+export interface PymthouseSignerExchangeConfig {
+  issuerUrl: string;
+  m2mClientId: string;
+  m2mClientSecret: string;
+  allowInsecureHttp?: boolean;
+}
 
-/** SDK-compatible signer-session shape (mirrors `@pymthouse/builder-sdk` `SignerSessionToken`). */
-export interface PmtHouseSignerSessionResult {
-  accessToken: string;
-  tokenType?: string;
-  expiresIn?: number;
-  scope?: string;
+/** Resolve the global `PYMTHOUSE_*` env into a signer-exchange config (or throw). */
+function globalSignerExchangeConfig(): PymthouseSignerExchangeConfig {
+  const env = readPymthouseEnv();
+  if (!env) {
+    throw new PmtHouseError(PYMTHOUSE_NOT_CONFIGURED_MESSAGE, {
+      status: 400,
+      code: 'pymthouse_required',
+    });
+  }
+  return {
+    issuerUrl: env.issuerUrl,
+    m2mClientId: env.m2mClientId,
+    m2mClientSecret: env.m2mClientSecret,
+  };
 }
 
 /**
- * Mint a provider signer session for an external user, tolerant of the deployed
- * pymthouse signer-JWT protocol.
+ * Exchange a short-lived user JWT for an opaque `pmth_…` signer session, using an
+ * EXPLICIT connection config (per-instance or global).
  *
- * The SDK's `client.mintSignerSessionForExternalUser` is opinionated that signer
- * sessions are OPAQUE and that the RFC 8693 token-exchange response carries
- * `issued_token_type`. The currently-deployed pymthouse OIDC server instead
- * returns a signer **JWT** and omits `issued_token_type`, so the SDK's strict
- * `parseSignerSessionExchange` rejects it ("expected opaque signer session
- * token" / "unexpected issued_token_type"). We reuse the SDK for the steps it
- * handles correctly (app-user upsert + user access-token mint) and perform the
- * final token exchange directly so we can accept the signer JWT. The token is
- * opaque to NaaP applications either way.
+ * `@pymthouse/builder-sdk@0.4.3` `PmtHouseClient.mintSignerSessionForExternalUser` sets
+ * `resource` to the OIDC issuer URL. Current PymtHouse routes that to signer-JWT
+ * exchange (no `issued_token_type`, returns another JWT). Omitting `resource` selects
+ * gateway opaque-session exchange instead.
  */
-export async function mintSignerSessionForExternalUserCompat(input: {
-  externalUserId: string;
-  email?: string;
-  scope?: string;
-}): Promise<PmtHouseSignerSessionResult> {
-  const client = getPmtHouseServerClient();
-  const scope = input.scope ?? 'sign:job';
+async function exchangeUserJwtForOpaqueSignerSessionWith(
+  userJwt: string,
+  cfg: PymthouseSignerExchangeConfig,
+  scope: string = SIGN_JOB_SCOPE,
+): Promise<SignerSessionToken> {
+  const allowInsecureHttp =
+    cfg.allowInsecureHttp ??
+    (process.env.PYMTHOUSE_ALLOW_INSECURE_HTTP === '1' || cfg.issuerUrl.startsWith('http:'));
 
-  await client.upsertAppUser({
-    externalUserId: input.externalUserId,
-    ...(input.email != null ? { email: input.email } : {}),
-    status: 'active',
-  });
-
-  const userToken = await client.mintUserAccessToken({
-    externalUserId: input.externalUserId,
-    scope,
-  });
-
-  const issuer = getPymthouseIssuerUrlFromEnv();
-  if (!issuer) {
-    throw new Error('PYMTHOUSE_ISSUER_URL is not configured');
-  }
-  const m2mClientId = process.env.PYMTHOUSE_M2M_CLIENT_ID?.trim();
-  const m2mClientSecret = process.env.PYMTHOUSE_M2M_CLIENT_SECRET?.trim();
-  if (!m2mClientId || !m2mClientSecret) {
-    throw new Error('PYMTHOUSE_M2M_CLIENT_ID / PYMTHOUSE_M2M_CLIENT_SECRET are not configured');
+  const as = await loadAuthorizationServer(cfg.issuerUrl, fetch, { allowInsecureHttp });
+  const tokenEndpoint = as.token_endpoint;
+  if (!tokenEndpoint) {
+    throw new PmtHouseError('OIDC discovery document is missing token_endpoint', {
+      status: 502,
+      code: 'oidc_discovery_invalid',
+    });
   }
 
-  const normalizedIssuer = issuer.replace(/\/+$/, '');
-  const tokenEndpoint = `${normalizedIssuer}/token`;
-  const basicAuth = Buffer.from(`${m2mClientId}:${m2mClientSecret}`).toString('base64');
-
-  const body = new URLSearchParams();
-  body.set('grant_type', TOKEN_EXCHANGE_GRANT);
-  body.set('subject_token', userToken.access_token);
-  body.set('subject_token_type', ACCESS_TOKEN_TYPE);
-  body.set('requested_token_type', ACCESS_TOKEN_TYPE);
-  body.set('resource', normalizedIssuer);
+  const params = new URLSearchParams();
+  params.set('grant_type', TOKEN_EXCHANGE_GRANT);
+  params.set('subject_token', userJwt);
+  params.set('subject_token_type', SUBJECT_ACCESS_TOKEN_TYPE);
+  params.set('requested_token_type', REQUESTED_ACCESS_TOKEN_TYPE);
+  if (scope.trim()) {
+    params.set('scope', scope.trim());
+  }
 
   const response = await fetch(tokenEndpoint, {
     method: 'POST',
     headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      authorization: `Basic ${basicAuth}`,
-      accept: 'application/json',
+      Authorization: `Basic ${Buffer.from(`${cfg.m2mClientId}:${cfg.m2mClientSecret}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
     },
-    body,
+    body: params.toString(),
     cache: 'no-store',
+    // Fail fast instead of hanging if the PymtHouse token endpoint is unresponsive.
+    signal: AbortSignal.timeout(15_000),
   });
 
-  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  const accessToken = typeof json.access_token === 'string' ? json.access_token.trim() : '';
-  if (!response.ok || !accessToken) {
-    const err = typeof json.error === 'string' ? json.error : `http_${response.status}`;
-    throw new Error(`pymthouse signer session exchange failed: ${err}`);
+  let body: Record<string, unknown>;
+  try {
+    body = (await response.json()) as Record<string, unknown>;
+  } catch {
+    throw new PmtHouseError('Token exchange returned invalid JSON', {
+      status: 502,
+      code: 'invalid_token_response',
+    });
   }
 
-  return {
-    accessToken,
-    tokenType: typeof json.token_type === 'string' ? json.token_type : 'Bearer',
-    ...(typeof json.expires_in === 'number' ? { expiresIn: json.expires_in } : {}),
-    ...(typeof json.scope === 'string' ? { scope: json.scope } : {}),
-  };
+  if (!response.ok) {
+    const description =
+      typeof body.error_description === 'string'
+        ? body.error_description
+        : typeof body.error === 'string'
+          ? body.error
+          : `Token exchange failed (${response.status})`;
+    throw new PmtHouseError(description, {
+      status: response.status,
+      code: typeof body.error === 'string' ? body.error : 'token_exchange_failed',
+      details: body,
+    });
+  }
+
+  const accessToken =
+    typeof body.access_token === 'string' ? body.access_token.trim() : '';
+  const expiresIn =
+    typeof body.expires_in === 'number' && Number.isFinite(body.expires_in)
+      ? body.expires_in
+      : undefined;
+  const scopeOut =
+    typeof body.scope === 'string' && body.scope.trim() ? body.scope.trim() : scope;
+  const issuedTokenType =
+    typeof body.issued_token_type === 'string' ? body.issued_token_type : undefined;
+
+  return parseSignerSessionExchange({
+    access_token: accessToken,
+    token_type: 'Bearer',
+    // Fall back to a conservative 5-minute TTL when the provider omits
+    // `expires_in`; a 0 here would mark the session as immediately expired and
+    // disable the SDK's proactive (80%-of-TTL) refresh / reuse.
+    expires_in: expiresIn ?? 300,
+    scope: scopeOut,
+    issued_token_type: issuedTokenType ?? REQUESTED_ACCESS_TOKEN_TYPE,
+  });
+}
+
+/**
+ * Mint an opaque `pmth_…` signer session for a NaaP user against an EXPLICIT
+ * client + exchange config (workaround for SDK 0.4.3 `resource` routing).
+ *
+ * This is the multi-app-safe core: the per-`ProviderInstance` adapter passes ITS
+ * client + ITS app's exchange config so the upsert/user-token/exchange all bind
+ * to the same app. The global path ({@link mintSignerSessionForExternalUser})
+ * delegates here with the env client + env config.
+ */
+export async function mintOpaqueSignerSessionForExternalUser(input: {
+  client: PmtHouseClient;
+  exchange: PymthouseSignerExchangeConfig;
+  externalUserId: string;
+  email?: string;
+  scope?: string;
+}): Promise<SignerSessionToken> {
+  const scope = input.scope?.trim() || SIGN_JOB_SCOPE;
+
+  await input.client.upsertAppUser({
+    externalUserId: input.externalUserId,
+    email: input.email,
+    status: 'active',
+  });
+
+  const userToken = await input.client.mintUserAccessToken({
+    externalUserId: input.externalUserId,
+    scope,
+  });
+
+  return exchangeUserJwtForOpaqueSignerSessionWith(userToken.access_token, input.exchange, scope);
+}
+
+/** Mint an opaque `pmth_…` signer session for a NaaP user (global `PYMTHOUSE_*` env). */
+export async function mintSignerSessionForExternalUser(input: {
+  externalUserId: string;
+  email?: string;
+  scope?: string;
+}): Promise<SignerSessionToken> {
+  return mintOpaqueSignerSessionForExternalUser({
+    client: getPmtHouseServerClient(),
+    exchange: globalSignerExchangeConfig(),
+    externalUserId: input.externalUserId,
+    ...(input.email != null ? { email: input.email } : {}),
+    ...(input.scope != null ? { scope: input.scope } : {}),
+  });
 }

@@ -52,6 +52,14 @@ export function extractAppId(header: string | null): string | null | typeof INVA
   return v;
 }
 
+/** Per-app discovery the resolved key is matched to (NAAP P4, additive). */
+export interface FrontDoorDiscovery {
+  /** Auto-generated DiscoveryPlan id (key → subscription → ProviderPlan → plan). */
+  planId: string;
+  /** python-gateway URL serving this app's capability-matched orchestrators. */
+  url: string;
+}
+
 /** BPP ③ front-door response (provider-neutral). */
 export interface FrontDoorResponse {
   valid: true;
@@ -61,6 +69,11 @@ export interface FrontDoorResponse {
   capabilities: string[];
   quota: { remaining: number; resetAt?: string } | null;
   signerSession: SignerSession;
+  /**
+   * Present ONLY when `plan_spec_sync` is ON and the key resolves to a synced
+   * per-app discovery (P4). Omitted otherwise — byte-for-byte today's response.
+   */
+  discovery?: FrontDoorDiscovery;
 }
 
 export interface BuildFrontDoorInput {
@@ -71,6 +84,7 @@ export interface BuildFrontDoorInput {
   capabilities?: string[] | null;
   quota?: { remaining: number; resetAt?: string } | null;
   signerSession: SignerSession;
+  discovery?: FrontDoorDiscovery | null;
 }
 
 /**
@@ -92,6 +106,9 @@ export function buildFrontDoorResponse(input: BuildFrontDoorInput): FrontDoorRes
   };
   if (input.appId) {
     res.app = { id: input.appId, ...(input.appScopes ? { scopes: input.appScopes } : {}) };
+  }
+  if (input.discovery) {
+    res.discovery = input.discovery;
   }
   return res;
 }

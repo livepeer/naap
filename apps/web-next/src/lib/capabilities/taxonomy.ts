@@ -95,3 +95,40 @@ export function normalizeCapabilities(raw: readonly string[] | null | undefined)
   }
   return out;
 }
+
+/**
+ * Coerce a single provider/legacy capability id to the canonical `:` separator.
+ *
+ * O2 decision — the canonical capability-id format is `<pipeline>:<model>` (the
+ * taxonomy grammar above and the form pymthouse BPP returns via `toCapabilityIds`).
+ * Some NaaP-side defaults (e.g. `storyboard-default-plan.ts`) historically used a
+ * `<pipeline>/<scope>` slash form; this coerces that single legacy `/` separator
+ * to the canonical `:` so both inputs normalize to the same id. The wildcard `*`
+ * and already-colon ids pass through unchanged.
+ */
+function coerceCanonicalSeparator(entry: string): string {
+  const trimmed = entry.trim();
+  if (trimmed === CAPABILITY_WILDCARD) return trimmed;
+  if (!trimmed.includes(':') && trimmed.includes('/')) {
+    return trimmed.replace('/', ':');
+  }
+  return trimmed;
+}
+
+/**
+ * Normalize capability ids received from a provider/external source to the
+ * canonical taxonomy form: coerce the legacy `/` separator to `:` (O2), then
+ * validate + de-duplicate through {@link normalizeCapabilities}. Malformed ids
+ * are dropped (fail closed — they never reach the gate as grants).
+ */
+export function normalizeProviderCapabilities(
+  raw: readonly string[] | null | undefined,
+): string[] {
+  if (!Array.isArray(raw)) return [];
+  const coerced: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue;
+    coerced.push(coerceCanonicalSeparator(entry));
+  }
+  return normalizeCapabilities(coerced);
+}

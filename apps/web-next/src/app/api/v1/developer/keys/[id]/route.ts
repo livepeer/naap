@@ -9,9 +9,6 @@ import { prisma } from '@/lib/db';
 import { validateSession } from '@/lib/api/auth';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateCSRF } from '@/lib/api/csrf';
-import { computeSignerSessionExpiry } from '@pymthouse/builder-sdk/tokens';
-
-const PYMTHOUSE_PROVIDER_SLUG = 'pymthouse';
 
 /**
  * Strip credential-derived material (`keyHash`, `keyLookupId`) before
@@ -63,26 +60,17 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       return errors.notFound('API key');
     }
 
-    if (apiKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG) {
-      const expiredByAge =
-        apiKey.status === 'ACTIVE' &&
-        computeSignerSessionExpiry(apiKey.createdAt).getTime() <= Date.now();
-      const alreadyExpired = apiKey.status === 'EXPIRED';
-      if (expiredByAge || alreadyExpired) {
-        await prisma.devApiKey.deleteMany({
-          where: { id: apiKey.id },
-        });
-        return errors.notFound('API key');
-      }
+    // Hide EXPIRED PymtHouse keys so this single-key endpoint stays consistent
+    // with the list endpoint (which filters them) and the plugin backend GET
+    // /:id handler (which 404s them). Non-PymtHouse keys are unaffected.
+    if (apiKey.billingProvider?.slug === 'pymthouse' && apiKey.status === 'EXPIRED') {
+      return errors.notFound('API key');
     }
 
     return success({
       key: {
         ...toSafeDevApiKey(apiKey),
-        expiresAt:
-          apiKey.billingProvider?.slug === PYMTHOUSE_PROVIDER_SLUG
-            ? computeSignerSessionExpiry(apiKey.createdAt).toISOString()
-            : null,
+        expiresAt: null,
       },
     });
   } catch (err) {
