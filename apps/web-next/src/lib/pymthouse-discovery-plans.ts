@@ -205,26 +205,51 @@ export function mapPymthousePlansResponse(raw: unknown): PymthouseDiscoveryPlans
 }
 
 /**
+ * Explicit per-instance pymthouse connection creds (NAAP P4). When supplied to
+ * {@link fetchPymthouseDiscoveryPlans}, the pull uses THESE creds (a specific
+ * `ProviderInstance`'s app) instead of the global `PYMTHOUSE_*` env, and the
+ * process-wide env cache is bypassed (each instance is independent). The M2M
+ * secret is used only to build the Basic auth header and is never logged.
+ */
+export interface PymthouseDiscoveryPlansCreds {
+  apiV1Base: string;
+  publicClientId: string;
+  m2mClientId: string;
+  m2mClientSecret: string;
+}
+
+/**
  * GET `/api/v1/apps/{publicClientId}/plans` using M2M Basic auth. Pipeline/model caps use `/manifest`.
  * Returns null if env incomplete or request fails.
+ *
+ * P4: pass `opts.creds` to pull a SPECIFIC `ProviderInstance`'s plans with that
+ * instance's app creds (env + cache bypassed). With no `creds`, behavior is
+ * byte-for-byte today's global-env single-app pull (the default-instance path).
  */
 export async function fetchPymthouseDiscoveryPlans(opts?: {
   skipCache?: boolean;
   signal?: AbortSignal;
+  creds?: PymthouseDiscoveryPlansCreds;
 }): Promise<PymthouseDiscoveryPlansResponse | null> {
-  const base = getPymthouseApiV1Base();
-  const publicId =
-    process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim() || process.env.PMTHOUSE_CLIENT_ID?.trim();
-  const m2mId =
-    process.env.PYMTHOUSE_M2M_CLIENT_ID?.trim() || process.env.PMTHOUSE_M2M_CLIENT_ID?.trim();
-  const m2mSecret =
-    process.env.PYMTHOUSE_M2M_CLIENT_SECRET?.trim() || process.env.PMTHOUSE_M2M_CLIENT_SECRET?.trim();
+  const perInstance = opts?.creds;
+  const base = perInstance ? perInstance.apiV1Base.trim() : getPymthouseApiV1Base();
+  const publicId = perInstance
+    ? perInstance.publicClientId.trim()
+    : process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim() || process.env.PMTHOUSE_CLIENT_ID?.trim();
+  const m2mId = perInstance
+    ? perInstance.m2mClientId.trim()
+    : process.env.PYMTHOUSE_M2M_CLIENT_ID?.trim() || process.env.PMTHOUSE_M2M_CLIENT_ID?.trim();
+  const m2mSecret = perInstance
+    ? perInstance.m2mClientSecret
+    : process.env.PYMTHOUSE_M2M_CLIENT_SECRET?.trim() || process.env.PMTHOUSE_M2M_CLIENT_SECRET?.trim();
   if (!base || !publicId || !m2mId || !m2mSecret) {
     return null;
   }
 
   const now = Date.now();
-  if (!opts?.skipCache && cache.data && now - cache.at < cache.ttlMs) {
+  // The process-wide cache only applies to the global-env path; a per-instance
+  // pull (P4) is always fresh so instances never share each other's cache.
+  if (!perInstance && !opts?.skipCache && cache.data && now - cache.at < cache.ttlMs) {
     return cache.data;
   }
 
@@ -249,7 +274,10 @@ export async function fetchPymthouseDiscoveryPlans(opts?: {
   if (!body || !Array.isArray(body.plans)) {
     return null;
   }
-  cache = { at: now, data: body, ttlMs: cache.ttlMs };
+  // Only the global-env pull populates the shared cache.
+  if (!perInstance) {
+    cache = { at: now, data: body, ttlMs: cache.ttlMs };
+  }
   return body;
 }
 

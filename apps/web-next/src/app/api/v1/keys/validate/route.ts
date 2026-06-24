@@ -31,6 +31,7 @@ import { parseApiKey } from '@naap/database';
 import { AdapterNotImplementedError } from '@/lib/billing/adapter';
 import { getBillingProviderAdapter } from '@/lib/billing/registry';
 import { resolveKeyProviderBinding } from '@/lib/billing/key-provider-binding';
+import { resolveKeyDiscovery } from '@/lib/billing/key-discovery';
 import {
   resolveNativeKeyToProviderSession,
   verifyNativeKeyHash,
@@ -203,6 +204,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return noStore(errors.forbidden('Requested capability not granted'));
     }
 
+    // P4: select the per-app discovery this key is matched to
+    // (key → subscription → ProviderPlan → DiscoveryPlan). Reachable only in
+    // subscription mode AND when `plan_spec_sync` is ON with a synced plan;
+    // otherwise null ⇒ no `discovery` field ⇒ byte-for-byte today's response.
+    const resolvedDiscovery =
+      binding.mode === 'subscription'
+        ? await resolveKeyDiscovery(binding.subscription)
+        : null;
+    const discovery = resolvedDiscovery
+      ? { planId: resolvedDiscovery.discoveryPlanId, url: resolvedDiscovery.url }
+      : null;
+
     // Fire-and-forget last-used update; never block validation on it.
     prisma.devApiKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
 
@@ -213,6 +226,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       capabilities,
       quota,
       signerSession: resolved.signerSession,
+      discovery,
     });
 
     log('info', 'keys.validate.ok', {
@@ -222,6 +236,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       hasApp: Boolean(appId),
       capabilityCount: capabilities.length,
       subscriptionScoped: binding.mode === 'subscription',
+      hasDiscovery: Boolean(discovery),
     });
     return noStore(success(body));
   } catch (err) {

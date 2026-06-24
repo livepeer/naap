@@ -37,11 +37,29 @@ export interface CatalogInstanceRow {
   sortOrder: number;
 }
 
-/** A plan a developer can subscribe to (stubbed until P4 plan-spec sync). */
+/** A plan a developer can subscribe to (populated by the P4 plan-spec sync). */
 export interface CatalogPlanView {
   providerPlanId: string;
   name: string;
   capabilities: string[];
+}
+
+/** Minimal synced `ProviderPlan` row the catalog surfaces (non-secret fields). */
+export interface CatalogProviderPlanRow {
+  providerInstanceId: string;
+  providerPlanId: string;
+  name: string;
+  capabilities: string[];
+  enabled: boolean;
+}
+
+/** Map a synced `ProviderPlan` row to its catalog plan view (P4). */
+export function toCatalogPlanView(row: CatalogProviderPlanRow): CatalogPlanView {
+  return {
+    providerPlanId: row.providerPlanId,
+    name: row.name,
+    capabilities: row.capabilities,
+  };
 }
 
 /** A catalog entry: one provider instance + the plans available on it. */

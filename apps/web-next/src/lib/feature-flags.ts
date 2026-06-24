@@ -53,6 +53,19 @@ export const PROVIDER_INSTANCES_FLAG = 'provider_instances';
  */
 export const MULTI_SUBSCRIPTION_FLAG = 'multi_subscription';
 
+/**
+ * Canonical key for the plan-spec → per-app discovery sync (P4, Deliverable 2,
+ * default OFF). When OFF, the `ProviderPlan` table is never read or written, no
+ * sync runs, the catalog exposes no plans, and discovery is EXACTLY today's
+ * static `storyboard-default` / manual behavior (golden-set parity, zero
+ * regression). When ON, a per-`ProviderInstance` pull upserts `ProviderPlan`
+ * rows and auto-generates per-app `DiscoveryPlan`s, and the validate front door
+ * may expose the per-key discovery URL (key → subscription → ProviderPlan →
+ * DiscoveryPlan). Shared by KNOWN_FLAGS and the sync/discovery resolver so the
+ * name cannot drift.
+ */
+export const PLAN_SPEC_SYNC_FLAG = 'plan_spec_sync';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -136,6 +149,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: false,
     description:
       'Multi-subscription model (P1): a team may hold many concurrent Subscriptions and a DevApiKey may link to one via DevApiKey.subscriptionId. OFF = the Subscription table is never consulted and a key resolves via today\'s key → team → single billingAccountRef path (zero regression). A null subscriptionId always resolves the legacy way even when ON.',
+  },
+  {
+    key: PLAN_SPEC_SYNC_FLAG,
+    enabled: false,
+    description:
+      'Plan-spec → per-app discovery sync (P4): pull each ProviderInstance\'s published plans into ProviderPlan rows and auto-generate per-app DiscoveryPlans; the validate front door may expose the per-key discovery URL (key → subscription → ProviderPlan → DiscoveryPlan). OFF = no sync runs, ProviderPlan is never read/written, the catalog exposes no plans, and discovery is exactly today\'s static storyboard-default behavior (golden-set parity, zero regression).',
   },
 ];
 
