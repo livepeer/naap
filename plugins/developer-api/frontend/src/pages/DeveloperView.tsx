@@ -24,6 +24,7 @@ ChevronUp,
 } from 'lucide-react';
 import { Card, Badge, Modal, Tooltip } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
+import { SubscriptionsPanel } from './SubscriptionsPanel';
 
 const PIPELINE_COLOR: Record<string, string> = {
   'text-to-image':           '#f59e0b',
@@ -81,11 +82,12 @@ function modelBadgeColor(modelId: string, fallbackPipelineId?: string): string {
   return MODEL_BADGE_COLORS[hashModelId(modelId)];
 }
 
-type TabId = 'models' | 'api-keys' | 'usage' | 'docs';
+type TabId = 'models' | 'api-keys' | 'subscriptions' | 'usage' | 'docs';
 
 const TAB_PATH_SEGMENT: Record<TabId, string> = {
   models: 'models',
   'api-keys': 'keys',
+  subscriptions: 'subscriptions',
   usage: 'usage',
   docs: 'docs',
 };
@@ -93,6 +95,7 @@ const TAB_PATH_SEGMENT: Record<TabId, string> = {
 const TAB_FROM_SEGMENT: Record<string, TabId> = {
   models: 'models',
   keys: 'api-keys',
+  subscriptions: 'subscriptions',
   usage: 'usage',
   docs: 'docs',
   'api-keys': 'api-keys',
@@ -365,6 +368,10 @@ function billingProviderSupportsPythonGatewayDiscovery(slug: string | undefined)
 
 export const DeveloperView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>(() => resolveTabFromPath(window.location.pathname));
+  // P3: the Subscriptions tab appears ONLY when `multi_subscription` is ON. We
+  // probe GET /api/v1/catalog (404 when OFF) — so with the flag OFF the
+  // dev-manager is byte-for-byte today's experience (no extra tab, no new UI).
+  const [multiSubEnabled, setMultiSubEnabled] = useState(false);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [_loading, setLoading] = useState(true);
   const [showRevoked, setShowRevoked] = useState(false);
@@ -556,6 +563,38 @@ export const DeveloperView: React.FC = () => {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // P3 flag probe: enable the Subscriptions tab only when the catalog resolves
+  // (multi_subscription ON). A 404 (flag OFF) leaves the UI exactly as today.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/v1/catalog', { credentials: 'include' });
+        if (!cancelled) setMultiSubEnabled(res.ok);
+      } catch {
+        if (!cancelled) setMultiSubEnabled(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // If the flag is OFF but the URL resolved to /developer/subscriptions, fall
+  // back to the default tab so no orphaned/empty view is shown.
+  useEffect(() => {
+    if (!multiSubEnabled && activeTab === 'subscriptions') {
+      setActiveTab(DEFAULT_TAB);
+    }
+  }, [multiSubEnabled, activeTab]);
+
+  const visibleTabs = useMemo(() => {
+    if (!multiSubEnabled) return tabs;
+    const idx = tabs.findIndex((t) => t.id === 'api-keys');
+    const subTab = { id: 'subscriptions' as TabId, label: 'Subscriptions', icon: <Box size={14} /> };
+    const next = [...tabs];
+    next.splice(idx + 1, 0, subTab);
+    return next;
+  }, [multiSubEnabled]);
 
   useEffect(() => () => {
     pollAbortControllerRef.current?.abort();
@@ -1180,7 +1219,7 @@ result = [...result].sort((a, b) => {
       </div>
       <div className="border-b border-white/10">
         <nav className="flex gap-1">
-          {tabs.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button key={tab.id} onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 px-3 py-2 text-xs font-medium transition-all border-b-2 ${activeTab === tab.id ? 'text-accent-emerald' : 'text-text-secondary hover:text-text-primary border-transparent'}`}
               style={{ marginBottom: '-1px', borderBottomColor: activeTab === tab.id ? 'var(--accent-emerald)' : 'transparent' }}>
@@ -1545,6 +1584,10 @@ result = [...result].sort((a, b) => {
                 </Card>
               )}
             </div>
+          )}
+
+          {activeTab === 'subscriptions' && multiSubEnabled && (
+            <SubscriptionsPanel />
           )}
 
           {activeTab === 'usage' && (
