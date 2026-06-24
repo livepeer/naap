@@ -254,6 +254,40 @@ model Subscription {
   @@schema("public")
 }
 
+// NAAP P4 — synced provider plan-spec (Deliverable 2, PULL direction).
+//
+// The Source-of-Truth for a provider app's published plans, pulled per
+// `ProviderInstance` (using THAT instance's creds, never global env) from the
+// provider's plan API and upserted here keyed `[providerInstanceId,
+// providerPlanId]`. `capabilities` are normalized `pipeline/modelId` strings;
+// `discoveryPolicy`/`sla`/`pricing` keep the provider's policy blobs. `revision`
+// is a content fingerprint so re-running the sync is idempotent and only a
+// changed spec re-generates the per-app `DiscoveryPlan`. `source` records how
+// the row arrived ("pull" today; "push" reserved for the optional ingest seam).
+// Cross-schema FKs avoided (scalar `providerInstanceId`). Expand-only/additive;
+// gated by `plan_spec_sync` (default OFF) so nothing reads or writes it until
+// enabled — discovery stays exactly today's static behavior when OFF.
+model ProviderPlan {
+  id                 String   @id @default(uuid())
+  providerInstanceId String
+  providerPlanId     String
+  name               String
+  capabilities       String[]
+  sla                Json?
+  pricing            Json?
+  discoveryPolicy    Json?
+  revision           String
+  source             String   @default("pull")
+  enabled            Boolean  @default(true)
+  syncedAt           DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([providerInstanceId, providerPlanId])
+  @@index([providerInstanceId])
+  @@schema("public")
+}
+
 model BillingProviderOAuthSession {
   loginSessionId    String    @id
   state             String    @unique

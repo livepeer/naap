@@ -37,11 +37,29 @@ export interface CatalogInstanceRow {
   sortOrder: number;
 }
 
-/** A plan a developer can subscribe to (stubbed until P4 plan-spec sync). */
+/** A plan a developer can subscribe to (populated by the P4 plan-spec sync). */
 export interface CatalogPlanView {
   providerPlanId: string;
   name: string;
   capabilities: string[];
+}
+
+/** Minimal synced `ProviderPlan` row the catalog surfaces (non-secret fields). */
+export interface CatalogProviderPlanRow {
+  providerInstanceId: string;
+  providerPlanId: string;
+  name: string;
+  capabilities: string[];
+  enabled: boolean;
+}
+
+/** Map a synced `ProviderPlan` row to its catalog plan view (P4). */
+export function toCatalogPlanView(row: CatalogProviderPlanRow): CatalogPlanView {
+  return {
+    providerPlanId: row.providerPlanId,
+    name: row.name,
+    capabilities: row.capabilities,
+  };
 }
 
 /** A catalog entry: one provider instance + the plans available on it. */
@@ -54,10 +72,10 @@ export interface CatalogInstanceView {
 }
 
 /**
- * Map a `ProviderInstance` row to its catalog view. Plans are intentionally
- * empty in P3 — the synced `ProviderPlan` model + plan-spec pull land in P4; the
- * catalog "exposes what exists", which today is the instances themselves. Only
- * non-secret identity fields are surfaced (never `config`/`secretRef`).
+ * Map a `ProviderInstance` row to its catalog view. `plans` are passed in by the
+ * route: empty when `plan_spec_sync` is OFF (P3 behavior), or the synced
+ * `ProviderPlan`-derived views when it is ON (P4). Only non-secret identity
+ * fields are surfaced (never `config`/`secretRef`).
  */
 export function toCatalogInstanceView(
   instance: CatalogInstanceRow,

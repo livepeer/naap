@@ -6,8 +6,9 @@
  *   → { instances: [{ providerInstanceId, slug, displayName, adapterType, plans[] }] }
  *
  * Lists the apps/plans a developer can subscribe to across all enabled
- * `ProviderInstance`s. Plans are empty in P3 — the synced `ProviderPlan` model +
- * plan-spec pull land in P4; the catalog "exposes what exists" (the instances).
+ * `ProviderInstance`s. Each instance's `plans[]` is populated from the synced
+ * `ProviderPlan` rows when `plan_spec_sync` is ON (P4); when OFF the catalog
+ * exposes the instances with empty `plans[]` (P3 behavior — what exists today).
  *
  * Gated behind `multi_subscription` (default OFF): 404 when OFF, so the catalog
  * is inert/hidden and the current single-app dashboard is unchanged. Never emits
@@ -20,8 +21,12 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/db';
 import { success, errors, getAuthToken } from '@/lib/api/response';
 import { validateSession } from '@/lib/api/auth';
-import { isFeatureEnabled, MULTI_SUBSCRIPTION_FLAG } from '@/lib/feature-flags';
-import { toCatalogInstanceView } from '@/lib/billing/subscription-catalog';
+import { isFeatureEnabled, MULTI_SUBSCRIPTION_FLAG, PLAN_SPEC_SYNC_FLAG } from '@/lib/feature-flags';
+import {
+  toCatalogInstanceView,
+  toCatalogPlanView,
+  type CatalogPlanView,
+} from '@/lib/billing/subscription-catalog';
 
 function noStore(res: NextResponse): NextResponse {
   res.headers.set('Cache-Control', 'no-store');
@@ -59,8 +64,35 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     });
 
-    // P4 will join synced ProviderPlan rows here; P3 exposes instances only.
-    const catalog = instances.map((instance) => toCatalogInstanceView(instance));
+    // P4: join synced ProviderPlan rows so the catalog exposes subscribable
+    // plans. Only when `plan_spec_sync` is ON — OFF leaves ProviderPlan unread
+    // and plans `[]` (P3 behavior), so discovery/catalog stay today's static.
+    const plansByInstance = new Map<string, CatalogPlanView[]>();
+    if (await isFeatureEnabled(PLAN_SPEC_SYNC_FLAG)) {
+      const instanceIds = instances.map((i) => i.id);
+      if (instanceIds.length > 0) {
+        const providerPlans = await prisma.providerPlan.findMany({
+          where: { providerInstanceId: { in: instanceIds }, enabled: true },
+          orderBy: [{ name: 'asc' }],
+          select: {
+            providerInstanceId: true,
+            providerPlanId: true,
+            name: true,
+            capabilities: true,
+            enabled: true,
+          },
+        });
+        for (const row of providerPlans) {
+          const list = plansByInstance.get(row.providerInstanceId) ?? [];
+          list.push(toCatalogPlanView(row));
+          plansByInstance.set(row.providerInstanceId, list);
+        }
+      }
+    }
+
+    const catalog = instances.map((instance) =>
+      toCatalogInstanceView(instance, plansByInstance.get(instance.id) ?? []),
+    );
 
     log('info', 'catalog.list', { correlationId, instanceCount: catalog.length });
     return noStore(success({ instances: catalog }));

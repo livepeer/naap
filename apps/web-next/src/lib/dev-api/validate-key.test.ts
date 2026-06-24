@@ -73,4 +73,20 @@ describe('buildFrontDoorResponse (BPP ③ shape)', () => {
     const res = buildFrontDoorResponse({ ...base, quota: { remaining: 10, resetAt: '2026-12-31T00:00:00Z' } });
     expect(res.quota).toEqual({ remaining: 10, resetAt: '2026-12-31T00:00:00Z' });
   });
+
+  it('INV (P4): omits the discovery field by default (byte-for-byte today)', () => {
+    expect(buildFrontDoorResponse(base).discovery).toBeUndefined();
+    expect(buildFrontDoorResponse({ ...base, discovery: null }).discovery).toBeUndefined();
+  });
+
+  it('P4: includes the per-app discovery field only when resolved', () => {
+    const res = buildFrontDoorResponse({
+      ...base,
+      discovery: { planId: 'dp_1', url: '/api/v1/orchestrator-leaderboard/plans/dp_1/python-gateway' },
+    });
+    expect(res.discovery).toEqual({
+      planId: 'dp_1',
+      url: '/api/v1/orchestrator-leaderboard/plans/dp_1/python-gateway',
+    });
+  });
 });
