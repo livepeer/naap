@@ -6,6 +6,7 @@ const fetchUsageForExternalUser = vi.fn();
 const getUsage = vi.fn();
 const getUserSubscription = vi.fn();
 const listBillingProducts = vi.fn();
+const getSignerRouting = vi.fn();
 
 vi.mock('@/lib/pymthouse-client', () => ({
   getPmtHouseServerClient: () => ({
@@ -13,6 +14,7 @@ vi.mock('@/lib/pymthouse-client', () => ({
     getUsage,
     getUserSubscription,
     listBillingProducts,
+    getSignerRouting,
   }),
 }));
 
@@ -118,6 +120,49 @@ describe('PymthouseAdapter per-instance client (P0, zero regression)', () => {
   it('isConfigured honors the injected override, else delegates to the env check', () => {
     expect(new PymthouseAdapter({ isConfigured: () => false }).isConfigured()).toBe(false);
     expect(new PymthouseAdapter().isConfigured()).toBe(true);
+  });
+});
+
+describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer)', () => {
+  const TOKEN = { accessToken: 'pmth_abc123', tokenType: 'Bearer', expiresIn: 3600, scope: 'sign:job' };
+
+  it('returns the directDmz signer API url + Bearer session header', async () => {
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: {
+        directDmz: { description: '', signerApiUrl: 'https://signer-dmz.pymthouse.com', webhookUrl: 'https://hook' },
+        deprecatedHostedFacade: { description: '', signerApiUrl: null },
+      },
+    });
+
+    const ep = await adapter.resolveSignerEndpoint(TOKEN);
+    expect(getSignerRouting).toHaveBeenCalledTimes(1);
+    expect(ep).toEqual({
+      url: 'https://signer-dmz.pymthouse.com',
+      headers: { Authorization: 'Bearer pmth_abc123' },
+    });
+  });
+
+  it('falls back to routing.remoteDmzUrl when directDmz is absent', async () => {
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: 'https://dmz.pymthouse.com', jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: { directDmz: { description: '', signerApiUrl: '', webhookUrl: '' }, deprecatedHostedFacade: { description: '', signerApiUrl: null } },
+    });
+
+    const ep = await adapter.resolveSignerEndpoint(TOKEN);
+    expect(ep.url).toBe('https://dmz.pymthouse.com');
+  });
+
+  it('throws when the provider exposes no DMZ url (front door fails safe)', async () => {
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: '', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: { directDmz: { description: '', signerApiUrl: '', webhookUrl: '' }, deprecatedHostedFacade: { description: '', signerApiUrl: null } },
+    });
+
+    await expect(adapter.resolveSignerEndpoint(TOKEN)).rejects.toThrow(/no remote signer DMZ url/);
   });
 });
 
