@@ -19,12 +19,12 @@
     "@naap/utils": "file:../../../packages/utils",
     "@types/d3": "^7.4.3",
     "d3": "^7.9.0",
-    "ethers": "^6.11.0",
+    "ethers": "^6.17.0",
     "framer-motion": "^12.0.0",
     "lucide-react": "^0.563.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.0"
+    "react-router-dom": "^7.18.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
