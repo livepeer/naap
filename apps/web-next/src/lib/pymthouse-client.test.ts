@@ -2,115 +2,133 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mintUserSignerToken = vi.fn();
-
-vi.mock('@pymthouse/builder-sdk/signer/server', () => ({
-  mintUserSignerToken: (...a: unknown[]) => mintUserSignerToken(...a),
-}));
-
 import { mintUserSignerJwtForExternalUser } from './pymthouse-client';
 
-const EXCHANGE = {
-  issuerUrl: 'https://pymthouse.com/api/v1/oidc',
-  m2mClientId: 'm2m_5ad45661715c8bb7eb30d18f',
-  m2mClientSecret: 'pmth_cs_secret',
-};
+/** Minimal `PmtHouseClient` stub exposing only what the mint helper touches. */
+function makeClient(
+  overrides: Partial<{
+    upsertAppUser: ReturnType<typeof vi.fn>;
+    mintUserAccessToken: ReturnType<typeof vi.fn>;
+  }> = {},
+) {
+  return {
+    upsertAppUser: vi.fn().mockResolvedValue({ id: 'app-user-1' }),
+    mintUserAccessToken: vi.fn().mockResolvedValue({
+      access_token: 'eyJhbGciOiJSUzI1NiJ9.payload.sig',
+      refresh_token: 'r',
+      token_type: 'Bearer',
+      expires_in: 900,
+      scope: 'sign:job',
+      subject_type: 'app_user',
+    }),
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-06-25T00:00:00.000Z'));
 });
 
 afterEach(() => {
-  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
-describe('mintUserSignerJwtForExternalUser (Option A user-scoped signer JWT)', () => {
-  it('mints via builder-sdk with issuer + M2M creds + externalUserId, returns the JWT', async () => {
-    mintUserSignerToken.mockResolvedValue({
-      jwt: 'eyJhbGciOiJSUzI1NiJ9.payload.sig',
-      expiresAt: Date.now() + 900_000, // +15 min
-      refreshAt: Date.now() + 720_000,
-      balanceUsdMicros: '5000000',
-      lifetimeGrantedUsdMicros: '10000000',
-    });
+describe('mintUserSignerJwtForExternalUser (Builder user-token JWT for the remote signer DMZ)', () => {
+  it('upserts the user then mints the Builder user-token, returning the JWT', async () => {
+    const client = makeClient();
 
     const out = await mintUserSignerJwtForExternalUser({
-      exchange: EXCHANGE,
+      client: client as never,
       externalUserId: 'acct_user_42',
     });
 
-    // The SDK is the single audience authority: aud = issuer URL (no override).
-    expect(mintUserSignerToken).toHaveBeenCalledWith({
-      issuerUrl: EXCHANGE.issuerUrl,
-      m2mClientId: EXCHANGE.m2mClientId,
-      m2mClientSecret: EXCHANGE.m2mClientSecret,
+    // Idempotent provision first so the mint never 404s on an unprovisioned user.
+    expect(client.upsertAppUser).toHaveBeenCalledWith({
       externalUserId: 'acct_user_42',
-      allowInsecureHttp: false,
+      status: 'active',
+    });
+    // Builder user-token mint: POST /users/{id}/token with scope sign:job.
+    expect(client.mintUserAccessToken).toHaveBeenCalledWith({
+      externalUserId: 'acct_user_42',
+      scope: 'sign:job',
     });
     expect(out.jwt).toBe('eyJhbGciOiJSUzI1NiJ9.payload.sig');
     expect(out.expiresIn).toBe(900);
     expect(out.scope).toBe('sign:job');
-    expect(out.balanceUsdMicros).toBe('5000000');
   });
 
-  it('clamps a near-expiry mint to a >= 1s TTL', async () => {
-    mintUserSignerToken.mockResolvedValue({
-      jwt: 'eyJ.x.y',
-      expiresAt: Date.now() - 5_000, // already expired
-      refreshAt: Date.now(),
-      balanceUsdMicros: '0',
-      lifetimeGrantedUsdMicros: '0',
-    });
+  it('passes an email through to the upsert when provided', async () => {
+    const client = makeClient();
 
-    const out = await mintUserSignerJwtForExternalUser({
-      exchange: EXCHANGE,
+    await mintUserSignerJwtForExternalUser({
+      client: client as never,
       externalUserId: 'acct_user_42',
+      email: 'user@example.com',
     });
-    expect(out.expiresIn).toBe(1);
+
+    expect(client.upsertAppUser).toHaveBeenCalledWith({
+      externalUserId: 'acct_user_42',
+      email: 'user@example.com',
+      status: 'active',
+    });
   });
 
-  it('honors an explicit scope override', async () => {
-    mintUserSignerToken.mockResolvedValue({
-      jwt: 'eyJ.x.y',
-      expiresAt: Date.now() + 60_000,
-      refreshAt: Date.now() + 48_000,
-      balanceUsdMicros: '0',
-      lifetimeGrantedUsdMicros: '0',
+  it('honors an explicit scope override (and falls back to it when the response omits scope)', async () => {
+    const client = makeClient({
+      mintUserAccessToken: vi.fn().mockResolvedValue({
+        access_token: 'eyJ.x.y',
+        expires_in: 60,
+        scope: '',
+      }),
     });
 
     const out = await mintUserSignerJwtForExternalUser({
-      exchange: EXCHANGE,
+      client: client as never,
+      externalUserId: 'acct_user_42',
+      scope: 'sign:job extra:scope',
+    });
+
+    expect(client.mintUserAccessToken).toHaveBeenCalledWith({
       externalUserId: 'acct_user_42',
       scope: 'sign:job extra:scope',
     });
     expect(out.scope).toBe('sign:job extra:scope');
   });
 
-  it('passes allowInsecureHttp=true for an http issuer (local/dev)', async () => {
-    mintUserSignerToken.mockResolvedValue({
-      jwt: 'eyJ.x.y',
-      expiresAt: Date.now() + 60_000,
-      refreshAt: Date.now() + 48_000,
-      balanceUsdMicros: '0',
-      lifetimeGrantedUsdMicros: '0',
+  it('clamps a non-positive / invalid expires_in to a safe default TTL', async () => {
+    const client = makeClient({
+      mintUserAccessToken: vi.fn().mockResolvedValue({
+        access_token: 'eyJ.x.y',
+        expires_in: 0,
+        scope: 'sign:job',
+      }),
     });
 
-    await mintUserSignerJwtForExternalUser({
-      exchange: { ...EXCHANGE, issuerUrl: 'http://localhost:4000/api/v1/oidc' },
+    const out = await mintUserSignerJwtForExternalUser({
+      client: client as never,
       externalUserId: 'acct_user_42',
     });
-    expect(mintUserSignerToken).toHaveBeenCalledWith(
-      expect.objectContaining({ allowInsecureHttp: true }),
-    );
+    expect(out.expiresIn).toBe(300);
   });
 
   it('propagates a mint failure (front door fails safe on this)', async () => {
-    mintUserSignerToken.mockRejectedValue(new Error('invalid_target'));
+    const client = makeClient({
+      mintUserAccessToken: vi.fn().mockRejectedValue(new Error('mint boom')),
+    });
+
     await expect(
-      mintUserSignerJwtForExternalUser({ exchange: EXCHANGE, externalUserId: 'acct_user_42' }),
-    ).rejects.toThrow('invalid_target');
+      mintUserSignerJwtForExternalUser({ client: client as never, externalUserId: 'acct_user_42' }),
+    ).rejects.toThrow('mint boom');
+  });
+
+  it('propagates an upsert failure (no mint attempted)', async () => {
+    const client = makeClient({
+      upsertAppUser: vi.fn().mockRejectedValue(new Error('upsert boom')),
+    });
+
+    await expect(
+      mintUserSignerJwtForExternalUser({ client: client as never, externalUserId: 'acct_user_42' }),
+    ).rejects.toThrow('upsert boom');
+    expect(client.mintUserAccessToken).not.toHaveBeenCalled();
   });
 });
