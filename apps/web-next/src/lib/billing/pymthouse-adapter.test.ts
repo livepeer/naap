@@ -53,7 +53,6 @@ beforeEach(() => {
     jwt: 'eyJhbGciOiJSUzI1NiJ9.user-signer-jwt.sig',
     expiresIn: 900,
     scope: 'sign:job',
-    balanceUsdMicros: '5000000',
   });
   adapter = new PymthouseAdapter();
 });
@@ -156,13 +155,10 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
 
     const ep = await adapter.resolveSignerEndpoint(TOKEN, CTX);
     expect(getSignerRouting).toHaveBeenCalledTimes(1);
-    // The JWT is minted with the resolved exchange config + the key's account id.
+    // The JWT is minted against this adapter's client (the global-env singleton
+    // here) + the key's account id as the externalUserId.
     expect(mintUserSignerJwtForExternalUser).toHaveBeenCalledWith({
-      exchange: {
-        issuerUrl: 'https://pymthouse.com/api/v1/oidc',
-        m2mClientId: 'm2m_test',
-        m2mClientSecret: 'secret_test',
-      },
+      client: expect.objectContaining({ getSignerRouting }),
       externalUserId: 'acct_user_42',
     });
     expect(ep).toEqual({
@@ -192,8 +188,10 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
     });
 
     await a.resolveSignerEndpoint(TOKEN, CTX);
+    // The mint binds to the injected per-instance client (whose app the DMZ
+    // routing was resolved against), never the global-env singleton.
     expect(mintUserSignerJwtForExternalUser).toHaveBeenCalledWith({
-      exchange: instanceExchange,
+      client: instanceClient,
       externalUserId: 'acct_user_42',
     });
     // The global env exchange config is NOT consulted for a per-instance adapter.

@@ -16,7 +16,6 @@ import {
 } from '@pymthouse/builder-sdk';
 import { createPmtHouseClientFromEnv } from '@pymthouse/builder-sdk/env';
 import { PmtHouseClient } from '@pymthouse/builder-sdk';
-import { mintUserSignerToken } from '@pymthouse/builder-sdk/signer/server';
 
 const TOKEN_EXCHANGE_GRANT = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const SUBJECT_ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
@@ -250,56 +249,67 @@ export async function mintSignerSessionForExternalUser(input: {
   });
 }
 
-/** Result of minting a user-scoped signer JWT (the JWT plus its derived TTL). */
+/** Result of minting the user-token JWT forwarded to the remote signer DMZ. */
 export interface UserSignerJwt {
-  /** The user-scoped signer JWT (`eyJ…`) to forward as `Authorization: Bearer`. */
+  /** The user-scoped JWT (`eyJ…`) to forward as `Authorization: Bearer`. */
   jwt: string;
-  /** Seconds until the JWT expires (>= 1), derived from the SDK's `expiresAt`. */
+  /** Seconds until the JWT expires (>= 1), derived from the mint response. */
   expiresIn: number;
   /** Scope the token carries (always `sign:job` for the signed-job path). */
   scope: string;
-  /** Funded balance (USD-micros) returned alongside the mint, for diagnostics. */
-  balanceUsdMicros: string;
 }
 
 /**
- * Mint a USER-SCOPED SIGNER JWT for a NaaP user via builder-sdk
- * `mintUserSignerToken` (token-exchange doc "Option A" clearinghouse mint:
- * `grant_type=client_credentials`, `scope=sign:mint_user_token`,
- * `external_user_id` baked in). Unlike {@link mintOpaqueSignerSessionForExternalUser}
- * this returns a JWKS-verifiable JWT (`iss`/`client_id`/`external_user_id`
- * cryptographically embedded) — the form the remote-signer DMZ identity webhook
- * accepts on `/generate-live-payment` with no DB lookup.
+ * Mint the Builder USER-TOKEN JWT for a NaaP user and return it for forwarding
+ * to the remote signer DMZ as `Authorization: Bearer <jwt>`.
  *
- * `aud` is set automatically by the SDK to the OIDC issuer URL
- * (`signerJwtAudience(issuerUrl)`), which is exactly what the prod DMZ webhook
- * validates — so there is no `aud` knob here (do NOT hardcode
- * `livepeer-remote-signer`; current issuers reject it with `invalid_target`).
+ * This is the downstream token the pymthouse "User-scoped JWTs" doc prescribes
+ * under "Passing the token to downstream services" (mint at
+ * `POST /api/v1/apps/{clientId}/users/{externalUserId}/token`, then pass the JWT
+ * to any PymtHouse service that validates it), and the same token the
+ * signer-routing `directDmz` pattern calls for ("Mint a user JWT via Builder API
+ * OIDC, sign against the remote signer DMZ directly").
+ *
+ * The minted JWT carries exactly the claims the DMZ OIDC identity webhook
+ * validates: `aud` = the issuer URL (matches the webhook's default
+ * `JWT_AUDIENCE`), `iss` = issuer, `client_id`/`azp` = the public app, and
+ * `scope` includes `sign:job` (usage is attributed via the `sub` app-user id).
+ * It mints successfully against the live issuer — unlike the token-exchange
+ * "Option A" clearinghouse mint (`grant_type=client_credentials`,
+ * `scope=sign:mint_user_token`), which currently returns
+ * `500 "Internal error during token mint"` upstream.
+ *
+ * The user is upserted first (idempotent) so the mint never 404s on a not-yet
+ * provisioned `externalUserId`.
  */
 export async function mintUserSignerJwtForExternalUser(input: {
-  exchange: PymthouseSignerExchangeConfig;
+  client: PmtHouseClient;
   externalUserId: string;
+  email?: string;
   scope?: string;
 }): Promise<UserSignerJwt> {
-  const allowInsecureHttp =
-    input.exchange.allowInsecureHttp ??
-    (process.env.PYMTHOUSE_ALLOW_INSECURE_HTTP === '1' ||
-      input.exchange.issuerUrl.startsWith('http:'));
+  const scope = input.scope?.trim() || SIGN_JOB_SCOPE;
 
-  const minted = await mintUserSignerToken({
-    issuerUrl: input.exchange.issuerUrl,
-    m2mClientId: input.exchange.m2mClientId,
-    m2mClientSecret: input.exchange.m2mClientSecret,
+  await input.client.upsertAppUser({
     externalUserId: input.externalUserId,
-    allowInsecureHttp,
+    ...(input.email != null ? { email: input.email } : {}),
+    status: 'active',
   });
 
+  const token = await input.client.mintUserAccessToken({
+    externalUserId: input.externalUserId,
+    scope,
+  });
+
+  const expiresIn =
+    Number.isFinite(token.expires_in) && token.expires_in > 0
+      ? Math.floor(token.expires_in)
+      : 300;
+
   return {
-    jwt: minted.jwt,
-    // `expiresAt` is an absolute epoch-ms; clamp to >= 1s so a near-expiry mint
-    // never serializes a non-positive TTL.
-    expiresIn: Math.max(1, Math.floor((minted.expiresAt - Date.now()) / 1000)),
-    scope: input.scope?.trim() || SIGN_JOB_SCOPE,
-    balanceUsdMicros: minted.balanceUsdMicros,
+    jwt: token.access_token,
+    // Clamp to >= 1s so a near-expiry mint never serializes a non-positive TTL.
+    expiresIn: Math.max(1, expiresIn),
+    scope: token.scope?.trim() || scope,
   };
 }
