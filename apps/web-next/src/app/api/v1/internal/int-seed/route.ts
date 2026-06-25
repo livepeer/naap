@@ -125,17 +125,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       request.nextUrl.searchParams.get('externalUserId')?.trim() ||
       process.env.INT_SEED_ACCOUNT_ID?.trim() ||
       'naap-int-e2e-user';
+    // Exercise the EXACT module function the validate front door uses (#403:
+    // opaque pmth_ session via token-exchange WITHOUT `resource`), not the SDK
+    // client method (which sets `resource` and is routed to signer-JWT). Surface
+    // the real error so a 503 mint_failed can be diagnosed.
     try {
-      const { getPmtHouseServerClient } = await import('@/lib/pymthouse-client');
-      const session = await getPmtHouseServerClient().mintSignerSessionForExternalUser({
-        externalUserId,
-      });
+      const { mintSignerSessionForExternalUser } = await import('@/lib/pymthouse-client');
+      const session = await mintSignerSessionForExternalUser({ externalUserId });
       out.mint = {
         ok: true,
         tokenType: session.tokenType,
         expiresIn: session.expiresIn,
         scope: session.scope,
         accessTokenPrefix: String(session.accessToken).slice(0, 12),
+        opaque: String(session.accessToken).startsWith('pmth_'),
       };
     } catch (e) {
       out.mint = {
@@ -143,6 +146,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         externalUserId,
         name: e instanceof Error ? e.name : 'unknown',
         message: e instanceof Error ? e.message : String(e),
+        stack: e instanceof Error ? String(e.stack).split('\n').slice(0, 4).join(' | ') : undefined,
       };
     }
     return NextResponse.json(out);
