@@ -85,7 +85,8 @@
         },
         "authType": {
           "type": "string",
-          "enum": ["none", "bearer", "header", "basic", "query", "aws-s3"]
+          "enum": ["none", "bearer", "header", "basic", "query", "aws-s3", "passthrough"],
+          "description": "Upstream auth injection strategy. 'passthrough' forwards the consumer's own Authorization header upstream instead of minting a credential from connector secrets (used by services that authenticate the caller's bearer themselves)."
         },
         "authConfig": {
           "type": "object",

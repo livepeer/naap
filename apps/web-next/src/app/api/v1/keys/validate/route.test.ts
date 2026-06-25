@@ -9,7 +9,10 @@ import { generateNativeApiKey } from '@/lib/dev-api/native-key';
 import { hashApiKey } from '@naap/database';
 
 const isFeatureEnabled = vi.fn();
-vi.mock('@/lib/feature-flags', () => ({ isFeatureEnabled: (...a: unknown[]) => isFeatureEnabled(...a) }));
+vi.mock('@/lib/feature-flags', () => ({
+  isFeatureEnabled: (...a: unknown[]) => isFeatureEnabled(...a),
+  PER_KEY_REMOTE_SIGNER_FLAG: 'per_key_remote_signer',
+}));
 
 vi.mock('@/lib/api/rate-limit', () => ({ enforceRateLimit: vi.fn(() => null) }));
 
@@ -235,6 +238,64 @@ describe('P2 per-key subscription resolution (multi_subscription)', () => {
       billingAccountRef: { providerSlug: 'pymthouse', accountId: 'acct_sub_99' },
     });
     expect((await POST(req(rawKey))).status).toBe(503);
+  });
+});
+
+describe('per-key remote signer (per_key_remote_signer)', () => {
+  // Front door ON; per_key_remote_signer toggled per test; all others OFF.
+  const flags = (perKeySigner: boolean) =>
+    isFeatureEnabled.mockImplementation(async (key: string) =>
+      key === 'key_validation_front_door' ? true : key === 'per_key_remote_signer' ? perKeySigner : false,
+    );
+
+  const endpoint = { url: 'https://signer-dmz.pymthouse.com', headers: { Authorization: 'Bearer pmth_abc' } };
+
+  it('flag OFF → returns the provider token-bundle form (byte-for-byte today, INV)', async () => {
+    flags(false);
+    const resolveSignerEndpoint = vi.fn(async () => endpoint);
+    getBillingProviderAdapter.mockReturnValue(adapterMock({ resolveSignerEndpoint }));
+
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(200);
+    const d = (await res.json()).data;
+    // Token-bundle form preserved; the endpoint resolver is NEVER called.
+    expect(d.signerSession).toEqual({ accessToken: 'signer-tok', tokenType: 'Bearer', expiresIn: 3600 });
+    expect(resolveSignerEndpoint).not.toHaveBeenCalled();
+  });
+
+  it('flag ON → returns the SignerSession ENDPOINT form { url, headers }', async () => {
+    flags(true);
+    const resolveSignerEndpoint = vi.fn(async () => endpoint);
+    getBillingProviderAdapter.mockReturnValue(adapterMock({ resolveSignerEndpoint }));
+
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(200);
+    const d = (await res.json()).data;
+    expect(d.signerSession).toEqual(endpoint);
+    // The minted token-bundle session is handed to the resolver.
+    expect(resolveSignerEndpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'signer-tok' }),
+    );
+  });
+
+  it('flag ON + adapter without resolveSignerEndpoint → keeps token form (no-op)', async () => {
+    flags(true);
+    // Default adapterMock has no resolveSignerEndpoint.
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.signerSession.accessToken).toBe('signer-tok');
+  });
+
+  it('flag ON + resolver throws → fails SAFE to the token form (never 500)', async () => {
+    flags(true);
+    const resolveSignerEndpoint = vi.fn(async () => {
+      throw new Error('signer routing unavailable');
+    });
+    getBillingProviderAdapter.mockReturnValue(adapterMock({ resolveSignerEndpoint }));
+
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.signerSession.accessToken).toBe('signer-tok');
   });
 });
 
