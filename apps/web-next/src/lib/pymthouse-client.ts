@@ -16,6 +16,7 @@ import {
 } from '@pymthouse/builder-sdk';
 import { createPmtHouseClientFromEnv } from '@pymthouse/builder-sdk/env';
 import { PmtHouseClient } from '@pymthouse/builder-sdk';
+import { mintUserSignerToken } from '@pymthouse/builder-sdk/signer/server';
 
 const TOKEN_EXCHANGE_GRANT = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const SUBJECT_ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
@@ -91,7 +92,7 @@ export interface PymthouseSignerExchangeConfig {
 }
 
 /** Resolve the global `PYMTHOUSE_*` env into a signer-exchange config (or throw). */
-function globalSignerExchangeConfig(): PymthouseSignerExchangeConfig {
+export function globalSignerExchangeConfig(): PymthouseSignerExchangeConfig {
   const env = readPymthouseEnv();
   if (!env) {
     throw new PmtHouseError(PYMTHOUSE_NOT_CONFIGURED_MESSAGE, {
@@ -247,4 +248,58 @@ export async function mintSignerSessionForExternalUser(input: {
     ...(input.email != null ? { email: input.email } : {}),
     ...(input.scope != null ? { scope: input.scope } : {}),
   });
+}
+
+/** Result of minting a user-scoped signer JWT (the JWT plus its derived TTL). */
+export interface UserSignerJwt {
+  /** The user-scoped signer JWT (`eyJ…`) to forward as `Authorization: Bearer`. */
+  jwt: string;
+  /** Seconds until the JWT expires (>= 1), derived from the SDK's `expiresAt`. */
+  expiresIn: number;
+  /** Scope the token carries (always `sign:job` for the signed-job path). */
+  scope: string;
+  /** Funded balance (USD-micros) returned alongside the mint, for diagnostics. */
+  balanceUsdMicros: string;
+}
+
+/**
+ * Mint a USER-SCOPED SIGNER JWT for a NaaP user via builder-sdk
+ * `mintUserSignerToken` (token-exchange doc "Option A" clearinghouse mint:
+ * `grant_type=client_credentials`, `scope=sign:mint_user_token`,
+ * `external_user_id` baked in). Unlike {@link mintOpaqueSignerSessionForExternalUser}
+ * this returns a JWKS-verifiable JWT (`iss`/`client_id`/`external_user_id`
+ * cryptographically embedded) — the form the remote-signer DMZ identity webhook
+ * accepts on `/generate-live-payment` with no DB lookup.
+ *
+ * `aud` is set automatically by the SDK to the OIDC issuer URL
+ * (`signerJwtAudience(issuerUrl)`), which is exactly what the prod DMZ webhook
+ * validates — so there is no `aud` knob here (do NOT hardcode
+ * `livepeer-remote-signer`; current issuers reject it with `invalid_target`).
+ */
+export async function mintUserSignerJwtForExternalUser(input: {
+  exchange: PymthouseSignerExchangeConfig;
+  externalUserId: string;
+  scope?: string;
+}): Promise<UserSignerJwt> {
+  const allowInsecureHttp =
+    input.exchange.allowInsecureHttp ??
+    (process.env.PYMTHOUSE_ALLOW_INSECURE_HTTP === '1' ||
+      input.exchange.issuerUrl.startsWith('http:'));
+
+  const minted = await mintUserSignerToken({
+    issuerUrl: input.exchange.issuerUrl,
+    m2mClientId: input.exchange.m2mClientId,
+    m2mClientSecret: input.exchange.m2mClientSecret,
+    externalUserId: input.externalUserId,
+    allowInsecureHttp,
+  });
+
+  return {
+    jwt: minted.jwt,
+    // `expiresAt` is an absolute epoch-ms; clamp to >= 1s so a near-expiry mint
+    // never serializes a non-positive TTL.
+    expiresIn: Math.max(1, Math.floor((minted.expiresAt - Date.now()) / 1000)),
+    scope: input.scope?.trim() || SIGN_JOB_SCOPE,
+    balanceUsdMicros: minted.balanceUsdMicros,
+  };
 }
