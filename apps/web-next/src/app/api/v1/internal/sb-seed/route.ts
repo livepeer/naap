@@ -37,6 +37,10 @@ import { encryptV1 } from '@naap/crypto';
 import { prisma } from '@/lib/db';
 import { KNOWN_FLAGS } from '@/lib/feature-flags';
 import { syncAllProviderInstancePlans } from '@/lib/billing/plan-spec-sync';
+import { generateNativeApiKey } from '@/lib/dev-api/native-key';
+import { deriveKeyLookupId, formatBillingKeyPublicPrefix, hashApiKey } from '@naap/database';
+import { encrypt } from '@/lib/gateway/encryption';
+import { SUBSCRIPTION_STATUS_ACTIVE } from '@/lib/billing/subscription-catalog';
 
 /** Exactly the flags this task requires ON — no more (no sdk_connector). */
 const TASK_FLAGS = [
@@ -52,6 +56,10 @@ const TASK_FLAGS = [
   'provider_instances',
   'multi_subscription',
   'plan_spec_sync',
+  // P6: when ON, /keys/validate swaps the opaque signer token-bundle for the
+  // SignerSession ENDPOINT form { url: <pymthouse DMZ>, headers } so the SDK
+  // service signs + pays through the per-app funded wallet (not Daydream).
+  'per_key_remote_signer',
 ] as const;
 
 const TEAM_SLUG = 'storyboard';
@@ -449,6 +457,86 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       syncResult = { error: e instanceof Error ? e.message : 'sync_failed' };
     }
 
+    // 11. Subscription bound to the pymthouse instance + a minted, subscription-
+    //     scoped naap_ key (seat → team → subscription → instance + accountId).
+    //     This drives the P2 per-key binding so /keys/validate resolves through
+    //     the per-instance adapter (not global env) and, with per_key_remote_signer
+    //     ON, returns the ENDPOINT-form signerSession for THIS app's DMZ.
+    //     Preview-only + INT_SEED_SECRET-guarded; the raw key is returned once for
+    //     the operator's headless E2E (never logged).
+    let subscriptionOut: Record<string, unknown> | null = null;
+    let mintedKeyOut: Record<string, unknown> | null = null;
+    let rawKey: string | null = null;
+    try {
+      // Bind to a synced ProviderPlan when one exists (drives the P4 discovery
+      // block); else a plan-less subscription (still resolves signer + billing).
+      const plan = await prisma.providerPlan.findFirst({
+        where: { providerInstanceId: instance.id },
+        select: { id: true },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      // Idempotent: reuse an existing active subscription for this team+instance.
+      let subscription = await prisma.subscription.findFirst({
+        where: { teamId: team.id, providerInstanceId: instance.id },
+        select: { id: true, accountId: true, status: true, providerPlanId: true, appId: true },
+      });
+      if (!subscription) {
+        subscription = await prisma.subscription.create({
+          data: {
+            teamId: team.id,
+            providerInstanceId: instance.id,
+            providerPlanId: plan?.id ?? null,
+            accountId,
+            status: SUBSCRIPTION_STATUS_ACTIVE,
+            appId: env.publicClientId,
+          },
+          select: { id: true, accountId: true, status: true, providerPlanId: true, appId: true },
+        });
+      } else if (subscription.status !== SUBSCRIPTION_STATUS_ACTIVE) {
+        subscription = await prisma.subscription.update({
+          where: { id: subscription.id },
+          data: { status: SUBSCRIPTION_STATUS_ACTIVE },
+          select: { id: true, accountId: true, status: true, providerPlanId: true, appId: true },
+        });
+      }
+      subscriptionOut = {
+        id: subscription.id,
+        accountId: subscription.accountId,
+        status: subscription.status,
+        providerPlanId: subscription.providerPlanId,
+        appId: subscription.appId,
+      };
+
+      // Mint a fresh subscription-bound naap_ key (mirrors the P3 keys route).
+      const generated = generateNativeApiKey();
+      rawKey = generated.rawKey;
+      const keyLookupId = deriveKeyLookupId(rawKey);
+      const keyPrefix = formatBillingKeyPublicPrefix(rawKey);
+      const keyHash = hashApiKey(rawKey);
+      const sessionRef = encrypt(subscription.accountId);
+      const createdKey = await prisma.devApiKey.create({
+        data: {
+          userId: user.id,
+          billingProviderId: provider.id,
+          seatId: seat.id,
+          teamId: team.id,
+          subscriptionId: subscription.id,
+          keyLookupId,
+          keyPrefix,
+          keyHash,
+          label: 'sb-seed e2e (per-key remote signer)',
+          status: 'ACTIVE',
+          providerSessionRefEnc: sessionRef.encryptedValue,
+          providerSessionRefIv: sessionRef.iv,
+        },
+        select: { id: true, keyPrefix: true, subscriptionId: true, seatId: true, teamId: true },
+      });
+      mintedKeyOut = createdKey;
+    } catch (e) {
+      subscriptionOut = { error: e instanceof Error ? e.message : 'subscription_or_mint_failed' };
+    }
+
     return NextResponse.json({
       ok: true,
       flagsEnabled: [...TASK_FLAGS],
@@ -465,12 +553,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       seat: { id: seat.id, role: seat.role, status: seat.status },
       owner: { id: user.id, email: ownerEmail, passwordSeeded: !!passwordHash },
       planSpecSync: syncResult,
-      mintHint: {
-        ui: 'Dev-manager → Developer API plugin → Apps & Subscriptions → Subscribe → Keys → Create Key',
-        api: `POST /api/v1/teams/${team.id}/subscriptions  then  POST /api/v1/teams/${team.id}/subscriptions/{subId}/keys`,
-        note: 'Operator subscribes + mints the naap_ key via the P3 UI. No key minted by seed.',
-      },
-      subscriptionCreated: false,
+      subscription: subscriptionOut,
+      mintedKey: mintedKeyOut,
+      // Returned exactly once (preview-only, INT_SEED_SECRET-guarded) so the
+      // operator can run the headless validate → canary /inference E2E.
+      rawKey,
+      subscriptionCreated: !!mintedKeyOut,
     });
   } catch (err) {
     return NextResponse.json(
