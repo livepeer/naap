@@ -91,7 +91,7 @@ export interface PymthouseSignerExchangeConfig {
 }
 
 /** Resolve the global `PYMTHOUSE_*` env into a signer-exchange config (or throw). */
-function globalSignerExchangeConfig(): PymthouseSignerExchangeConfig {
+export function globalSignerExchangeConfig(): PymthouseSignerExchangeConfig {
   const env = readPymthouseEnv();
   if (!env) {
     throw new PmtHouseError(PYMTHOUSE_NOT_CONFIGURED_MESSAGE, {
@@ -247,4 +247,69 @@ export async function mintSignerSessionForExternalUser(input: {
     ...(input.email != null ? { email: input.email } : {}),
     ...(input.scope != null ? { scope: input.scope } : {}),
   });
+}
+
+/** Result of minting the user-token JWT forwarded to the remote signer DMZ. */
+export interface UserSignerJwt {
+  /** The user-scoped JWT (`eyJ…`) to forward as `Authorization: Bearer`. */
+  jwt: string;
+  /** Seconds until the JWT expires (>= 1), derived from the mint response. */
+  expiresIn: number;
+  /** Scope the token carries (always `sign:job` for the signed-job path). */
+  scope: string;
+}
+
+/**
+ * Mint the Builder USER-TOKEN JWT for a NaaP user and return it for forwarding
+ * to the remote signer DMZ as `Authorization: Bearer <jwt>`.
+ *
+ * This is the downstream token the pymthouse "User-scoped JWTs" doc prescribes
+ * under "Passing the token to downstream services" (mint at
+ * `POST /api/v1/apps/{clientId}/users/{externalUserId}/token`, then pass the JWT
+ * to any PymtHouse service that validates it), and the same token the
+ * signer-routing `directDmz` pattern calls for ("Mint a user JWT via Builder API
+ * OIDC, sign against the remote signer DMZ directly").
+ *
+ * The minted JWT carries exactly the claims the DMZ OIDC identity webhook
+ * validates: `aud` = the issuer URL (matches the webhook's default
+ * `JWT_AUDIENCE`), `iss` = issuer, `client_id`/`azp` = the public app, and
+ * `scope` includes `sign:job` (usage is attributed via the `sub` app-user id).
+ * It mints successfully against the live issuer — unlike the token-exchange
+ * "Option A" clearinghouse mint (`grant_type=client_credentials`,
+ * `scope=sign:mint_user_token`), which currently returns
+ * `500 "Internal error during token mint"` upstream.
+ *
+ * The user is upserted first (idempotent) so the mint never 404s on a not-yet
+ * provisioned `externalUserId`.
+ */
+export async function mintUserSignerJwtForExternalUser(input: {
+  client: PmtHouseClient;
+  externalUserId: string;
+  email?: string;
+  scope?: string;
+}): Promise<UserSignerJwt> {
+  const scope = input.scope?.trim() || SIGN_JOB_SCOPE;
+
+  await input.client.upsertAppUser({
+    externalUserId: input.externalUserId,
+    ...(input.email != null ? { email: input.email } : {}),
+    status: 'active',
+  });
+
+  const token = await input.client.mintUserAccessToken({
+    externalUserId: input.externalUserId,
+    scope,
+  });
+
+  const expiresIn =
+    Number.isFinite(token.expires_in) && token.expires_in > 0
+      ? Math.floor(token.expires_in)
+      : 300;
+
+  return {
+    jwt: token.access_token,
+    // Clamp to >= 1s so a near-expiry mint never serializes a non-positive TTL.
+    expiresIn: Math.max(1, expiresIn),
+    scope: token.scope?.trim() || scope,
+  };
 }

@@ -181,7 +181,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       (await isFeatureEnabled(PER_KEY_REMOTE_SIGNER_FLAG))
     ) {
       try {
-        signerSession = await adapter.resolveSignerEndpoint(resolved.signerSession);
+        signerSession = await adapter.resolveSignerEndpoint(resolved.signerSession, {
+          externalUserId: ref.accountId,
+        });
         log('info', 'keys.validate.signer_endpoint', {
           correlationId,
           providerSlug: ref.providerSlug,
