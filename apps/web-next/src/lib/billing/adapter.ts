@@ -182,13 +182,19 @@ export interface BillingProviderAdapter {
    * BPP per-key remote signer (endpoint form) — OPTIONAL. Resolve a minted
    * token-bundle session into the {@link SignerSessionEndpoint} form: the
    * provider's per-key remote signer DMZ `url` plus opaque-to-apps `headers`
-   * carrying that session (so a downstream SDK/gateway can sign + pay directly
-   * against the per-key funded wallet). Providers that cannot expose a remote
-   * signer DMZ omit this; the front door then keeps the token-bundle form.
-   * Gated at the front door by `PER_KEY_REMOTE_SIGNER_FLAG` (default OFF), so a
-   * provider implementing this is still a no-op until the flag is enabled.
+   * carrying a per-user bearer (so a downstream SDK/gateway can sign + pay
+   * directly against the per-key funded wallet). The optional `context`
+   * carries the provider `externalUserId` (the front door's
+   * `billingAccountRef.accountId`) so the provider can mint a user-scoped
+   * credential for the bearer. Providers that cannot expose a remote signer DMZ
+   * omit this; the front door then keeps the token-bundle form. Gated at the
+   * front door by `PER_KEY_REMOTE_SIGNER_FLAG` (default OFF), so a provider
+   * implementing this is still a no-op until the flag is enabled.
    */
-  resolveSignerEndpoint?(session: SignerSessionToken): Promise<SignerSessionEndpoint>;
+  resolveSignerEndpoint?(
+    session: SignerSessionToken,
+    context?: { externalUserId: string },
+  ): Promise<SignerSessionEndpoint>;
 
   /** BPP ⑧ — receive a curated orchestrator list for a plan. */
   receiveCuratedOrchestrators(plan: string, list: CuratedOrchestrator[]): Promise<void>;

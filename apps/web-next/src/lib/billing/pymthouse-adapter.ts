@@ -11,13 +11,16 @@
 import 'server-only';
 
 import { isPymthouseConfigured } from '@pymthouse/builder-sdk/config';
+import { assertDirectSignerBaseUrl } from '@pymthouse/builder-sdk/signer/server';
 
 import type { MeScopeUsagePayload, PmtHouseClient, UsageApiResponse } from '@pymthouse/builder-sdk';
 
 import {
   getPmtHouseServerClient,
+  globalSignerExchangeConfig,
   mintOpaqueSignerSessionForExternalUser,
   mintSignerSessionForExternalUser,
+  mintUserSignerJwtForExternalUser,
   type PymthouseSignerExchangeConfig,
 } from '@/lib/pymthouse-client';
 import { isFeatureEnabled, PYMTHOUSE_BPP_VALIDATE_FLAG } from '@/lib/feature-flags';
@@ -248,18 +251,30 @@ export class PymthouseAdapter implements BillingProviderAdapter {
    * Per-key remote signer (endpoint form). Resolve the app's remote signer DMZ
    * via the Builder API `GET /api/v1/apps/{clientId}/signer/routing`
    * (`getSignerRouting()`), then return the {@link SignerSessionEndpoint} form:
-   * the DMZ `url` + an `Authorization: Bearer <pmth_…>` header carrying the
-   * minted opaque session. go-livepeer's remote signer verifies that bearer via
-   * its `POST /webhooks/remote-signer` hook and meters usage to THIS pymthouse
-   * app's account — so signing + payment route to the funded per-key wallet
-   * instead of a static shared signer.
+   * the DMZ `url` + an `Authorization: Bearer <jwt>` header carrying a freshly
+   * minted USER-SCOPED SIGNER JWT (token-exchange "Option A" via
+   * {@link mintUserSignerJwtForExternalUser}).
+   *
+   * The DMZ identity webhook is OIDC/JWT-only: it verifies the bearer as a JWT
+   * (JWKS, `aud` = issuer, `client_id`, `external_user_id`) to attribute the
+   * billable `/generate-live-payment` ticket to the funded per-key wallet — an
+   * opaque `pmth_…` session is rejected with `Invalid JWT` (502). So we forward
+   * the JWT here, NOT the opaque `session.accessToken`. `mintSignerSession`
+   * (the flag-OFF default/Daydream path) still mints the opaque bundle
+   * byte-for-byte; the JWT is produced ONLY inside this already-flag-gated
+   * method (front-door `PER_KEY_REMOTE_SIGNER_FLAG`, fail-safe on error).
    *
    * The DMZ URL is the direct-DMZ signer API (`patterns.directDmz.signerApiUrl`),
-   * falling back to `routing.remoteDmzUrl`/`routing.signerApiUrl`. Throws when
-   * the provider exposes no DMZ URL so the front door can fail safe (it keeps
-   * the token-bundle form rather than emit a half-formed endpoint).
+   * falling back to `routing.remoteDmzUrl`/`routing.signerApiUrl`, validated by
+   * `assertDirectSignerBaseUrl` (rejects dashboard `/api/signer` proxy URLs).
+   * Throws when the provider exposes no DMZ URL or no `externalUserId` so the
+   * front door can fail safe (it keeps the token-bundle form rather than emit a
+   * half-formed endpoint).
    */
-  async resolveSignerEndpoint(session: SignerSessionToken): Promise<SignerSessionEndpoint> {
+  async resolveSignerEndpoint(
+    _session: SignerSessionToken,
+    context?: { externalUserId: string },
+  ): Promise<SignerSessionEndpoint> {
     const routing = await this.client().getSignerRouting();
     const url =
       routing.patterns?.directDmz?.signerApiUrl ||
@@ -269,9 +284,23 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     if (!url) {
       throw new Error('pymthouse signer routing returned no remote signer DMZ url');
     }
+    // Reject dashboard `/api/signer/*` proxy bases — signing RPCs must target
+    // the remote-signer DMZ origin directly (builder-sdk 0.4.6).
+    assertDirectSignerBaseUrl(url);
+
+    const externalUserId = context?.externalUserId;
+    if (!externalUserId) {
+      throw new Error('resolveSignerEndpoint requires externalUserId to mint the user signer JWT');
+    }
+
+    // Per-instance exchange config (this app's issuer + M2M creds) when the
+    // registry injected one, else the global `PYMTHOUSE_*` env config.
+    const exchange = this.signerExchange ?? globalSignerExchangeConfig();
+    const { jwt } = await mintUserSignerJwtForExternalUser({ exchange, externalUserId });
+
     return {
       url,
-      headers: { Authorization: `Bearer ${session.accessToken}` },
+      headers: { Authorization: `Bearer ${jwt}` },
     };
   }
 

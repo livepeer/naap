@@ -272,9 +272,11 @@ describe('per-key remote signer (per_key_remote_signer)', () => {
     expect(res.status).toBe(200);
     const d = (await res.json()).data;
     expect(d.signerSession).toEqual(endpoint);
-    // The minted token-bundle session is handed to the resolver.
+    // The minted token-bundle session is handed to the resolver, along with the
+    // key's billing account id as the externalUserId for the user-scoped JWT.
     expect(resolveSignerEndpoint).toHaveBeenCalledWith(
       expect.objectContaining({ accessToken: 'signer-tok' }),
+      { externalUserId: 'acct_om_1' },
     );
   });
 
