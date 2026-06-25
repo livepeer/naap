@@ -33,6 +33,7 @@ import {
   type ProviderSpendRecord,
   type ProviderSpendResult,
   type ProviderSpendScope,
+  type SignerSessionEndpoint,
   type SignerSessionToken,
   type UsageForExternalUserInput,
   type ValidateResult,
@@ -240,6 +241,37 @@ export class PymthouseAdapter implements BillingProviderAdapter {
       tokenType: session.tokenType,
       expiresIn: session.expiresIn,
       scope: session.scope,
+    };
+  }
+
+  /**
+   * Per-key remote signer (endpoint form). Resolve the app's remote signer DMZ
+   * via the Builder API `GET /api/v1/apps/{clientId}/signer/routing`
+   * (`getSignerRouting()`), then return the {@link SignerSessionEndpoint} form:
+   * the DMZ `url` + an `Authorization: Bearer <pmth_…>` header carrying the
+   * minted opaque session. go-livepeer's remote signer verifies that bearer via
+   * its `POST /webhooks/remote-signer` hook and meters usage to THIS pymthouse
+   * app's account — so signing + payment route to the funded per-key wallet
+   * instead of a static shared signer.
+   *
+   * The DMZ URL is the direct-DMZ signer API (`patterns.directDmz.signerApiUrl`),
+   * falling back to `routing.remoteDmzUrl`/`routing.signerApiUrl`. Throws when
+   * the provider exposes no DMZ URL so the front door can fail safe (it keeps
+   * the token-bundle form rather than emit a half-formed endpoint).
+   */
+  async resolveSignerEndpoint(session: SignerSessionToken): Promise<SignerSessionEndpoint> {
+    const routing = await this.client().getSignerRouting();
+    const url =
+      routing.patterns?.directDmz?.signerApiUrl ||
+      routing.routing?.remoteDmzUrl ||
+      routing.routing?.signerApiUrl ||
+      '';
+    if (!url) {
+      throw new Error('pymthouse signer routing returned no remote signer DMZ url');
+    }
+    return {
+      url,
+      headers: { Authorization: `Bearer ${session.accessToken}` },
     };
   }
 

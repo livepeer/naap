@@ -26,9 +26,9 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/db';
 import { error, errors, success } from '@/lib/api/response';
 import { enforceRateLimit } from '@/lib/api/rate-limit';
-import { isFeatureEnabled } from '@/lib/feature-flags';
+import { isFeatureEnabled, PER_KEY_REMOTE_SIGNER_FLAG } from '@/lib/feature-flags';
 import { parseApiKey } from '@naap/database';
-import { AdapterNotImplementedError } from '@/lib/billing/adapter';
+import { AdapterNotImplementedError, type SignerSession } from '@/lib/billing/adapter';
 import { getBillingProviderAdapter } from '@/lib/billing/registry';
 import { resolveKeyProviderBinding } from '@/lib/billing/key-provider-binding';
 import { resolveKeyDiscovery } from '@/lib/billing/key-discovery';
@@ -163,15 +163,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const ref = resolved.billingAccountRef;
 
+    // Capability resolution AND the optional per-key signer-endpoint resolution
+    // both scope to the SAME adapter/account the signer was minted against: the
+    // per-instance adapter in subscription mode, else today's slug→adapter.
+    const adapter =
+      binding.mode === 'subscription' ? binding.adapter : getBillingProviderAdapter(ref.providerSlug);
+
+    // Per-key remote signer (default OFF → byte-for-byte today's response). When
+    // ON and the resolved adapter can expose a remote signer DMZ, swap the
+    // provider token-bundle session for the SignerSession ENDPOINT form
+    // { url, headers } so the SDK service signs + pays through the funded
+    // per-key wallet. Fails SAFE: any resolution error keeps the token-bundle
+    // form (the SDK service falls back to its static signer), never 500s.
+    let signerSession: SignerSession = resolved.signerSession;
+    if (
+      adapter?.resolveSignerEndpoint &&
+      (await isFeatureEnabled(PER_KEY_REMOTE_SIGNER_FLAG))
+    ) {
+      try {
+        signerSession = await adapter.resolveSignerEndpoint(resolved.signerSession);
+        log('info', 'keys.validate.signer_endpoint', {
+          correlationId,
+          providerSlug: ref.providerSlug,
+        });
+      } catch {
+        log('warn', 'keys.validate.signer_endpoint_unavailable', {
+          correlationId,
+          providerSlug: ref.providerSlug,
+        });
+      }
+    }
+
     // Best-effort capabilities/quota from the provider (BPP ②). When the
     // provider hasn't wired validate yet (AdapterNotImplementedError), fail
     // CLOSED to an empty capability set — the key is still valid; NAAP-E gates.
     let capabilities: string[] = [];
     let quota: { remaining: number; resetAt?: string } | null = null;
-    // Capability resolution scopes to the SAME adapter/account the signer used:
-    // the per-instance adapter in subscription mode, else today's slug→adapter.
-    const adapter =
-      binding.mode === 'subscription' ? binding.adapter : getBillingProviderAdapter(ref.providerSlug);
     if (adapter) {
       try {
         const v = await adapter.validate(ref.accountId);
@@ -225,7 +252,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       billingAccountRef: ref,
       capabilities,
       quota,
-      signerSession: resolved.signerSession,
+      signerSession,
       discovery,
     });
 

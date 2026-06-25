@@ -66,6 +66,23 @@ export const MULTI_SUBSCRIPTION_FLAG = 'multi_subscription';
  */
 export const PLAN_SPEC_SYNC_FLAG = 'plan_spec_sync';
 
+/**
+ * Canonical key for per-key remote-signer wiring (default OFF). When OFF the
+ * validation front door returns the signer session EXACTLY as today — the
+ * provider token-bundle form (`SignerSessionToken`, `pmth_…`) — and no extra
+ * provider I/O happens (zero regression). When ON, and the resolved adapter
+ * implements `resolveSignerEndpoint`, the front door instead returns the
+ * `SignerSession` ENDPOINT form `{ url, headers }` pointing at the provider's
+ * per-key remote signer DMZ (pymthouse: `getSignerRouting()` DMZ URL + the
+ * minted `pmth_…` session as the `Authorization` header), so the SDK service
+ * signs + pays through the funded per-key wallet instead of a static shared
+ * signer. Mirrors the `DISCOVERY_FROM_VALIDATE` pattern: additive, flag-gated,
+ * canary-only. Shared by KNOWN_FLAGS and the front door so the name cannot
+ * drift. Pairs with simple-infra `SIGNER_FROM_VALIDATE` (the SDK service only
+ * consumes the endpoint form when ITS flag is on).
+ */
+export const PER_KEY_REMOTE_SIGNER_FLAG = 'per_key_remote_signer';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -155,6 +172,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: false,
     description:
       'Plan-spec → per-app discovery sync (P4): pull each ProviderInstance\'s published plans into ProviderPlan rows and auto-generate per-app DiscoveryPlans; the validate front door may expose the per-key discovery URL (key → subscription → ProviderPlan → DiscoveryPlan). OFF = no sync runs, ProviderPlan is never read/written, the catalog exposes no plans, and discovery is exactly today\'s static storyboard-default behavior (golden-set parity, zero regression).',
+  },
+  {
+    key: PER_KEY_REMOTE_SIGNER_FLAG,
+    enabled: false,
+    description:
+      'Per-key remote signer: the validation front door returns the signerSession ENDPOINT form { url, headers } pointing at the provider\'s per-key remote signer DMZ (pymthouse getSignerRouting DMZ URL + the minted pmth_ session), so the SDK service signs + pays through the funded per-key wallet. OFF = the front door returns the provider token-bundle form (pmth_ accessToken) exactly as today and performs no extra provider I/O (zero regression). Canary-only; pairs with simple-infra SIGNER_FROM_VALIDATE (the SDK service consumes the endpoint form only when its own flag is on).',
   },
 ];
 
