@@ -338,6 +338,7 @@ model Team {
   members        TeamMember[]
   pluginInstalls TeamPluginInstall[]
   seats          Seat[]
+  featureFlagOverrides FeatureFlagOverride[]
 
   @@index([ownerId])
   @@index([billingAccountProviderSlug])
@@ -541,6 +542,30 @@ model FeatureFlag {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@schema("public")
+}
+
+// Per-team feature-flag override. Scopes a single flag ON/OFF for ONE team
+// without changing the platform-wide `FeatureFlag` default. Keyed by
+// (teamId, flagKey); when a row exists its `enabled` wins for that team, else
+// the team inherits the global `FeatureFlag` value. PURELY ADDITIVE: with no
+// override rows, flag evaluation is byte-identical to today (global value).
+// `flagKey` is the same string used in `FeatureFlag.key` / `KNOWN_FLAGS` (no FK
+// so a flag defaulting OFF in code needs no `FeatureFlag` row to be overridden).
+// Audit fields record who set the override and when.
+model FeatureFlagOverride {
+  id        String   @id @default(uuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  flagKey   String
+  enabled   Boolean
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teamId, flagKey])
+  @@index([flagKey, enabled])
+  @@index([teamId])
   @@schema("public")
 }
 

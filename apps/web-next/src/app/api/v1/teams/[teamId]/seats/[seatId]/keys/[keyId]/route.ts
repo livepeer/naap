@@ -53,7 +53,7 @@ function mapAccessError(err: unknown): NextResponse {
 export async function DELETE(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(NATIVE_KEYS_FLAG))) return noStore(errors.notFound('Resource'));
+    if (!(await isFeatureEnabled(NATIVE_KEYS_FLAG, (await params).teamId))) return noStore(errors.notFound('Resource'));
 
     const { teamId, seatId, keyId } = await params;
     const token = getAuthToken(request);

@@ -26,7 +26,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/db';
 import { error, errors, success } from '@/lib/api/response';
 import { enforceRateLimit } from '@/lib/api/rate-limit';
-import { isFeatureEnabled, PER_KEY_REMOTE_SIGNER_FLAG } from '@/lib/feature-flags';
+import { isFeatureEnabled, anyTeamFlagOverrideEnabled, PER_KEY_REMOTE_SIGNER_FLAG } from '@/lib/feature-flags';
 import { parseApiKey } from '@naap/database';
 import { AdapterNotImplementedError, type SignerSession } from '@/lib/billing/adapter';
 import { getBillingProviderAdapter } from '@/lib/billing/registry';
@@ -74,8 +74,13 @@ function invalid(correlationId: string, reason: string): NextResponse {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    // Flag OFF → 404; callers fall back to their existing direct path.
-    if (!(await isFeatureEnabled(FRONT_DOOR_FLAG))) {
+    // Front-door visibility gate (team-scoped). Globally ON → today's exact path
+    // (short-circuits, no extra query). Globally OFF + NO team opted in → 404
+    // immediately, byte-identical to today. Globally OFF but some team has an
+    // override ON → continue so we can resolve the key's team and re-evaluate in
+    // that team's scope below (a non-enabled team is masked back to 404).
+    const globalFrontDoor = await isFeatureEnabled(FRONT_DOOR_FLAG);
+    if (!globalFrontDoor && !(await anyTeamFlagOverrideEnabled(FRONT_DOOR_FLAG))) {
       return noStore(errors.notFound('Resource'));
     }
 
@@ -121,6 +126,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     if (key.status !== 'ACTIVE') {
       return invalid(correlationId, 'revoked');
+    }
+
+    // Per-team front-door re-check, now that we know the key's owning team.
+    // Resolves the flag in THIS team's scope: a per-team override (ON or OFF)
+    // wins, else the team inherits the global value — so a non-opted-in team is
+    // masked back to 404 (endpoint stays hidden for it, exactly as today). The
+    // override fetch is cached and reused by every team-scoped flag check below,
+    // so this adds no extra DB round-trip on the hot path. With NO override the
+    // result equals the global value (zero regression).
+    const teamId = key.teamId;
+    if (!(await isFeatureEnabled(FRONT_DOOR_FLAG, teamId))) {
+      return noStore(errors.notFound('Resource'));
     }
 
     // Resolve the seat's team binding.
@@ -178,7 +195,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let signerSession: SignerSession = resolved.signerSession;
     if (
       adapter?.resolveSignerEndpoint &&
-      (await isFeatureEnabled(PER_KEY_REMOTE_SIGNER_FLAG))
+      (await isFeatureEnabled(PER_KEY_REMOTE_SIGNER_FLAG, teamId))
     ) {
       try {
         signerSession = await adapter.resolveSignerEndpoint(resolved.signerSession, {
@@ -203,7 +220,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let quota: { remaining: number; resetAt?: string } | null = null;
     if (adapter) {
       try {
-        const v = await adapter.validate(ref.accountId);
+        const v = await adapter.validate(ref.accountId, { teamId });
         if (Array.isArray(v.capabilities)) capabilities = v.capabilities;
         quota = v.quota ?? null;
       } catch (e) {
@@ -220,7 +237,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // exactly as before). ON → an optional `X-Requested-Capability` the resolved
     // plan does not grant is denied (fail closed; an empty grant set denies all).
     const gate = enforceCapabilityGate({
-      enabled: await isFeatureEnabled(CAPABILITY_GATE_FLAG),
+      enabled: await isFeatureEnabled(CAPABILITY_GATE_FLAG, teamId),
       granted: capabilities,
       requested: request.headers.get('x-requested-capability'),
     });
@@ -239,7 +256,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // otherwise null ⇒ no `discovery` field ⇒ byte-for-byte today's response.
     const resolvedDiscovery =
       binding.mode === 'subscription'
-        ? await resolveKeyDiscovery(binding.subscription)
+        ? await resolveKeyDiscovery(binding.subscription, teamId)
         : null;
     const discovery = resolvedDiscovery
       ? { planId: resolvedDiscovery.discoveryPlanId, url: resolvedDiscovery.url }

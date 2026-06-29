@@ -60,12 +60,17 @@ export type SubscriptionResolution =
  * resolution", so existing keys (null subscriptionId) are byte-for-byte
  * unchanged. Never throws — DB errors degrade to `legacy`.
  */
-export async function resolveSubscriptionForKey(key: {
-  subscriptionId: string | null;
-}): Promise<SubscriptionResolution> {
+export async function resolveSubscriptionForKey(
+  key: {
+    subscriptionId: string | null;
+  },
+  teamId?: string | null,
+): Promise<SubscriptionResolution> {
   let flagOn = false;
   try {
-    flagOn = await isFeatureEnabled(MULTI_SUBSCRIPTION_FLAG);
+    // Team-scoped when a `teamId` is supplied (the key's owning team); falls back
+    // to the global value otherwise — byte-identical to today for existing keys.
+    flagOn = await isFeatureEnabled(MULTI_SUBSCRIPTION_FLAG, teamId);
   } catch {
     flagOn = false;
   }

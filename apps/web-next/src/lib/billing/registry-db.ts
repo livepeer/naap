@@ -187,6 +187,7 @@ export async function resolveAdapterForProviderInstance(
 export async function resolveAdapterForProviderInstanceById(
   providerInstanceId: string,
   fallbackAdapterType: string = PYMTHOUSE_ADAPTER_SLUG,
+  teamId?: string | null,
 ): Promise<InstanceAdapterResolution> {
   return resolveInstanceAdapter(
     () =>
@@ -195,6 +196,7 @@ export async function resolveAdapterForProviderInstanceById(
         select: PROVIDER_INSTANCE_SELECT,
       }),
     fallbackAdapterType,
+    teamId,
   );
 }
 
@@ -218,10 +220,14 @@ async function resolveInstanceAdapter(
     enabled: boolean;
   } | null>,
   fallbackAdapterType: string,
+  teamId?: string | null,
 ): Promise<InstanceAdapterResolution> {
   let flagOn = false;
   try {
-    flagOn = await isFeatureEnabled(PROVIDER_INSTANCES_FLAG);
+    // Team-scoped when a `teamId` is supplied (the key's owning team); else the
+    // global value (today's behavior). The by-slug entry point passes no teamId
+    // and stays global by design.
+    flagOn = await isFeatureEnabled(PROVIDER_INSTANCES_FLAG, teamId);
   } catch {
     flagOn = false;
   }

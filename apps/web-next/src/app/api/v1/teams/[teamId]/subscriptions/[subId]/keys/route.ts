@@ -84,7 +84,7 @@ async function loadTeamSubscription(teamId: string, subId: string) {
 export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(MULTI_SUBSCRIPTION_FLAG))) return noStore(errors.notFound('Resource'));
+    if (!(await isFeatureEnabled(MULTI_SUBSCRIPTION_FLAG, (await params).teamId))) return noStore(errors.notFound('Resource'));
 
     const { teamId, subId } = await params;
     const token = getAuthToken(request);
@@ -119,7 +119,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(MULTI_SUBSCRIPTION_FLAG))) return noStore(errors.notFound('Resource'));
+    if (!(await isFeatureEnabled(MULTI_SUBSCRIPTION_FLAG, (await params).teamId))) return noStore(errors.notFound('Resource'));
 
     const { teamId, subId } = await params;
     const token = getAuthToken(request);
