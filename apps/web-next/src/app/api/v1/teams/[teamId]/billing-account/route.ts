@@ -60,7 +60,7 @@ function mapAccessError(err: unknown): NextResponse {
 export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(TEAM_SEATS_FLAG))) return noStore(errors.notFound('Resource'));
+    if (!(await isFeatureEnabled(TEAM_SEATS_FLAG, (await params).teamId))) return noStore(errors.notFound('Resource'));
 
     const { teamId } = await params;
     const token = getAuthToken(request);
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 export async function PUT(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(TEAM_SEATS_FLAG))) return noStore(errors.notFound('Resource'));
+    if (!(await isFeatureEnabled(TEAM_SEATS_FLAG, (await params).teamId))) return noStore(errors.notFound('Resource'));
 
     const { teamId } = await params;
     const token = getAuthToken(request);

@@ -104,7 +104,7 @@ async function authorizeSeatAction(
 export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(NATIVE_KEYS_FLAG))) return noStore(errors.notFound('Resource'));
+    if (!(await isFeatureEnabled(NATIVE_KEYS_FLAG, (await params).teamId))) return noStore(errors.notFound('Resource'));
 
     const { teamId, seatId } = await params;
     const token = getAuthToken(request);
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(NATIVE_KEYS_FLAG))) return noStore(errors.notFound('Resource'));
+    if (!(await isFeatureEnabled(NATIVE_KEYS_FLAG, (await params).teamId))) return noStore(errors.notFound('Resource'));
 
     const { teamId, seatId } = await params;
     const token = getAuthToken(request);

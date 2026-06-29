@@ -89,7 +89,8 @@ describe('resolveKeyProviderBinding — per-instance/per-account resolution', ()
 
     const r = await resolveKeyProviderBinding({ subscriptionId: 'sub-1', teamId: 'team-1' });
 
-    expect(resolveAdapterForProviderInstanceById).toHaveBeenCalledWith('inst-1');
+    // Instance resolution is scoped to the key's team (provider_instances flag).
+    expect(resolveAdapterForProviderInstanceById).toHaveBeenCalledWith('inst-1', undefined, 'team-1');
     expect(r.mode).toBe('subscription');
     if (r.mode !== 'subscription') throw new Error('expected subscription');
     expect(r.adapter).toBe(adapter);

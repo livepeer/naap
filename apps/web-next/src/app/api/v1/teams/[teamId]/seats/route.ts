@@ -66,7 +66,7 @@ function mapAccessError(err: unknown): NextResponse {
 export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(TEAM_SEATS_FLAG))) {
+    if (!(await isFeatureEnabled(TEAM_SEATS_FLAG, (await params).teamId))) {
       return noStore(errors.notFound('Resource'));
     }
 
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const correlationId = correlationIdOf(request);
   try {
-    if (!(await isFeatureEnabled(TEAM_SEATS_FLAG))) {
+    if (!(await isFeatureEnabled(TEAM_SEATS_FLAG, (await params).teamId))) {
       return noStore(errors.notFound('Resource'));
     }
 

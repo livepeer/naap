@@ -38,6 +38,7 @@ import {
   type SignerSessionEndpoint,
   type SignerSessionToken,
   type UsageForExternalUserInput,
+  type ValidateContext,
   type ValidateResult,
 } from './adapter';
 
@@ -100,8 +101,11 @@ export class PymthouseAdapter implements BillingProviderAdapter {
    * falls back to an empty capability set (zero regression). Provider errors
    * propagate so the front door fails CLOSED.
    */
-  async validate(externalUserId: string): Promise<ValidateResult> {
-    if (!(await isFeatureEnabled(PYMTHOUSE_BPP_VALIDATE_FLAG))) {
+  async validate(externalUserId: string, context?: ValidateContext): Promise<ValidateResult> {
+    // Team-scoped flag when the front door supplies the key's owning team; else
+    // global (today's behavior). A per-team override lets ONE team resolve live
+    // capabilities without flipping `pymthouse_bpp_validate` for everyone.
+    if (!(await isFeatureEnabled(PYMTHOUSE_BPP_VALIDATE_FLAG, context?.teamId))) {
       throw new AdapterNotImplementedError(this.slug, 'validate');
     }
     const resolved = await resolvePymthouseCapabilities(externalUserId);

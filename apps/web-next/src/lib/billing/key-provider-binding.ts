@@ -57,7 +57,10 @@ export async function resolveKeyProviderBinding(key: {
   subscriptionId: string | null;
   teamId: string | null;
 }): Promise<KeyProviderBinding> {
-  const sub = await resolveSubscriptionForKey({ subscriptionId: key.subscriptionId });
+  // Flag evaluation (multi_subscription, provider_instances) resolves in the
+  // key's OWN team scope so a per-team override enables the subscription hop for
+  // that team only; a team with no override inherits today's global value.
+  const sub = await resolveSubscriptionForKey({ subscriptionId: key.subscriptionId }, key.teamId);
   if (sub.mode === 'legacy') {
     return { mode: 'legacy', reason: sub.reason };
   }
@@ -67,7 +70,11 @@ export async function resolveKeyProviderBinding(key: {
     return { mode: 'legacy', reason: 'team_mismatch' };
   }
 
-  const adapterRes = await resolveAdapterForProviderInstanceById(sub.subscription.providerInstanceId);
+  const adapterRes = await resolveAdapterForProviderInstanceById(
+    sub.subscription.providerInstanceId,
+    undefined,
+    key.teamId,
+  );
   if (!adapterRes.adapter) {
     // Unresolved instance → fall back to legacy (never hard-fail an existing key).
     return { mode: 'legacy', reason: 'instance_unresolved' };

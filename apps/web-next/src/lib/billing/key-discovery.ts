@@ -51,6 +51,7 @@ export function buildDiscoveryUrl(discoveryPlanId: string): string {
  */
 export async function resolveKeyDiscovery(
   subscription: Pick<SubscriptionRecord, 'providerInstanceId' | 'providerPlanId'>,
+  teamId?: string | null,
 ): Promise<KeyDiscoveryResolution | null> {
   if (!subscription.providerPlanId) {
     return null;
@@ -58,7 +59,9 @@ export async function resolveKeyDiscovery(
 
   let flagOn = false;
   try {
-    flagOn = await isFeatureEnabled(PLAN_SPEC_SYNC_FLAG);
+    // Team-scoped when a `teamId` is supplied (the key's owning team); else the
+    // global value (today's behavior — byte-identical when no override exists).
+    flagOn = await isFeatureEnabled(PLAN_SPEC_SYNC_FLAG, teamId);
   } catch {
     flagOn = false;
   }

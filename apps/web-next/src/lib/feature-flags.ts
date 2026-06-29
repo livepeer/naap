@@ -182,11 +182,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
 ];
 
 /**
- * Read a single feature flag's effective state without writing to the DB.
- * Falls back to the KNOWN_FLAGS default (or `false`) when the flag row does not
- * exist yet, so a flag defaulting OFF is a no-op until an admin enables it.
+ * Read a single feature flag's GLOBAL (platform-wide) effective state without
+ * writing to the DB. Falls back to the KNOWN_FLAGS default (or `false`) when the
+ * flag row does not exist yet, so a flag defaulting OFF is a no-op until an admin
+ * enables it.
  */
-export async function isFeatureEnabled(key: string): Promise<boolean> {
+async function readGlobalFlag(key: string): Promise<boolean> {
   try {
     const flag = await prisma.featureFlag.findUnique({
       where: { key },
@@ -198,6 +199,141 @@ export async function isFeatureEnabled(key: string): Promise<boolean> {
     // static KNOWN_FLAGS default so a flag defaulting OFF stays a safe no-op.
   }
   return KNOWN_FLAGS.find((f) => f.key === key)?.enabled ?? false;
+}
+
+// ── Per-team override resolution (zero-blast-radius flag scoping) ──
+
+/**
+ * Short-TTL per-team override cache. A team's overrides are loaded with a SINGLE
+ * `findMany` and reused for the TTL window, so threading team-scoped resolution
+ * onto the hot validate path — which evaluates several flags per request —
+ * resolves every team-scoped flag from ONE query instead of an N+1. The TTL is
+ * intentionally short so an admin toggling an override takes effect promptly.
+ */
+const TEAM_OVERRIDE_TTL_MS = 5_000;
+/**
+ * Hard ceiling on cached teams. The TTL is short, so this is only ever
+ * approached under a burst across many distinct teams; the bounded set below
+ * prunes expired entries and then evicts oldest-first so the cache can never
+ * grow without limit (memory stays tied to the active working set).
+ */
+const TEAM_OVERRIDE_CACHE_MAX = 1_000;
+const teamOverrideCache = new Map<string, { overrides: Record<string, boolean>; expiresAt: number }>();
+
+/**
+ * Insert into a short-TTL cache while keeping it bounded: once at capacity,
+ * first drop any expired entries, then evict oldest-inserted until under the
+ * limit. Prevents unbounded `Map` growth across many distinct keys.
+ */
+function setBounded<V extends { expiresAt: number }>(
+  cache: Map<string, V>,
+  key: string,
+  value: V,
+  max: number,
+): void {
+  if (cache.size >= max && !cache.has(key)) {
+    const now = Date.now();
+    for (const [k, v] of cache) {
+      if (v.expiresAt <= now) cache.delete(k);
+    }
+    while (cache.size >= max) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
+  cache.set(key, value);
+}
+
+/**
+ * Load (and briefly cache) ALL of a team's flag overrides as `flagKey → enabled`.
+ * Returns `{}` when the team has no overrides or the lookup fails — either way
+ * the caller then inherits the global value (fail-safe, zero regression).
+ */
+async function loadTeamOverrides(teamId: string): Promise<Record<string, boolean>> {
+  const now = Date.now();
+  const cached = teamOverrideCache.get(teamId);
+  if (cached && cached.expiresAt > now) return cached.overrides;
+
+  let overrides: Record<string, boolean> = {};
+  try {
+    const rows = await prisma.featureFlagOverride.findMany({
+      where: { teamId },
+      select: { flagKey: true, enabled: true },
+    });
+    overrides = Object.fromEntries(rows.map((r) => [r.flagKey, r.enabled]));
+  } catch {
+    // DB unavailable / lagging → no overrides → inherit global (never hard-fail).
+    overrides = {};
+  }
+  setBounded(teamOverrideCache, teamId, { overrides, expiresAt: now + TEAM_OVERRIDE_TTL_MS }, TEAM_OVERRIDE_CACHE_MAX);
+  return overrides;
+}
+
+/**
+ * Read a single feature flag's effective state for an OPTIONAL team context.
+ *
+ * Precedence: a per-team `FeatureFlagOverride` row (ON or OFF) wins for that
+ * team; otherwise the team inherits the GLOBAL value (today's exact behavior).
+ * With no `teamId` — or no override row for that flag — this is byte-identical to
+ * the global path, so default behavior is unchanged (zero regression).
+ *
+ * Backward compatible: every existing `isFeatureEnabled(key)` call keeps the
+ * global semantics; passing a `teamId` opts into team-scoped resolution.
+ */
+export async function isFeatureEnabled(key: string, teamId?: string | null): Promise<boolean> {
+  if (teamId) {
+    const overrides = await loadTeamOverrides(teamId);
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+      return overrides[key];
+    }
+  }
+  return readGlobalFlag(key);
+}
+
+/**
+ * Explicit team-scoped alias of {@link isFeatureEnabled} for call sites that
+ * always have a team context (reads better than a positional second arg).
+ */
+export async function isFeatureEnabledForTeam(key: string, teamId: string | null | undefined): Promise<boolean> {
+  return isFeatureEnabled(key, teamId);
+}
+
+/**
+ * Does ANY team currently have `flagKey` overridden to ENABLED?
+ *
+ * Used only to keep flag-gated "endpoint hidden" surfaces (e.g. the
+ * `/api/v1/keys/validate` front door) byte-identical to today when the flag is
+ * globally OFF and NO team has opted in: a single cheap existence check lets the
+ * endpoint return its usual 404 immediately without resolving a team. Cached
+ * briefly to avoid a per-request query on the globally-OFF hot path. Fail-safe:
+ * any error reports `false` (stay hidden, exactly as today).
+ */
+const anyOverrideCache = new Map<string, { value: boolean; expiresAt: number }>();
+
+export async function anyTeamFlagOverrideEnabled(flagKey: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = anyOverrideCache.get(flagKey);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  let value = false;
+  try {
+    const row = await prisma.featureFlagOverride.findFirst({
+      where: { flagKey, enabled: true },
+      select: { id: true },
+    });
+    value = Boolean(row);
+  } catch {
+    value = false;
+  }
+  setBounded(anyOverrideCache, flagKey, { value, expiresAt: now + TEAM_OVERRIDE_TTL_MS }, TEAM_OVERRIDE_CACHE_MAX);
+  return value;
+}
+
+/** Clear the in-memory override caches (test isolation / after a mutation). */
+export function resetFeatureFlagOverrideCache(): void {
+  teamOverrideCache.clear();
+  anyOverrideCache.clear();
 }
 
 /**

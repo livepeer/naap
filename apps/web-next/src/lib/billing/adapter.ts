@@ -10,6 +10,16 @@
  * `AdapterNotImplementedError` (HTTP 501-equivalent) rather than guessing.
  */
 
+/**
+ * Optional context for a {@link BillingProviderAdapter.validate} call. Carries
+ * the NaaP `teamId` that owns the key being validated so an adapter can evaluate
+ * its own flag gates (e.g. pymthouse's `pymthouse_bpp_validate`) in that team's
+ * scope. Omitted ⇒ global flag evaluation (today's behavior).
+ */
+export interface ValidateContext {
+  teamId?: string | null;
+}
+
 /** BPP ② validate result (provider-neutral; mirrors validate.schema.json). */
 export interface ValidateResult {
   valid: boolean;
@@ -152,7 +162,7 @@ export interface BillingProviderAdapter {
   isConfigured(): boolean;
 
   /** BPP ② — resolve an opaque key into identity + capabilities + signer session. */
-  validate(key: string): Promise<ValidateResult>;
+  validate(key: string, context?: ValidateContext): Promise<ValidateResult>;
 
   /** BPP ④ — plan catalogue. */
   getPlans(): Promise<Plan[]>;

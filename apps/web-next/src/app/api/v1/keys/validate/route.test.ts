@@ -9,8 +9,10 @@ import { generateNativeApiKey } from '@/lib/dev-api/native-key';
 import { hashApiKey } from '@naap/database';
 
 const isFeatureEnabled = vi.fn();
+const anyTeamFlagOverrideEnabled = vi.fn();
 vi.mock('@/lib/feature-flags', () => ({
   isFeatureEnabled: (...a: unknown[]) => isFeatureEnabled(...a),
+  anyTeamFlagOverrideEnabled: (...a: unknown[]) => anyTeamFlagOverrideEnabled(...a),
   PER_KEY_REMOTE_SIGNER_FLAG: 'per_key_remote_signer',
 }));
 
@@ -59,6 +61,9 @@ function req(token: string | null, headers: Record<string, string> = {}): NextRe
 beforeEach(() => {
   vi.clearAllMocks();
   isFeatureEnabled.mockResolvedValue(true);
+  // No team opted in via override unless a test says otherwise (keeps the
+  // globally-OFF front-door path returning 404 exactly as today).
+  anyTeamFlagOverrideEnabled.mockResolvedValue(false);
   prisma.devApiKey.findUnique.mockResolvedValue({
     id: 'key-1',
     userId: 'user-1',
@@ -220,7 +225,7 @@ describe('P2 per-key subscription resolution (multi_subscription)', () => {
     expect(d.quota).toEqual({ remaining: 3 });
     expect(d.signerSession.accessToken).toBe('instance-tok');
     // Per-account scoping: validate + mint keyed off the subscription account.
-    expect(instanceAdapter.validate).toHaveBeenCalledWith('acct_sub_99');
+    expect(instanceAdapter.validate).toHaveBeenCalledWith('acct_sub_99', { teamId: 'team-1' });
     expect(instanceAdapter.mintSignerSession).toHaveBeenCalledWith(
       expect.objectContaining({ externalUserId: 'acct_sub_99' }),
     );
@@ -298,6 +303,84 @@ describe('per-key remote signer (per_key_remote_signer)', () => {
     const res = await POST(req(rawKey));
     expect(res.status).toBe(200);
     expect((await res.json()).data.signerSession.accessToken).toBe('signer-tok');
+  });
+});
+
+describe('per-team front-door scoping (zero-blast-radius)', () => {
+  // Front door is GLOBALLY OFF in every test here; only a per-team override opens it.
+  const frontDoorEnabledForTeam = (enabledTeamId: string | null) =>
+    isFeatureEnabled.mockImplementation(async (key: string, teamId?: string | null) =>
+      key === 'key_validation_front_door' ? teamId != null && teamId === enabledTeamId : false,
+    );
+
+  it('ZERO REGRESSION: globally OFF + no team opted in → 404, never touches the key DB', async () => {
+    isFeatureEnabled.mockResolvedValue(false);
+    anyTeamFlagOverrideEnabled.mockResolvedValue(false);
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(404);
+    expect(prisma.devApiKey.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('opted-in team → 200 even though the front door is globally OFF', async () => {
+    frontDoorEnabledForTeam('team-1');
+    anyTeamFlagOverrideEnabled.mockResolvedValue(true); // some team has an override
+    prisma.devApiKey.findUnique.mockResolvedValue({
+      id: 'key-1', userId: 'user-1', keyHash, status: 'ACTIVE', seatId: 'seat-1', teamId: 'team-1',
+    });
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(200);
+  });
+
+  it('a DIFFERENT team is masked back to 404 (override for team-1 never leaks to team-2)', async () => {
+    frontDoorEnabledForTeam('team-1');
+    anyTeamFlagOverrideEnabled.mockResolvedValue(true);
+    prisma.devApiKey.findUnique.mockResolvedValue({
+      id: 'key-2', userId: 'user-2', keyHash, status: 'ACTIVE', seatId: 'seat-2', teamId: 'team-2',
+    });
+    const res = await POST(req(rawKey));
+    expect(res.status).toBe(404);
+  });
+
+  // Pre-team failure masking: while the front door is globally OFF and merely
+  // canaried per-team, the endpoint's existence must not be probable. EVERY
+  // failure that occurs BEFORE the owning team is resolved returns the same 404
+  // as the disabled state (not 401/400), so an attacker can't distinguish
+  // "front door exists" from "not found".
+  describe('globally OFF + some team opted in → pre-team failures stay masked (404)', () => {
+    beforeEach(() => {
+      isFeatureEnabled.mockResolvedValue(false); // globally OFF for every flag
+      anyTeamFlagOverrideEnabled.mockResolvedValue(true); // ≥1 team has an override
+    });
+
+    it('no bearer → 404 (not 401), key DB untouched', async () => {
+      const res = await POST(req(null));
+      expect(res.status).toBe(404);
+      expect(prisma.devApiKey.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('provider token (passthrough disabled) → 404 (not 401)', async () => {
+      const res = await POST(req('pmth_sometoken'));
+      expect(res.status).toBe(404);
+      expect(prisma.devApiKey.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('malformed naap_ key → 404 (not 401), key DB untouched', async () => {
+      const res = await POST(req('naap_short'));
+      expect(res.status).toBe(404);
+      expect(prisma.devApiKey.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('unknown key → 404 (not 401)', async () => {
+      prisma.devApiKey.findUnique.mockResolvedValue(null);
+      expect((await POST(req(rawKey))).status).toBe(404);
+    });
+
+    it('revoked key → 404 (not 401)', async () => {
+      prisma.devApiKey.findUnique.mockResolvedValue({
+        id: 'key-1', userId: 'user-1', keyHash, status: 'REVOKED', seatId: 'seat-1', teamId: 'team-1',
+      });
+      expect((await POST(req(rawKey))).status).toBe(404);
+    });
   });
 });
 
