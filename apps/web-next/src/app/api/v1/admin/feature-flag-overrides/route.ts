@@ -154,6 +154,14 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (!key || typeof key !== 'string') return errors.badRequest('key is required');
     if (typeof enabled !== 'boolean') return errors.badRequest('enabled must be a boolean');
 
+    // Reject unknown flag keys. The GET response lists KNOWN_FLAGS ∪ FeatureFlag
+    // rows, so persisting an override for any other key would create a row the
+    // admin UI never shows (an invisible orphan that can't be cleared from here).
+    const isKnownFlag =
+      KNOWN_FLAGS.some((f) => f.key === key) ||
+      (await prisma.featureFlag.findUnique({ where: { key }, select: { key: true } })) !== null;
+    if (!isKnownFlag) return errors.badRequest(`Unknown feature flag key: ${key}`);
+
     const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true } });
     if (!team) return errors.notFound('Team');
 

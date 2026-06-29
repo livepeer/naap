@@ -1,11 +1,11 @@
 /** @vitest-environment node */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 const prisma = vi.hoisted(() => ({
   team: { findUnique: vi.fn() },
-  featureFlag: { findMany: vi.fn(), upsert: vi.fn() },
+  featureFlag: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
   featureFlagOverride: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
   auditLog: { create: vi.fn() },
 }));
@@ -14,8 +14,12 @@ vi.mock('@/lib/db', () => ({ prisma }));
 const validateSession = vi.fn();
 vi.mock('@/lib/api/auth', () => ({ validateSession: (...a: unknown[]) => validateSession(...a) }));
 
-// CSRF is enforced separately; treat it as passing here.
-vi.mock('@/lib/api/csrf', () => ({ validateCSRF: () => null }));
+// Spy on CSRF so we can assert the mutations actually invoke it (regression
+// guard: the check must never be silently dropped) and exercise its failure
+// path. Default: passes (returns null), matching the repo-wide shadow-mode
+// posture where a present token is accepted.
+const validateCSRF = vi.fn<(...a: unknown[]) => NextResponse | null>(() => null);
+vi.mock('@/lib/api/csrf', () => ({ validateCSRF: (...a: unknown[]) => validateCSRF(...a) }));
 
 import { GET, PUT, DELETE } from './route';
 
@@ -39,9 +43,11 @@ function req(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  validateCSRF.mockReturnValue(null);
   validateSession.mockResolvedValue(ADMIN);
   prisma.featureFlag.upsert.mockResolvedValue({});
   prisma.featureFlag.findMany.mockResolvedValue([]);
+  prisma.featureFlag.findUnique.mockResolvedValue(null);
   prisma.featureFlagOverride.findMany.mockResolvedValue([]);
   prisma.team.findUnique.mockResolvedValue({ id: 'team-1', name: 'Acme', slug: 'acme' });
 });
@@ -137,6 +143,49 @@ describe('PUT — set an override', () => {
       }),
     );
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('400 for an unknown flag key (no orphan override row is written)', async () => {
+    // Not in KNOWN_FLAGS and absent from the FeatureFlag table.
+    prisma.featureFlag.findUnique.mockResolvedValue(null);
+    const res = await PUT(req('PUT', { body: { teamId: 'team-1', key: 'totally_made_up_flag', enabled: true } }));
+    expect(res.status).toBe(400);
+    expect(prisma.featureFlagOverride.upsert).not.toHaveBeenCalled();
+  });
+
+  it('accepts a flag that exists in the DB but is not in KNOWN_FLAGS', async () => {
+    prisma.featureFlag.findUnique.mockResolvedValue({ key: 'db_only_flag' });
+    prisma.featureFlagOverride.upsert.mockResolvedValue({ id: 'o2', teamId: 'team-1', flagKey: 'db_only_flag', enabled: false });
+    const res = await PUT(req('PUT', { body: { teamId: 'team-1', key: 'db_only_flag', enabled: false } }));
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('CSRF — mutations enforce the check (never silently dropped)', () => {
+  it('PUT invokes validateCSRF before mutating', async () => {
+    prisma.featureFlagOverride.upsert.mockResolvedValue({ id: 'o1' });
+    await PUT(req('PUT', { body: { teamId: 'team-1', key: 'capability_gate', enabled: true } }));
+    expect(validateCSRF).toHaveBeenCalledTimes(1);
+  });
+
+  it('DELETE invokes validateCSRF before mutating', async () => {
+    prisma.featureFlagOverride.deleteMany.mockResolvedValue({ count: 0 });
+    await DELETE(req('DELETE', { body: { teamId: 'team-1', key: 'capability_gate' } }));
+    expect(validateCSRF).toHaveBeenCalledTimes(1);
+  });
+
+  it('PUT returns the CSRF error and does NOT upsert when the check fails closed', async () => {
+    validateCSRF.mockReturnValue(NextResponse.json({ error: 'CSRF' }, { status: 403 }));
+    const res = await PUT(req('PUT', { body: { teamId: 'team-1', key: 'capability_gate', enabled: true } }));
+    expect(res.status).toBe(403);
+    expect(prisma.featureFlagOverride.upsert).not.toHaveBeenCalled();
+  });
+
+  it('DELETE returns the CSRF error and does NOT delete when the check fails closed', async () => {
+    validateCSRF.mockReturnValue(NextResponse.json({ error: 'CSRF' }, { status: 403 }));
+    const res = await DELETE(req('DELETE', { body: { teamId: 'team-1', key: 'capability_gate' } }));
+    expect(res.status).toBe(403);
+    expect(prisma.featureFlagOverride.deleteMany).not.toHaveBeenCalled();
   });
 });
 

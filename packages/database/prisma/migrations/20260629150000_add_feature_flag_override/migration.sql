@@ -27,7 +27,15 @@ CREATE INDEX IF NOT EXISTS "FeatureFlagOverride_teamId_idx"
     ON "public"."FeatureFlagOverride"("teamId");
 
 -- FK to Team (cascade) — references an existing public table. A team's overrides
--- are removed with the team.
-ALTER TABLE "public"."FeatureFlagOverride"
-    ADD CONSTRAINT "FeatureFlagOverride_teamId_fkey" FOREIGN KEY ("teamId")
-    REFERENCES "public"."Team"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- are removed with the team. Guarded so re-applying the migration is a no-op
+-- once the constraint already exists (idempotent, matching the table/index above).
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'FeatureFlagOverride_teamId_fkey'
+    ) THEN
+        ALTER TABLE "public"."FeatureFlagOverride"
+            ADD CONSTRAINT "FeatureFlagOverride_teamId_fkey" FOREIGN KEY ("teamId")
+            REFERENCES "public"."Team"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;

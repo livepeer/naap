@@ -340,6 +340,48 @@ describe('per-team front-door scoping (zero-blast-radius)', () => {
     const res = await POST(req(rawKey));
     expect(res.status).toBe(404);
   });
+
+  // Pre-team failure masking: while the front door is globally OFF and merely
+  // canaried per-team, the endpoint's existence must not be probable. EVERY
+  // failure that occurs BEFORE the owning team is resolved returns the same 404
+  // as the disabled state (not 401/400), so an attacker can't distinguish
+  // "front door exists" from "not found".
+  describe('globally OFF + some team opted in → pre-team failures stay masked (404)', () => {
+    beforeEach(() => {
+      isFeatureEnabled.mockResolvedValue(false); // globally OFF for every flag
+      anyTeamFlagOverrideEnabled.mockResolvedValue(true); // ≥1 team has an override
+    });
+
+    it('no bearer → 404 (not 401), key DB untouched', async () => {
+      const res = await POST(req(null));
+      expect(res.status).toBe(404);
+      expect(prisma.devApiKey.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('provider token (passthrough disabled) → 404 (not 401)', async () => {
+      const res = await POST(req('pmth_sometoken'));
+      expect(res.status).toBe(404);
+      expect(prisma.devApiKey.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('malformed naap_ key → 404 (not 401), key DB untouched', async () => {
+      const res = await POST(req('naap_short'));
+      expect(res.status).toBe(404);
+      expect(prisma.devApiKey.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('unknown key → 404 (not 401)', async () => {
+      prisma.devApiKey.findUnique.mockResolvedValue(null);
+      expect((await POST(req(rawKey))).status).toBe(404);
+    });
+
+    it('revoked key → 404 (not 401)', async () => {
+      prisma.devApiKey.findUnique.mockResolvedValue({
+        id: 'key-1', userId: 'user-1', keyHash, status: 'REVOKED', seatId: 'seat-1', teamId: 'team-1',
+      });
+      expect((await POST(req(rawKey))).status).toBe(404);
+    });
+  });
 });
 
 describe('NAAP-E capability gate', () => {

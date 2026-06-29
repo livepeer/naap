@@ -12,7 +12,7 @@
  * exactly as the global flags dictate.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Flag,
@@ -67,6 +67,9 @@ export default function AdminFeatureFlagsPage() {
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null,
   );
+  // Identifies the latest flag load so a slow response for a previously selected
+  // team can never overwrite the flags shown for the team the admin is now on.
+  const flagsRequestRef = useRef(0);
 
   useEffect(() => {
     if (!isAdmin) router.push('/dashboard');
@@ -90,6 +93,8 @@ export default function AdminFeatureFlagsPage() {
   }, []);
 
   const loadFlags = useCallback(async (teamId: string) => {
+    const requestId = ++flagsRequestRef.current;
+    const isStale = () => requestId !== flagsRequestRef.current;
     try {
       setLoadingFlags(true);
       const res = await fetch(
@@ -97,12 +102,16 @@ export default function AdminFeatureFlagsPage() {
         { credentials: 'include' },
       );
       const data = await res.json();
+      // A newer team selection superseded this request — drop its result so it
+      // can't clobber the active team's flags or feedback.
+      if (isStale()) return;
       if (data.success) setFlags(data.data.flags);
       else setFeedback({ type: 'error', message: data.error?.message || 'Failed to load flags' });
     } catch {
+      if (isStale()) return;
       setFeedback({ type: 'error', message: 'Failed to load flags' });
     } finally {
-      setLoadingFlags(false);
+      if (!isStale()) setLoadingFlags(false);
     }
   }, []);
 

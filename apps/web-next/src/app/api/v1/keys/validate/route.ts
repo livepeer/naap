@@ -84,6 +84,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return noStore(errors.notFound('Resource'));
     }
 
+    // Canary mode: the front door is globally OFF and opened only per-team. Keep
+    // the endpoint FULLY masked — every pre-team-resolution failure returns the
+    // same 404 as the disabled state — so its existence/rollout can't be probed
+    // (no_bearer, malformed/unknown key, revoked, bad app id all look identical
+    // to "endpoint not found") until we resolve the key's owning team and
+    // confirm THAT team opted in below. When the front door is globally ON,
+    // `masked` is false and these are the usual 401/400s (byte-identical to
+    // today — zero regression for the rolled-out state).
+    const masked = !globalFrontDoor;
+    const reject = (reason: string): NextResponse => {
+      if (masked) {
+        log('warn', 'keys.validate.invalid', { correlationId, reason, masked: true });
+        return noStore(errors.notFound('Resource'));
+      }
+      return invalid(correlationId, reason);
+    };
+
     const rateLimited = enforceRateLimit(request, {
       keyPrefix: 'keys-validate',
       windowMs: RATE_LIMIT_WINDOW_MS,
@@ -92,20 +109,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (rateLimited) return rateLimited;
 
     const token = parseBearer(request.headers.get('authorization'));
-    if (!token) return invalid(correlationId, 'no_bearer');
+    if (!token) return reject('no_bearer');
 
     // D1: native naap_ keys ONLY — provider-token passthrough is disabled.
     if (!isNativeKeyToken(token)) {
-      return invalid(correlationId, 'provider_token_passthrough_disabled');
+      return reject('provider_token_passthrough_disabled');
     }
 
     const appId = extractAppId(request.headers.get('x-app-id'));
     if (appId === INVALID_APP_ID) {
-      return noStore(errors.badRequest('Invalid X-App-Id'));
+      return masked ? noStore(errors.notFound('Resource')) : noStore(errors.badRequest('Invalid X-App-Id'));
     }
 
     const parsed = parseApiKey(token);
-    if (!parsed) return invalid(correlationId, 'malformed');
+    if (!parsed) return reject('malformed');
 
     const key = await prisma.devApiKey.findUnique({
       where: { keyLookupId: parsed.lookupId },
@@ -122,10 +139,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Constant-time hash check; uniform failure whether the row is missing or
     // the secret mismatches (no key enumeration).
     if (!key || !verifyNativeKeyHash(token, key.keyHash)) {
-      return invalid(correlationId, 'not_found_or_mismatch');
+      return reject('not_found_or_mismatch');
     }
     if (key.status !== 'ACTIVE') {
-      return invalid(correlationId, 'revoked');
+      return reject('revoked');
     }
 
     // Per-team front-door re-check, now that we know the key's owning team.

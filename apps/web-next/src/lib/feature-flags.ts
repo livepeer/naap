@@ -211,7 +211,39 @@ async function readGlobalFlag(key: string): Promise<boolean> {
  * intentionally short so an admin toggling an override takes effect promptly.
  */
 const TEAM_OVERRIDE_TTL_MS = 5_000;
+/**
+ * Hard ceiling on cached teams. The TTL is short, so this is only ever
+ * approached under a burst across many distinct teams; the bounded set below
+ * prunes expired entries and then evicts oldest-first so the cache can never
+ * grow without limit (memory stays tied to the active working set).
+ */
+const TEAM_OVERRIDE_CACHE_MAX = 1_000;
 const teamOverrideCache = new Map<string, { overrides: Record<string, boolean>; expiresAt: number }>();
+
+/**
+ * Insert into a short-TTL cache while keeping it bounded: once at capacity,
+ * first drop any expired entries, then evict oldest-inserted until under the
+ * limit. Prevents unbounded `Map` growth across many distinct keys.
+ */
+function setBounded<V extends { expiresAt: number }>(
+  cache: Map<string, V>,
+  key: string,
+  value: V,
+  max: number,
+): void {
+  if (cache.size >= max && !cache.has(key)) {
+    const now = Date.now();
+    for (const [k, v] of cache) {
+      if (v.expiresAt <= now) cache.delete(k);
+    }
+    while (cache.size >= max) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
+  cache.set(key, value);
+}
 
 /**
  * Load (and briefly cache) ALL of a team's flag overrides as `flagKey → enabled`.
@@ -234,7 +266,7 @@ async function loadTeamOverrides(teamId: string): Promise<Record<string, boolean
     // DB unavailable / lagging → no overrides → inherit global (never hard-fail).
     overrides = {};
   }
-  teamOverrideCache.set(teamId, { overrides, expiresAt: now + TEAM_OVERRIDE_TTL_MS });
+  setBounded(teamOverrideCache, teamId, { overrides, expiresAt: now + TEAM_OVERRIDE_TTL_MS }, TEAM_OVERRIDE_CACHE_MAX);
   return overrides;
 }
 
@@ -294,7 +326,7 @@ export async function anyTeamFlagOverrideEnabled(flagKey: string): Promise<boole
   } catch {
     value = false;
   }
-  anyOverrideCache.set(flagKey, { value, expiresAt: now + TEAM_OVERRIDE_TTL_MS });
+  setBounded(anyOverrideCache, flagKey, { value, expiresAt: now + TEAM_OVERRIDE_TTL_MS }, TEAM_OVERRIDE_CACHE_MAX);
   return value;
 }
 
