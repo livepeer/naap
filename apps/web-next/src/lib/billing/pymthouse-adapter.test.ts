@@ -321,6 +321,28 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
     expect(getSignerRouting).not.toHaveBeenCalled();
   });
 
+  it('per-instance adapter (injected client) does NOT fall back to the global PYMTHOUSE_API_KEY env', async () => {
+    // A per-instance adapter must stay bound to ITS app: the global env key is
+    // never even consulted (short-circuited by the injected client), so it uses
+    // the legacy per-instance mint instead of the global app's api key.
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_tenant',
+      routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: 'https://dmz.tenant.com', jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: { directDmz: { description: '', signerApiUrl: '', webhookUrl: '' }, deprecatedHostedFacade: { description: '', signerApiUrl: null } },
+    });
+    const a = new PymthouseAdapter({ client: { getSignerRouting } as never, isConfigured: () => true });
+
+    const ep = await a.resolveSignerEndpoint(TOKEN, CTX);
+
+    // The global env key is never read, the api-key exchange never runs, and the
+    // legacy per-instance mint is used instead (tenant isolation preserved).
+    expect(readApiKeySignerSessionConfig).not.toHaveBeenCalled();
+    expect(exchangeApiKeyForSignerSession).not.toHaveBeenCalled();
+    expect(getSignerRouting).toHaveBeenCalledTimes(1);
+    expect(mintUserSignerJwtForExternalUser).toHaveBeenCalled();
+    expect(ep.url).toBe('https://dmz.tenant.com');
+  });
+
   it('throws when the exchange returns no signerUrl (front door fails safe)', async () => {
     exchangeApiKeyForSignerSession.mockResolvedValue({
       accessToken: 'jwt', signerUrl: null, expiresIn: 900, scope: 'sign:job', tokenType: 'Bearer',

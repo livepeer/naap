@@ -299,12 +299,22 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     // `/api/v1/apps/{clientId}/auth/api-key/signer-session` returns BOTH the
     // remote signer DMZ url AND the bearer in one call (replacing the legacy
     // `getSignerRouting()` + user-JWT mint below). Preferred when an explicit
-    // `apiKeyExchange` was injected (per-instance) OR `PYMTHOUSE_API_KEY` is set
-    // (global env). Unset by default ⇒ this branch is skipped and the legacy
-    // path runs byte-for-byte (zero regression). NOTE: this endpoint is
-    // authenticated by the `pmth_…` key itself and takes no `externalUserId`, so
-    // identity/usage attribution is at the KEY level, not per NaaP user.
-    const apiKeyCfg = this.apiKeyExchange ?? readApiKeySignerSessionConfig();
+    // `apiKeyExchange` was injected (per-instance) OR — for the GLOBAL-env
+    // adapter only — `PYMTHOUSE_API_KEY` is set. Unset by default ⇒ this branch
+    // is skipped and the legacy path runs byte-for-byte (zero regression).
+    //
+    // The global `PYMTHOUSE_API_KEY` env is NOT consulted for a per-instance
+    // adapter (one with an injected `clientOverride`): that key belongs to the
+    // global `PYMTHOUSE_*` app, so falling back to it would silently exchange a
+    // tenant's signer session against the WRONG app and break per-instance
+    // isolation. A per-instance adapter therefore uses the new path only when
+    // its own `apiKeyExchange` is injected, else the legacy per-instance mint.
+    //
+    // NOTE: this endpoint is authenticated by the `pmth_…` key itself and takes
+    // no `externalUserId`, so identity/usage attribution is at the KEY level,
+    // not per NaaP user.
+    const apiKeyCfg =
+      this.apiKeyExchange ?? (this.clientOverride ? undefined : readApiKeySignerSessionConfig());
     if (apiKeyCfg) {
       const session = await exchangeApiKeyForSignerSession(apiKeyCfg);
       const url = session.signerUrl;
