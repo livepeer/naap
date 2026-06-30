@@ -313,3 +313,154 @@ export async function mintUserSignerJwtForExternalUser(input: {
     scope: token.scope?.trim() || scope,
   };
 }
+
+/**
+ * Non-secret connection params + a `pmth_…` API key needed to perform the new
+ * single-call signer-session exchange documented at
+ * `POST /api/v1/apps/{clientId}/auth/api-key/signer-session`.
+ *
+ * `billingUrl` is the PymtHouse ORIGIN (e.g. `https://pymthouse.com`), NOT the
+ * `/api/v1/oidc` issuer URL — the endpoint lives under `/api/v1/apps/...`.
+ */
+export interface PymthouseApiKeyExchangeConfig {
+  billingUrl: string;
+  clientId: string;
+  apiKey: string;
+  scope?: string;
+}
+
+/** Result of the api-key → signer-session exchange (endpoint form inputs). */
+export interface ApiKeySignerSession {
+  /** Signer-session token to forward as `Authorization: Bearer …`. */
+  accessToken: string;
+  /** Remote signer DMZ base URL the provider returned (or null when omitted). */
+  signerUrl: string | null;
+  /** Seconds until the session expires (>= 1), defaulted when omitted. */
+  expiresIn: number;
+  /** Scope the session carries (defaults to the requested scope). */
+  scope: string;
+  /** Always `Bearer` for the signer DMZ. */
+  tokenType: string;
+}
+
+/**
+ * Read the signer-session token out of the exchange response envelope.
+ *
+ * Mirrors the canonical example client
+ * (`livepeer-gateway-client@30df477` `auth_exchange._signer_access_token`):
+ * accept either the nested `token.{accessToken,access_token}` envelope OR a
+ * flat top-level `{accessToken,access_token}`.
+ */
+function readSignerAccessToken(body: Record<string, unknown>): string {
+  const token = body.token;
+  if (token && typeof token === 'object' && !Array.isArray(token)) {
+    const rec = token as Record<string, unknown>;
+    for (const key of ['accessToken', 'access_token'] as const) {
+      const value = rec[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+  }
+  for (const key of ['accessToken', 'access_token'] as const) {
+    const value = body[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  throw new PmtHouseError('API key signer-session response missing signer access token', {
+    status: 502,
+    code: 'invalid_token_response',
+  });
+}
+
+/** Read the optional signer DMZ URL (`signerUrl` | `signer_url`) from the envelope. */
+function readSignerUrl(body: Record<string, unknown>): string | null {
+  for (const key of ['signerUrl', 'signer_url'] as const) {
+    const value = body[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+/**
+ * Exchange a `pmth_…` API key for a signer session via the NEW PymtHouse
+ * endpoint `POST /api/v1/apps/{clientId}/auth/api-key/signer-session`.
+ *
+ * This is the contract John relocated the token-exchange to (the example client
+ * `livepeer-gateway-client@30df477` `exchange_api_key_for_signer`): a SINGLE
+ * authenticated POST that returns both the signer-session token AND the remote
+ * signer DMZ url — collapsing NaaP's older multi-step "mint user JWT → manually
+ * token-exchange" shim into one call. The API key is sent as the bearer; the
+ * `clientId` is URL-encoded into the path; the body carries the requested scope.
+ */
+export async function exchangeApiKeyForSignerSession(
+  cfg: PymthouseApiKeyExchangeConfig,
+): Promise<ApiKeySignerSession> {
+  const apiKey = cfg.apiKey.trim();
+  if (!apiKey) {
+    throw new PmtHouseError('API key signer-session exchange requires a non-empty API key', {
+      status: 400,
+      code: 'pymthouse_required',
+    });
+  }
+  const clientId = cfg.clientId.trim();
+  if (!clientId) {
+    throw new PmtHouseError('API key signer-session exchange requires a non-empty clientId', {
+      status: 400,
+      code: 'pymthouse_required',
+    });
+  }
+  const scope = cfg.scope?.trim() || SIGN_JOB_SCOPE;
+  const url =
+    `${cfg.billingUrl.replace(/\/+$/, '')}/api/v1/apps/` +
+    `${encodeURIComponent(clientId)}/auth/api-key/signer-session`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(scope ? { scope } : {}),
+    cache: 'no-store',
+    // Fail fast instead of hanging if the PymtHouse endpoint is unresponsive.
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await response.json()) as Record<string, unknown>;
+  } catch {
+    throw new PmtHouseError('API key signer-session exchange returned invalid JSON', {
+      status: 502,
+      code: 'invalid_token_response',
+    });
+  }
+
+  if (!response.ok) {
+    const description =
+      typeof body.error_description === 'string'
+        ? body.error_description
+        : typeof body.error === 'string'
+          ? body.error
+          : `API key signer-session exchange failed (${response.status})`;
+    throw new PmtHouseError(description, {
+      status: response.status,
+      code: typeof body.error === 'string' ? body.error : 'signer_session_exchange_failed',
+      details: body,
+    });
+  }
+
+  const accessToken = readSignerAccessToken(body);
+  const expiresIn =
+    typeof body.expires_in === 'number' && Number.isFinite(body.expires_in) && body.expires_in > 0
+      ? Math.floor(body.expires_in)
+      : 300;
+  const scopeOut = typeof body.scope === 'string' && body.scope.trim() ? body.scope.trim() : scope;
+
+  return {
+    accessToken,
+    signerUrl: readSignerUrl(body),
+    expiresIn: Math.max(1, expiresIn),
+    scope: scopeOut,
+    tokenType: 'Bearer',
+  };
+}
