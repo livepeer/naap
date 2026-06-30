@@ -21,6 +21,7 @@ vi.mock('@/lib/orchestrator-leaderboard/provider-restrictions', () => ({
 vi.mock('@/lib/orchestrator-leaderboard/storyboard-default-plan', () => ({
   STORYBOARD_DEFAULT_PLAN_ID: 'storyboard-default',
   isStoryboardDefaultDiscoveryEnabled: vi.fn().mockReturnValue(false),
+  resolveAllCanaryStaticOrchestrators: vi.fn().mockReturnValue({}),
 }));
 
 vi.mock('@/lib/orchestrator-leaderboard/storyboard-default-discovery', () => ({

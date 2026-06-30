@@ -23,7 +23,10 @@ import {
   buildStoryboardDefaultDiscovery,
   type CapabilityFetchResult,
 } from '@/lib/orchestrator-leaderboard/storyboard-default-discovery';
-import { isStoryboardDefaultDiscoveryEnabled } from '@/lib/orchestrator-leaderboard/storyboard-default-plan';
+import {
+  isStoryboardDefaultDiscoveryEnabled,
+  resolveAllCanaryStaticOrchestrators,
+} from '@/lib/orchestrator-leaderboard/storyboard-default-plan';
 import {
   isByocToolDiscoveryEnabled,
   resolveByocToolCapabilities,
@@ -74,10 +77,16 @@ export async function GET(request: NextRequest): Promise<Response> {
       ? await resolveByocToolCapabilities()
       : undefined;
 
+    // Parameterized canary seam: env-listed orchestrators (e.g. the deployed
+    // E2E-demo canary) join the static fleet per class without depending on the
+    // leaderboard dataset cron. Unset → {} → no change.
+    const canaryStaticOrchestrators = resolveAllCanaryStaticOrchestrators();
+
     const { addresses, byKind, meta } = await buildStoryboardDefaultDiscovery({
       fetchCapabilityAddresses,
       billingProviderSlug,
       categoryCapabilities,
+      canaryStaticOrchestrators,
     });
 
     const out = addresses.map((address) => ({ address }));

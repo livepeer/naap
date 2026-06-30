@@ -121,3 +121,66 @@ export function isStoryboardDefaultDiscoveryEnabled(
   const raw = env[STORYBOARD_DEFAULT_DISCOVERY_FLAG]?.trim().toLowerCase();
   return raw === 'true' || raw === '1';
 }
+
+/**
+ * Per-category env vars that append EXTRA static-fleet orchestrator URIs to the
+ * Storyboard Default bundle (comma-separated). Default unset → empty → byte-for-
+ * byte-identical to today (golden-set parity preserved).
+ *
+ * Purpose: surface a freshly-deployed CANARY orchestrator in NaaP discovery
+ * WITHOUT waiting on the global leaderboard dataset cron. Because the static
+ * fleet is always merged into the bundle (and the live fetch is fail-safe — see
+ * `buildStoryboardDefaultDiscovery`), an address listed here is returned for its
+ * capability class even when ClickHouse has no warm rows for it yet. This is the
+ * "node's own DISCOVERY_URL" seam for the E2E demo.
+ *
+ * Fill in once the canary is deployed, e.g. (sdk/orch advertising byoc + tool):
+ *   STORYBOARD_CANARY_BYOC_ORCHESTRATORS=https://byoc-canary-1.daydream.monster:8935
+ *   STORYBOARD_CANARY_TOOL_ORCHESTRATORS=https://byoc-canary-1.daydream.monster:8935
+ *   STORYBOARD_CANARY_SCOPE_ORCHESTRATORS=  (leave empty unless the canary serves scope)
+ */
+export const STORYBOARD_CANARY_ORCHESTRATOR_ENV: Readonly<
+  Record<StoryboardDefaultCategoryKey, string>
+> = {
+  scope: 'STORYBOARD_CANARY_SCOPE_ORCHESTRATORS',
+  byoc: 'STORYBOARD_CANARY_BYOC_ORCHESTRATORS',
+  tool: 'STORYBOARD_CANARY_TOOL_ORCHESTRATORS',
+};
+
+/** Parse a comma/whitespace-separated env list of orchestrator URIs. */
+function parseOrchestratorList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Resolve the env-configured extra static-fleet orchestrators for one category.
+ * Returns `[]` when the env var is unset/blank (the zero-regression default).
+ */
+export function resolveCanaryStaticOrchestrators(
+  category: StoryboardDefaultCategoryKey,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  return parseOrchestratorList(env[STORYBOARD_CANARY_ORCHESTRATOR_ENV[category]]);
+}
+
+/**
+ * Resolve the env-configured canary orchestrators for every category. The
+ * result is a partial map (categories with no env override are omitted) so it
+ * can be passed straight into `buildStoryboardDefaultDiscovery`.
+ */
+export function resolveAllCanaryStaticOrchestrators(
+  env: NodeJS.ProcessEnv = process.env,
+): Partial<Record<StoryboardDefaultCategoryKey, string[]>> {
+  const out: Partial<Record<StoryboardDefaultCategoryKey, string[]>> = {};
+  for (const key of STORYBOARD_DEFAULT_CATEGORY_KEYS) {
+    const list = resolveCanaryStaticOrchestrators(key, env);
+    if (list.length > 0) {
+      out[key] = list;
+    }
+  }
+  return out;
+}
