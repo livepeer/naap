@@ -46,7 +46,7 @@
   "optionalDependencies": {},
   "devDependencies": {
     "@nx/js": "^22.6.5",
-    "@nx/node": "^22.6.5",
+    "@nx/node": "^22.7.6",
     "@nx/react": "^22.6.5",
     "@nx/vite": "^22.6.5",
     "@nx/web": "^22.6.5",
