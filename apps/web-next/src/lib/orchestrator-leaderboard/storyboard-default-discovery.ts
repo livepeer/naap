@@ -73,6 +73,16 @@ export interface BuildStoryboardDefaultDiscoveryArgs {
    * hardcoded constants. `staticOrchestrators` always come from the plan.
    */
   categoryCapabilities?: Partial<Record<StoryboardDefaultCategoryKey, readonly string[]>>;
+  /**
+   * Extra static-fleet orchestrator URIs appended per category (e.g. a freshly
+   * deployed CANARY orchestrator surfaced via env — see
+   * `resolveAllCanaryStaticOrchestrators`). Omitted/empty → no change (zero
+   * regression / golden-set parity). These join the plan's `staticOrchestrators`
+   * and so are returned for their capability class even when ClickHouse has no
+   * warm rows yet — making the bundle independent of the leaderboard dataset
+   * cron for these addresses.
+   */
+  canaryStaticOrchestrators?: Partial<Record<StoryboardDefaultCategoryKey, readonly string[]>>;
 }
 
 /** Split a full cap path into the short leaderboard capability (after `/`). */
@@ -111,7 +121,20 @@ async function collectCategory(
     allowedCapabilities.push(raw);
 
     const leaderboardCap = leaderboardCapFromPath(raw);
-    const result = await fetchCapabilityAddresses(leaderboardCap);
+    // Fail-safe: a ClickHouse/leaderboard outage must NOT 500 the bundle. Treat
+    // a fetch error as "no warm rows" so the static fleet (incl. any canary
+    // orchestrator) is still returned — the bundle does not depend on the
+    // global leaderboard dataset cron being healthy.
+    let result: CapabilityFetchResult;
+    try {
+      result = await fetchCapabilityAddresses(leaderboardCap);
+    } catch (err) {
+      console.warn(
+        '[storyboard-default-discovery] capability fetch failed; falling back to static fleet',
+        JSON.stringify({ capability: leaderboardCap, error: err instanceof Error ? err.message : 'unknown' }),
+      );
+      result = { addresses: [], fromCache: false, cachedAt: Date.now() };
+    }
     fromCache = fromCache && result.fromCache;
     cacheAgeMs = Math.max(cacheAgeMs, Date.now() - result.cachedAt);
 
@@ -180,9 +203,13 @@ export async function buildStoryboardDefaultDiscovery(
     cacheAgeMs = Math.max(cacheAgeMs, collected.cacheAgeMs);
 
     // Respect the provider-scoped denylist: when filtering allows zero
-    // capabilities for this category, do not inject its static fleet.
+    // capabilities for this category, do not inject its static fleet (nor any
+    // canary additions — they are static-fleet members too).
+    const canaryFleet = args.canaryStaticOrchestrators?.[key] ?? [];
     const staticFleet =
-      collected.allowedCapabilities.length > 0 ? [...category.staticOrchestrators] : [];
+      collected.allowedCapabilities.length > 0
+        ? [...category.staticOrchestrators, ...canaryFleet]
+        : [];
     staticFleetInjected += staticFleetGaps(collected.discovered, staticFleet).length;
 
     const merged = mergeStaticFleet(collected.discovered, staticFleet);

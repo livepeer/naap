@@ -28,6 +28,7 @@ import {
 } from '@/lib/orchestrator-leaderboard/storyboard-default-discovery';
 import {
   isStoryboardDefaultDiscoveryEnabled,
+  resolveAllCanaryStaticOrchestrators,
   STORYBOARD_DEFAULT_PLAN_ID,
 } from '@/lib/orchestrator-leaderboard/storyboard-default-plan';
 
@@ -103,6 +104,7 @@ async function handleStoryboardDefaultPlan(
     const { addresses, byKind, meta } = await buildStoryboardDefaultDiscovery({
       fetchCapabilityAddresses,
       billingProviderSlug,
+      canaryStaticOrchestrators: resolveAllCanaryStaticOrchestrators(),
     });
 
     console.info(
