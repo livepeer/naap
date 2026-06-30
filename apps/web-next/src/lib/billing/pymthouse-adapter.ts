@@ -16,12 +16,15 @@ import { assertDirectSignerBaseUrl } from '@pymthouse/builder-sdk/signer/server'
 import type { MeScopeUsagePayload, PmtHouseClient, UsageApiResponse } from '@pymthouse/builder-sdk';
 
 import {
+  exchangeApiKeyForSignerSession,
   getPmtHouseServerClient,
   mintOpaqueSignerSessionForExternalUser,
   mintSignerSessionForExternalUser,
   mintUserSignerJwtForExternalUser,
+  type PymthouseApiKeyExchangeConfig,
   type PymthouseSignerExchangeConfig,
 } from '@/lib/pymthouse-client';
+import { readApiKeySignerSessionConfig } from '@/lib/pymthouse-signer-exchange-config';
 import { isFeatureEnabled, PYMTHOUSE_BPP_VALIDATE_FLAG } from '@/lib/feature-flags';
 import { resolvePymthouseCapabilities } from './pymthouse-capabilities';
 import {
@@ -63,6 +66,14 @@ export interface PymthouseAdapterOptions {
    * adapter, which uses the `PYMTHOUSE_*` env exchange.
    */
   signerExchange?: PymthouseSignerExchangeConfig;
+  /**
+   * Optional config for the NEW single-call signer-session exchange
+   * (`POST /api/v1/apps/{clientId}/auth/api-key/signer-session`). When present,
+   * {@link PymthouseAdapter.resolveSignerEndpoint} prefers it over the legacy
+   * `getSignerRouting()` + user-JWT mint. Omitted by default; the global-env
+   * adapter resolves it lazily from `PYMTHOUSE_API_KEY` (unset ⇒ legacy path).
+   */
+  apiKeyExchange?: PymthouseApiKeyExchangeConfig;
 }
 
 export class PymthouseAdapter implements BillingProviderAdapter {
@@ -71,11 +82,13 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   private readonly clientOverride?: PmtHouseClient;
   private readonly isConfiguredOverride?: () => boolean;
   private readonly signerExchange?: PymthouseSignerExchangeConfig;
+  private readonly apiKeyExchange?: PymthouseApiKeyExchangeConfig;
 
   constructor(options: PymthouseAdapterOptions = {}) {
     this.clientOverride = options.client;
     this.isConfiguredOverride = options.isConfigured;
     this.signerExchange = options.signerExchange;
+    this.apiKeyExchange = options.apiKeyExchange;
   }
 
   /**
@@ -282,6 +295,31 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     _session: SignerSessionToken,
     context?: { externalUserId: string },
   ): Promise<SignerSessionEndpoint> {
+    // NEW contract: a single authenticated POST to
+    // `/api/v1/apps/{clientId}/auth/api-key/signer-session` returns BOTH the
+    // remote signer DMZ url AND the bearer in one call (replacing the legacy
+    // `getSignerRouting()` + user-JWT mint below). Preferred when an explicit
+    // `apiKeyExchange` was injected (per-instance) OR `PYMTHOUSE_API_KEY` is set
+    // (global env). Unset by default ⇒ this branch is skipped and the legacy
+    // path runs byte-for-byte (zero regression). NOTE: this endpoint is
+    // authenticated by the `pmth_…` key itself and takes no `externalUserId`, so
+    // identity/usage attribution is at the KEY level, not per NaaP user.
+    const apiKeyCfg = this.apiKeyExchange ?? readApiKeySignerSessionConfig();
+    if (apiKeyCfg) {
+      const session = await exchangeApiKeyForSignerSession(apiKeyCfg);
+      const url = session.signerUrl;
+      if (!url) {
+        throw new Error('pymthouse api-key signer-session returned no signerUrl');
+      }
+      // Reject dashboard `/api/signer/*` proxy bases — signing RPCs must target
+      // the remote-signer DMZ origin directly (builder-sdk 0.4.6).
+      assertDirectSignerBaseUrl(url);
+      return {
+        url,
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      };
+    }
+
     const routing = await this.client().getSignerRouting();
     const url =
       routing.patterns?.directDmz?.signerApiUrl ||

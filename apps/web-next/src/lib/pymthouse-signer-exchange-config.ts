@@ -83,3 +83,32 @@ export function readApiKeyExchangeConfig() {
     publicClientId,
   };
 }
+
+/**
+ * Config for the NEW single-call signer-session exchange
+ * (`POST /api/v1/apps/{clientId}/auth/api-key/signer-session`).
+ *
+ * Sourced from the OPTIONAL `PYMTHOUSE_API_KEY` (`pmth_…`) plus the existing
+ * `PYMTHOUSE_PUBLIC_CLIENT_ID` and `PYMTHOUSE_ISSUER_URL`. Returns `null` when
+ * any of these is missing — which is the DEFAULT posture (the env var is unset),
+ * so callers fall back to today's per-user mint path with zero regression. The
+ * `billingUrl` is the issuer ORIGIN (the endpoint lives under `/api/v1/apps`,
+ * not the `/api/v1/oidc` issuer path). The API key value is never logged.
+ */
+export function readApiKeySignerSessionConfig(): {
+  billingUrl: string;
+  clientId: string;
+  apiKey: string;
+} | null {
+  const issuerUrl = normalizeHttpUrl(process.env.PYMTHOUSE_ISSUER_URL?.trim() ?? '');
+  const clientId = process.env.PYMTHOUSE_PUBLIC_CLIENT_ID?.trim();
+  const apiKey = process.env.PYMTHOUSE_API_KEY?.trim();
+  if (!issuerUrl || !clientId || !apiKey) {
+    return null;
+  }
+  return {
+    billingUrl: issuerOriginFromIssuerUrl(issuerUrl),
+    clientId,
+    apiKey,
+  };
+}

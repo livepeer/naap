@@ -9,6 +9,7 @@ const listBillingProducts = vi.fn();
 const getSignerRouting = vi.fn();
 const mintUserSignerJwtForExternalUser = vi.fn();
 const globalSignerExchangeConfig = vi.fn();
+const exchangeApiKeyForSignerSession = vi.fn();
 
 vi.mock('@/lib/pymthouse-client', () => ({
   getPmtHouseServerClient: () => ({
@@ -20,6 +21,15 @@ vi.mock('@/lib/pymthouse-client', () => ({
   }),
   globalSignerExchangeConfig: () => globalSignerExchangeConfig(),
   mintUserSignerJwtForExternalUser: (input: unknown) => mintUserSignerJwtForExternalUser(input),
+  exchangeApiKeyForSignerSession: (input: unknown) => exchangeApiKeyForSignerSession(input),
+}));
+
+// Default: no global PYMTHOUSE_API_KEY → legacy per-user mint path (zero
+// regression). Tests that exercise the new endpoint pass `apiKeyExchange`
+// explicitly via the adapter options instead.
+const readApiKeySignerSessionConfig = vi.fn(() => null);
+vi.mock('@/lib/pymthouse-signer-exchange-config', () => ({
+  readApiKeySignerSessionConfig: () => readApiKeySignerSessionConfig(),
 }));
 
 vi.mock('@pymthouse/builder-sdk/config', () => ({
@@ -251,6 +261,88 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
     mintUserSignerJwtForExternalUser.mockRejectedValue(new Error('mint failed'));
 
     await expect(adapter.resolveSignerEndpoint(TOKEN, CTX)).rejects.toThrow('mint failed');
+  });
+});
+
+describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exchange)', () => {
+  const TOKEN = { accessToken: 'pmth_abc123', tokenType: 'Bearer', expiresIn: 3600, scope: 'sign:job' };
+  const CTX = { externalUserId: 'acct_user_42' };
+
+  it('explicit apiKeyExchange option → single-call exchange supplies url + bearer (no routing/mint)', async () => {
+    exchangeApiKeyForSignerSession.mockResolvedValue({
+      accessToken: 'eyJhbGciOiJSUzI1NiJ9.signer.sig',
+      signerUrl: 'https://signer-dmz.pymthouse.com',
+      expiresIn: 900,
+      scope: 'sign:job',
+      tokenType: 'Bearer',
+    });
+    const a = new PymthouseAdapter({
+      apiKeyExchange: { billingUrl: 'https://pymthouse.com', clientId: 'app_x', apiKey: 'pmth_key' },
+    });
+
+    const ep = await a.resolveSignerEndpoint(TOKEN, CTX);
+
+    expect(exchangeApiKeyForSignerSession).toHaveBeenCalledWith({
+      billingUrl: 'https://pymthouse.com',
+      clientId: 'app_x',
+      apiKey: 'pmth_key',
+    });
+    expect(ep).toEqual({
+      url: 'https://signer-dmz.pymthouse.com',
+      headers: { Authorization: 'Bearer eyJhbGciOiJSUzI1NiJ9.signer.sig' },
+    });
+    // The legacy routing + user-JWT mint path is bypassed entirely.
+    expect(getSignerRouting).not.toHaveBeenCalled();
+    expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
+  });
+
+  it('global PYMTHOUSE_API_KEY env config is used when no explicit option is injected', async () => {
+    readApiKeySignerSessionConfig.mockReturnValueOnce({
+      billingUrl: 'https://pymthouse.com',
+      clientId: 'app_env',
+      apiKey: 'pmth_env_key',
+    } as never);
+    exchangeApiKeyForSignerSession.mockResolvedValue({
+      accessToken: 'env.signer.jwt',
+      signerUrl: 'https://signer-dmz.pymthouse.com',
+      expiresIn: 900,
+      scope: 'sign:job',
+      tokenType: 'Bearer',
+    });
+
+    const ep = await adapter.resolveSignerEndpoint(TOKEN, CTX);
+
+    expect(exchangeApiKeyForSignerSession).toHaveBeenCalledWith({
+      billingUrl: 'https://pymthouse.com',
+      clientId: 'app_env',
+      apiKey: 'pmth_env_key',
+    });
+    expect(ep.url).toBe('https://signer-dmz.pymthouse.com');
+    expect(getSignerRouting).not.toHaveBeenCalled();
+  });
+
+  it('throws when the exchange returns no signerUrl (front door fails safe)', async () => {
+    exchangeApiKeyForSignerSession.mockResolvedValue({
+      accessToken: 'jwt', signerUrl: null, expiresIn: 900, scope: 'sign:job', tokenType: 'Bearer',
+    });
+    const a = new PymthouseAdapter({
+      apiKeyExchange: { billingUrl: 'https://pymthouse.com', clientId: 'app_x', apiKey: 'pmth_key' },
+    });
+    await expect(a.resolveSignerEndpoint(TOKEN, CTX)).rejects.toThrow(/no signerUrl/);
+  });
+
+  it('rejects a dashboard /api/signer proxy base returned by the exchange', async () => {
+    exchangeApiKeyForSignerSession.mockResolvedValue({
+      accessToken: 'jwt',
+      signerUrl: 'https://dashboard.pymthouse.com/api/signer',
+      expiresIn: 900,
+      scope: 'sign:job',
+      tokenType: 'Bearer',
+    });
+    const a = new PymthouseAdapter({
+      apiKeyExchange: { billingUrl: 'https://pymthouse.com', clientId: 'app_x', apiKey: 'pmth_key' },
+    });
+    await expect(a.resolveSignerEndpoint(TOKEN, CTX)).rejects.toThrow();
   });
 });
 

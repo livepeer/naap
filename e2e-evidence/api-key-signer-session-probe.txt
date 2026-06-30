@@ -1,0 +1,18 @@
+# Safe prod probe — POST /api/v1/apps/{clientId}/auth/api-key/signer-session
+# Date: 2026-06-30. No real credentials sent; confirms deployment only.
+# clientId = app_973064a2c025a2cc01ab8df6 (public, non-secret prod app id)
+
+=== POST (no auth, empty body) ===
+HTTP 401
+{"error":"invalid_request","error_description":"Authorization Bearer API key is required","correlation_id":"0407640a-57ac-4adb-89f3-9a16edba7eb2"}
+
+=== POST (bogus bearer "pmth_invalid_probe_only") ===
+HTTP 401
+{"error":"invalid_client","error_description":"invalid or revoked API key","correlation_id":"c7e561f5-251b-4152-a90a-c211628e2e25"}
+
+=== GET (method check) ===
+HTTP 405
+
+# Verdict: endpoint is DEPLOYED (401/405, not 404). Auth model = Authorization: Bearer <pmth_ api key>
+# (matches livepeer-gateway-client@30df477 exchange_api_key_for_signer). Error envelope uses
+# {error, error_description, correlation_id} — handled by exchangeApiKeyForSignerSession parsing.
