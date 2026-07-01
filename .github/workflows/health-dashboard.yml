@@ -40,7 +40,7 @@ jobs:
       result: ${{ steps.health.outputs.result }}
     steps:
       - name: Checkout main
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: main
 
@@ -91,7 +91,7 @@ jobs:
     if: always()
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: main
 
