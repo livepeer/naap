@@ -34,8 +34,11 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       return errors.unauthorized('Invalid or expired session');
     }
 
-    // Validate access
-    await validateTeamAccess(user.id, teamId, 'viewer');
+    // Validate access. Passing the actor's roles opts into the flag-gated
+    // system:admin allowance: when `admin_team_access` is ON for this team a
+    // platform admin may list members without being invited (audited). Flag OFF
+    // ⇒ byte-identical to the legacy member-only check.
+    await validateTeamAccess(user.id, teamId, 'viewer', { actorRoles: user.roles });
 
     const searchParams = request.nextUrl.searchParams;
     const skip = parseInt(searchParams.get('skip') || '0', 10);

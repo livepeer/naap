@@ -83,6 +83,20 @@ export const PLAN_SPEC_SYNC_FLAG = 'plan_spec_sync';
  */
 export const PER_KEY_REMOTE_SIGNER_FLAG = 'per_key_remote_signer';
 
+/**
+ * Canonical key for the platform-admin team-access path (default OFF). When OFF,
+ * the admin members endpoint `POST/GET /api/v1/admin/teams/{teamId}/members`
+ * returns 404 (no-op) and the `system:admin` allowance inside
+ * {@link import('./api/teams').validateTeamAccess} is never taken — team-gated
+ * routes remain member-only exactly as today (byte-identical, zero regression).
+ * When ON (globally or per-team), a `system:admin` may add a team member and
+ * pass team-gated reads without being invited to the team, so a platform admin
+ * can bootstrap/support a team's billed flow. Every use is audited. Shared by
+ * KNOWN_FLAGS, the admin route, and the teams authz helper so the name cannot
+ * drift.
+ */
+export const ADMIN_TEAM_ACCESS_FLAG = 'admin_team_access';
+
 export const KNOWN_FLAGS: KnownFlag[] = [
   {
     key: 'enableTeams',
@@ -178,6 +192,12 @@ export const KNOWN_FLAGS: KnownFlag[] = [
     enabled: false,
     description:
       'Per-key remote signer: the validation front door returns the signerSession ENDPOINT form { url, headers } pointing at the provider\'s per-key remote signer DMZ (pymthouse getSignerRouting DMZ URL + the minted pmth_ session), so the SDK service signs + pays through the funded per-key wallet. OFF = the front door returns the provider token-bundle form (pmth_ accessToken) exactly as today and performs no extra provider I/O (zero regression). Canary-only; pairs with simple-infra SIGNER_FROM_VALIDATE (the SDK service consumes the endpoint form only when its own flag is on).',
+  },
+  {
+    key: ADMIN_TEAM_ACCESS_FLAG,
+    enabled: false,
+    description:
+      'Platform-admin team access: a system:admin may add a team member via POST /api/v1/admin/teams/{teamId}/members and pass team-gated reads (validateTeamAccess) without being invited to the team, so an admin can bootstrap/support a team\'s billed flow. OFF = the admin members endpoint returns 404 and the system:admin allowance is never taken — team-gated routes stay member-only exactly as today (zero regression). Every admin access is audited. Can be enabled per-team for a zero-blast-radius test.',
   },
 ];
 

@@ -5,6 +5,7 @@
  */
 
 import { prisma } from '../db';
+import { ADMIN_TEAM_ACCESS_FLAG, isFeatureEnabled } from '../feature-flags';
 
 export type TeamRole = 'owner' | 'admin' | 'member' | 'viewer';
 
@@ -301,20 +302,22 @@ export async function listMembers(
 }
 
 /**
- * Invite member to team
+ * Create a team membership row from an email + role.
+ *
+ * Shared, authorization-agnostic core reused by BOTH the team-admin
+ * {@link inviteMember} flow and the platform-admin {@link adminAddMember} flow so
+ * the resulting `TeamMember` row is byte-identical regardless of the authorization
+ * source. Enforces every membership invariant EXCEPT who is allowed to perform it
+ * (the caller is responsible for authorization): no `owner` role via this path,
+ * the target user must already exist, and they must not already be a member. The
+ * `invitedBy` column records the acting user for provenance/audit either way.
  */
-export async function inviteMember(
+async function createMembershipByEmail(
   teamId: string,
   data: { email: string; role: TeamRole },
   invitedBy: string
 ): Promise<TeamMember> {
-  // Check permission
-  const inviter = await getTeamMember(teamId, invitedBy);
-  if (!inviter || !hasRolePermission(inviter.role as TeamRole, 'admin')) {
-    throw new Error('Only admins can invite members');
-  }
-
-  // Cannot invite as owner
+  // Cannot add as owner (owner is assigned at creation / via transferOwnership).
   if (data.role === 'owner') {
     throw new Error('Cannot invite someone as owner');
   }
@@ -355,6 +358,45 @@ export async function inviteMember(
   });
 
   return member as TeamMember;
+}
+
+/**
+ * Invite member to team (team-admin authorized).
+ *
+ * Authorization: the inviter must be a team `admin` or higher. The membership row
+ * itself is created by the shared {@link createMembershipByEmail} core.
+ */
+export async function inviteMember(
+  teamId: string,
+  data: { email: string; role: TeamRole },
+  invitedBy: string
+): Promise<TeamMember> {
+  // Check permission
+  const inviter = await getTeamMember(teamId, invitedBy);
+  if (!inviter || !hasRolePermission(inviter.role as TeamRole, 'admin')) {
+    throw new Error('Only admins can invite members');
+  }
+
+  return createMembershipByEmail(teamId, data, invitedBy);
+}
+
+/**
+ * Add a team member as a PLATFORM ADMIN (`system:admin`), bypassing the
+ * team-admin membership requirement.
+ *
+ * This is the sole authorization difference vs {@link inviteMember}: the acting
+ * user is authorized by `system:admin` (enforced at the route) rather than by an
+ * existing team-admin membership. It reuses the exact same {@link createMembershipByEmail}
+ * core, so the created `TeamMember` row is identical (same schema, enums, and
+ * `invitedBy` provenance) — no other invariant is bypassed. Callers MUST gate
+ * this behind the `admin_team_access` flag and write an audit record.
+ */
+export async function adminAddMember(
+  teamId: string,
+  data: { email: string; role: TeamRole },
+  adminUserId: string
+): Promise<TeamMember> {
+  return createMembershipByEmail(teamId, data, adminUserId);
 }
 
 /**
@@ -487,12 +529,86 @@ export async function transferOwnership(
 }
 
 /**
- * Validate team context middleware helper
+ * Options for {@link validateTeamAccess}. Purely additive: when omitted, access
+ * resolution is byte-identical to the legacy member-only behavior.
+ */
+export interface TeamAccessOptions {
+  /**
+   * Roles of the ACTING session user (e.g. `user.roles`). When it includes
+   * `system:admin` AND the `admin_team_access` flag is enabled for this team, a
+   * platform admin who is not a team member — or who is a member without the
+   * required role — is granted access (audited). Omitted or without
+   * `system:admin` ⇒ the flag is never read and behavior is unchanged.
+   */
+  actorRoles?: string[];
+}
+
+/**
+ * Best-effort audit row for a platform-admin team-access grant. Never blocks or
+ * fails the access check (mirrors other admin-mutation audit writes).
+ */
+async function auditAdminTeamAccess(
+  userId: string,
+  teamId: string,
+  requiredRole: TeamRole,
+  wasMember: boolean
+): Promise<void> {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: 'admin_team_access.grant',
+        resource: 'team',
+        resourceId: teamId,
+        userId,
+        details: { requiredRole, wasMember, via: ADMIN_TEAM_ACCESS_FLAG },
+        status: 'success',
+      },
+    });
+  } catch (err) {
+    console.error('[admin_team_access] audit write failed:', err);
+  }
+}
+
+/**
+ * Resolve whether the flag-gated `system:admin` allowance applies. Returns
+ * `false` SYNCHRONOUSLY (no DB/flag read) unless the caller opted in with
+ * `actorRoles` containing `system:admin`, so callers that pass no options — i.e.
+ * every existing call site — see byte-identical behavior with zero extra I/O.
+ */
+async function adminAccessAllowed(
+  teamId: string,
+  options: TeamAccessOptions | undefined
+): Promise<boolean> {
+  if (!options?.actorRoles?.includes('system:admin')) return false;
+  return isFeatureEnabled(ADMIN_TEAM_ACCESS_FLAG, teamId);
+}
+
+/** A synthetic in-memory member record for a non-member platform admin. */
+function syntheticAdminMember(userId: string, teamId: string): TeamMember {
+  return {
+    id: `admin:${teamId}:${userId}`,
+    userId,
+    role: 'admin',
+    user: { id: userId, email: null, displayName: null, avatarUrl: null },
+    joinedAt: new Date(0),
+  };
+}
+
+/**
+ * Validate team context middleware helper.
+ *
+ * Default (no `options`): the caller must be a team member with at least
+ * `requiredRole`, exactly as today. When `options.actorRoles` includes
+ * `system:admin` and the `admin_team_access` flag is ON for this team, a
+ * platform admin is additionally allowed through (and the grant is audited).
+ * This allowance is additive and flag-gated, so with the flag OFF — or with no
+ * `options` — behavior is byte-identical to the legacy member-only path.
  */
 export async function validateTeamAccess(
   userId: string,
   teamId: string,
-  requiredRole: TeamRole = 'viewer'
+  requiredRole: TeamRole = 'viewer',
+  options?: TeamAccessOptions
 ): Promise<{ team: Team; member: TeamMember }> {
   const team = await getTeam(teamId);
   if (!team) {
@@ -501,10 +617,18 @@ export async function validateTeamAccess(
 
   const member = await getTeamMember(teamId, userId);
   if (!member) {
+    if (await adminAccessAllowed(teamId, options)) {
+      await auditAdminTeamAccess(userId, teamId, requiredRole, false);
+      return { team, member: syntheticAdminMember(userId, teamId) };
+    }
     throw new Error('Not a member of this team');
   }
 
   if (!hasRolePermission(member.role as TeamRole, requiredRole)) {
+    if (await adminAccessAllowed(teamId, options)) {
+      await auditAdminTeamAccess(userId, teamId, requiredRole, true);
+      return { team, member };
+    }
     throw new Error(`Requires ${requiredRole} role or higher`);
   }
 
