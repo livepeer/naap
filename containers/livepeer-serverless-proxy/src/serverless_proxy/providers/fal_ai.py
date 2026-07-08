@@ -258,7 +258,9 @@ class FalAiProvider(InferenceProvider):
                 status_url, headers=headers,
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                if resp.status != 200:
+                # fal queue returns 202 while a training job is still running;
+                # treating 202 as failure caused every LoRA run to die ~10s in.
+                if resp.status not in (200, 202):
                     text = await resp.text()
                     return {
                         "status": "FAILED",
@@ -279,7 +281,7 @@ class FalAiProvider(InferenceProvider):
                 response_url, headers=headers,
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                if resp.status == 200:
+                if resp.status in (200, 202):
                     result = await resp.json()
                     return {"status": "COMPLETED", **result}
         except (asyncio.TimeoutError, aiohttp.ClientError):

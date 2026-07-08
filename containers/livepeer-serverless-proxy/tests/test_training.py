@@ -134,6 +134,22 @@ async def test_p5_fal_train_status_passes_through_in_progress():
 
 
 @pytest.mark.asyncio
+async def test_p5_fal_train_status_accepts_http_202_in_progress():
+    """fal queue returns HTTP 202 while training runs — must not surface as FAILED."""
+    provider = FalAiProvider(api_key="test-key")
+    in_progress = FakeResponse(202, {"status": "IN_PROGRESS", "logs": []})
+    session = FakeSession(get_responses=[in_progress])
+
+    result = await provider.train_status(
+        "fal-ai/flux-lora-fast-training", "req-202", session,
+    )
+
+    assert result["status"] == "IN_PROGRESS"
+    assert "error" not in result
+    assert len(session.get_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_p5_fal_train_status_fetches_result_on_completion():
     """train_status on COMPLETED fetches the full response envelope."""
     provider = FalAiProvider(api_key="test-key")
