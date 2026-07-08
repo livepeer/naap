@@ -152,11 +152,14 @@ preflight_check() {
 
   fi
 
-  # First-time git hooks (only when node_modules was just created).
+  # Install git pre-push hook when absent (idempotent; independent of npm install).
   if [ ! -d "$ROOT_DIR/.git/hooks" ] || [ ! -f "$ROOT_DIR/.git/hooks/pre-push" ]; then
     if [ -f "$SCRIPT_DIR/install-git-hooks.sh" ]; then
-      bash "$SCRIPT_DIR/install-git-hooks.sh" 2>/dev/null && \
-        log_success "Git hooks installed" || log_warn "Could not install git hooks"
+      if bash "$SCRIPT_DIR/install-git-hooks.sh" 2>/dev/null; then
+        log_success "Git hooks installed"
+      else
+        log_warn "Could not install git hooks"
+      fi
     fi
   fi
 
