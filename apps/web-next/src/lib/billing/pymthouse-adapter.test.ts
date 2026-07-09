@@ -306,6 +306,40 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
     expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
   });
 
+  it('bare pmth_ key does NOT require signer routing (regression: exchange supplies its own url)', async () => {
+    // Regression guard: the bare-key exchange path must not call
+    // getSignerRouting() nor be gated on it. Even when routing would expose NO
+    // DMZ url, a bare pmth_ key still resolves via the exchange's own signerUrl.
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: '', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: { directDmz: { description: '', signerApiUrl: '', webhookUrl: '' }, deprecatedHostedFacade: { description: '', signerApiUrl: null } },
+    });
+    exchangeApiKeyForSignerSession.mockResolvedValue({
+      accessToken: 'eyJhbGciOiJSUzI1NiJ9.signer.sig',
+      signerUrl: 'https://signer-dmz.pymthouse.com',
+      expiresIn: 900,
+      scope: 'sign:job',
+      tokenType: 'Bearer',
+    });
+    const a = new PymthouseAdapter({
+      apiKeyExchange: { billingUrl: 'https://pymthouse.com', clientId: 'app_x', apiKey: 'pmth_bare_key' },
+    });
+
+    const ep = await a.resolveSignerEndpoint(TOKEN, CTX);
+
+    expect(getSignerRouting).not.toHaveBeenCalled();
+    expect(exchangeApiKeyForSignerSession).toHaveBeenCalledWith({
+      billingUrl: 'https://pymthouse.com',
+      clientId: 'app_x',
+      apiKey: 'pmth_bare_key',
+    });
+    expect(ep).toEqual({
+      url: 'https://signer-dmz.pymthouse.com',
+      headers: { Authorization: 'Bearer eyJhbGciOiJSUzI1NiJ9.signer.sig' },
+    });
+  });
+
   it('composite apiKeyExchange forwards the key directly (no exchange hop)', async () => {
     getSignerRouting.mockResolvedValue({
       clientId: 'app_x',
