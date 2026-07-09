@@ -88,8 +88,8 @@ export function readApiKeyExchangeConfig() {
  * Config for the NEW single-call signer-session exchange
  * (`POST /api/v1/apps/{clientId}/auth/api-key/signer-session`).
  *
- * Sourced from the OPTIONAL `PYMTHOUSE_API_KEY` (`pmth_…`) plus the existing
- * `PYMTHOUSE_PUBLIC_CLIENT_ID` and `PYMTHOUSE_ISSUER_URL`. Returns `null` when
+ * Sourced from the OPTIONAL `PYMTHOUSE_API_KEY` (composite `app_XXX.pmth_YYY` or bare
+ * `pmth_…`) plus the existing `PYMTHOUSE_PUBLIC_CLIENT_ID` and `PYMTHOUSE_ISSUER_URL`.
  * any of these is missing — which is the DEFAULT posture (the env var is unset),
  * so callers fall back to today's per-user mint path with zero regression. The
  * `billingUrl` is the issuer ORIGIN (the endpoint lives under `/api/v1/apps`,

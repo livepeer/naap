@@ -8,6 +8,7 @@ const getUserSubscription = vi.fn();
 const listBillingProducts = vi.fn();
 const getSignerRouting = vi.fn();
 const mintUserSignerJwtForExternalUser = vi.fn();
+const createPymthouseApiKey = vi.fn();
 const globalSignerExchangeConfig = vi.fn();
 const exchangeApiKeyForSignerSession = vi.fn();
 
@@ -22,6 +23,10 @@ vi.mock('@/lib/pymthouse-client', () => ({
   globalSignerExchangeConfig: () => globalSignerExchangeConfig(),
   mintUserSignerJwtForExternalUser: (input: unknown) => mintUserSignerJwtForExternalUser(input),
   exchangeApiKeyForSignerSession: (input: unknown) => exchangeApiKeyForSignerSession(input),
+}));
+
+vi.mock('@/lib/pymthouse-keys-bff', () => ({
+  createPymthouseApiKey: (input: unknown) => createPymthouseApiKey(input),
 }));
 
 // Default: no global PYMTHOUSE_API_KEY → legacy per-user mint path (zero
@@ -59,10 +64,17 @@ beforeEach(() => {
     m2mClientId: 'm2m_test',
     m2mClientSecret: 'secret_test',
   });
-  mintUserSignerJwtForExternalUser.mockResolvedValue({
-    jwt: 'eyJhbGciOiJSUzI1NiJ9.user-signer-jwt.sig',
-    expiresIn: 900,
-    scope: 'sign:job',
+  createPymthouseApiKey.mockResolvedValue({
+    apiKey: 'app_testclient.pmth_composite_key_secret',
+    row: {
+      id: 'key-1',
+      label: 'naap-validate-signer',
+      prefix: 'app_test',
+      suffix: 'cret',
+      status: 'active',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      revokedAt: null,
+    },
   });
   adapter = new PymthouseAdapter();
 });
@@ -147,13 +159,11 @@ describe('PymthouseAdapter per-instance client (P0, zero regression)', () => {
   });
 });
 
-describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JWT)', () => {
-  // The opaque session is intentionally IGNORED for the bearer now — the DMZ
-  // webhook is OIDC/JWT-only, so we mint + forward a user-scoped signer JWT.
+describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, composite API key)', () => {
   const TOKEN = { accessToken: 'pmth_abc123', tokenType: 'Bearer', expiresIn: 3600, scope: 'sign:job' };
   const CTX = { externalUserId: 'acct_user_42' };
 
-  it('mints a user signer JWT and forwards it as the Bearer (NOT the opaque pmth_)', async () => {
+  it('mints a composite app.pmth_ key and forwards it as the Bearer', async () => {
     getSignerRouting.mockResolvedValue({
       clientId: 'app_x',
       routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
@@ -165,21 +175,18 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
 
     const ep = await adapter.resolveSignerEndpoint(TOKEN, CTX);
     expect(getSignerRouting).toHaveBeenCalledTimes(1);
-    // The JWT is minted against this adapter's client (the global-env singleton
-    // here) + the key's account id as the externalUserId.
-    expect(mintUserSignerJwtForExternalUser).toHaveBeenCalledWith({
-      client: expect.objectContaining({ getSignerRouting }),
+    expect(createPymthouseApiKey).toHaveBeenCalledWith({
       externalUserId: 'acct_user_42',
+      label: 'naap-validate-signer',
     });
     expect(ep).toEqual({
       url: 'https://signer-dmz.pymthouse.com',
-      headers: { Authorization: 'Bearer eyJhbGciOiJSUzI1NiJ9.user-signer-jwt.sig' },
+      headers: { Authorization: 'Bearer app_testclient.pmth_composite_key_secret' },
     });
-    // The opaque session token must never leak into the forwarded header.
-    expect(ep.headers.Authorization).not.toContain('pmth_');
+    expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
   });
 
-  it('uses the per-instance signer exchange config when one is injected', async () => {
+  it('uses the per-instance client routing when one is injected', async () => {
     const instanceClient = { getSignerRouting } as never;
     const instanceExchange = {
       issuerUrl: 'https://tenant.pymthouse.com/api/v1/oidc',
@@ -198,13 +205,10 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
     });
 
     await a.resolveSignerEndpoint(TOKEN, CTX);
-    // The mint binds to the injected per-instance client (whose app the DMZ
-    // routing was resolved against), never the global-env singleton.
-    expect(mintUserSignerJwtForExternalUser).toHaveBeenCalledWith({
-      client: instanceClient,
+    expect(createPymthouseApiKey).toHaveBeenCalledWith({
       externalUserId: 'acct_user_42',
+      label: 'naap-validate-signer',
     });
-    // The global env exchange config is NOT consulted for a per-instance adapter.
     expect(globalSignerExchangeConfig).not.toHaveBeenCalled();
   });
 
@@ -227,7 +231,7 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
     });
 
     await expect(adapter.resolveSignerEndpoint(TOKEN, CTX)).rejects.toThrow(/no remote signer DMZ url/);
-    expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
+    expect(createPymthouseApiKey).not.toHaveBeenCalled();
   });
 
   it('rejects a dashboard /api/signer proxy base (must target the DMZ directly)', async () => {
@@ -238,10 +242,10 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
     });
 
     await expect(adapter.resolveSignerEndpoint(TOKEN, CTX)).rejects.toThrow();
-    expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
+    expect(createPymthouseApiKey).not.toHaveBeenCalled();
   });
 
-  it('throws when no externalUserId is provided (cannot mint a user-scoped JWT)', async () => {
+  it('throws when no externalUserId is provided (cannot mint a composite key)', async () => {
     getSignerRouting.mockResolvedValue({
       clientId: 'app_x',
       routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: 'https://dmz.pymthouse.com', jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
@@ -249,7 +253,7 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
     });
 
     await expect(adapter.resolveSignerEndpoint(TOKEN)).rejects.toThrow(/externalUserId/);
-    expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
+    expect(createPymthouseApiKey).not.toHaveBeenCalled();
   });
 
   it('propagates a mint error so the front door fails safe to the token bundle', async () => {
@@ -258,7 +262,7 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, user JW
       routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: 'https://dmz.pymthouse.com', jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
       patterns: { directDmz: { description: '', signerApiUrl: '', webhookUrl: '' }, deprecatedHostedFacade: { description: '', signerApiUrl: null } },
     });
-    mintUserSignerJwtForExternalUser.mockRejectedValue(new Error('mint failed'));
+    createPymthouseApiKey.mockRejectedValue(new Error('mint failed'));
 
     await expect(adapter.resolveSignerEndpoint(TOKEN, CTX)).rejects.toThrow('mint failed');
   });
@@ -268,7 +272,15 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
   const TOKEN = { accessToken: 'pmth_abc123', tokenType: 'Bearer', expiresIn: 3600, scope: 'sign:job' };
   const CTX = { externalUserId: 'acct_user_42' };
 
-  it('explicit apiKeyExchange option → single-call exchange supplies url + bearer (no routing/mint)', async () => {
+  it('explicit apiKeyExchange with bare pmth_ key → exchange supplies url + bearer', async () => {
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: {
+        directDmz: { description: '', signerApiUrl: 'https://signer-dmz.pymthouse.com', webhookUrl: 'https://hook' },
+        deprecatedHostedFacade: { description: '', signerApiUrl: null },
+      },
+    });
     exchangeApiKeyForSignerSession.mockResolvedValue({
       accessToken: 'eyJhbGciOiJSUzI1NiJ9.signer.sig',
       signerUrl: 'https://signer-dmz.pymthouse.com',
@@ -291,9 +303,67 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
       url: 'https://signer-dmz.pymthouse.com',
       headers: { Authorization: 'Bearer eyJhbGciOiJSUzI1NiJ9.signer.sig' },
     });
-    // The legacy routing + user-JWT mint path is bypassed entirely.
-    expect(getSignerRouting).not.toHaveBeenCalled();
     expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
+  });
+
+  it('bare pmth_ key does NOT require signer routing (regression: exchange supplies its own url)', async () => {
+    // Regression guard: the bare-key exchange path must not call
+    // getSignerRouting() nor be gated on it. Even when routing would expose NO
+    // DMZ url, a bare pmth_ key still resolves via the exchange's own signerUrl.
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: '', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: { directDmz: { description: '', signerApiUrl: '', webhookUrl: '' }, deprecatedHostedFacade: { description: '', signerApiUrl: null } },
+    });
+    exchangeApiKeyForSignerSession.mockResolvedValue({
+      accessToken: 'eyJhbGciOiJSUzI1NiJ9.signer.sig',
+      signerUrl: 'https://signer-dmz.pymthouse.com',
+      expiresIn: 900,
+      scope: 'sign:job',
+      tokenType: 'Bearer',
+    });
+    const a = new PymthouseAdapter({
+      apiKeyExchange: { billingUrl: 'https://pymthouse.com', clientId: 'app_x', apiKey: 'pmth_bare_key' },
+    });
+
+    const ep = await a.resolveSignerEndpoint(TOKEN, CTX);
+
+    expect(getSignerRouting).not.toHaveBeenCalled();
+    expect(exchangeApiKeyForSignerSession).toHaveBeenCalledWith({
+      billingUrl: 'https://pymthouse.com',
+      clientId: 'app_x',
+      apiKey: 'pmth_bare_key',
+    });
+    expect(ep).toEqual({
+      url: 'https://signer-dmz.pymthouse.com',
+      headers: { Authorization: 'Bearer eyJhbGciOiJSUzI1NiJ9.signer.sig' },
+    });
+  });
+
+  it('composite apiKeyExchange forwards the key directly (no exchange hop)', async () => {
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: {
+        directDmz: { description: '', signerApiUrl: 'https://signer-dmz.pymthouse.com', webhookUrl: 'https://hook' },
+        deprecatedHostedFacade: { description: '', signerApiUrl: null },
+      },
+    });
+    const a = new PymthouseAdapter({
+      apiKeyExchange: {
+        billingUrl: 'https://pymthouse.com',
+        clientId: 'app_x',
+        apiKey: 'app_x.pmth_composite_secret',
+      },
+    });
+
+    const ep = await a.resolveSignerEndpoint(TOKEN, CTX);
+
+    expect(exchangeApiKeyForSignerSession).not.toHaveBeenCalled();
+    expect(ep).toEqual({
+      url: 'https://signer-dmz.pymthouse.com',
+      headers: { Authorization: 'Bearer app_x.pmth_composite_secret' },
+    });
   });
 
   it('global PYMTHOUSE_API_KEY env config is used when no explicit option is injected', async () => {
@@ -302,6 +372,14 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
       clientId: 'app_env',
       apiKey: 'pmth_env_key',
     } as never);
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_env',
+      routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: {
+        directDmz: { description: '', signerApiUrl: 'https://signer-dmz.pymthouse.com', webhookUrl: '' },
+        deprecatedHostedFacade: { description: '', signerApiUrl: null },
+      },
+    });
     exchangeApiKeyForSignerSession.mockResolvedValue({
       accessToken: 'env.signer.jwt',
       signerUrl: 'https://signer-dmz.pymthouse.com',
@@ -318,7 +396,6 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
       apiKey: 'pmth_env_key',
     });
     expect(ep.url).toBe('https://signer-dmz.pymthouse.com');
-    expect(getSignerRouting).not.toHaveBeenCalled();
   });
 
   it('per-instance adapter (injected client) does NOT fall back to the global PYMTHOUSE_API_KEY env', async () => {
@@ -339,11 +416,19 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
     expect(readApiKeySignerSessionConfig).not.toHaveBeenCalled();
     expect(exchangeApiKeyForSignerSession).not.toHaveBeenCalled();
     expect(getSignerRouting).toHaveBeenCalledTimes(1);
-    expect(mintUserSignerJwtForExternalUser).toHaveBeenCalled();
+    expect(createPymthouseApiKey).toHaveBeenCalled();
     expect(ep.url).toBe('https://dmz.tenant.com');
   });
 
   it('throws when the exchange returns no signerUrl (front door fails safe)', async () => {
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: 'https://signer-dmz.pymthouse.com', jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: {
+        directDmz: { description: '', signerApiUrl: 'https://signer-dmz.pymthouse.com', webhookUrl: '' },
+        deprecatedHostedFacade: { description: '', signerApiUrl: null },
+      },
+    });
     exchangeApiKeyForSignerSession.mockResolvedValue({
       accessToken: 'jwt', signerUrl: null, expiresIn: 900, scope: 'sign:job', tokenType: 'Bearer',
     });
@@ -354,6 +439,14 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
   });
 
   it('rejects a dashboard /api/signer proxy base returned by the exchange', async () => {
+    getSignerRouting.mockResolvedValue({
+      clientId: 'app_x',
+      routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: 'https://signer-dmz.pymthouse.com', jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
+      patterns: {
+        directDmz: { description: '', signerApiUrl: 'https://signer-dmz.pymthouse.com', webhookUrl: '' },
+        deprecatedHostedFacade: { description: '', signerApiUrl: null },
+      },
+    });
     exchangeApiKeyForSignerSession.mockResolvedValue({
       accessToken: 'jwt',
       signerUrl: 'https://dashboard.pymthouse.com/api/signer',

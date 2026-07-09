@@ -20,10 +20,10 @@ import {
   getPmtHouseServerClient,
   mintOpaqueSignerSessionForExternalUser,
   mintSignerSessionForExternalUser,
-  mintUserSignerJwtForExternalUser,
   type PymthouseApiKeyExchangeConfig,
   type PymthouseSignerExchangeConfig,
 } from '@/lib/pymthouse-client';
+import { createPymthouseApiKey } from '@/lib/pymthouse-keys-bff';
 import { readApiKeySignerSessionConfig } from '@/lib/pymthouse-signer-exchange-config';
 import { isFeatureEnabled, PYMTHOUSE_BPP_VALIDATE_FLAG } from '@/lib/feature-flags';
 import { resolvePymthouseCapabilities } from './pymthouse-capabilities';
@@ -316,21 +316,69 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     const apiKeyCfg =
       this.apiKeyExchange ?? (this.clientOverride ? undefined : readApiKeySignerSessionConfig());
     if (apiKeyCfg) {
+      const apiKey = apiKeyCfg.apiKey.trim();
+      // PR #210 composite keys (`app_XXX.pmth_YYY`) authenticate the DMZ
+      // directly — no signer-session exchange hop. ONLY this path needs
+      // `getSignerRouting()` to discover the DMZ url. A bare `pmth_…` key gets
+      // its url from `exchangeApiKeyForSignerSession()` below and must NOT be
+      // gated on signer routing (which it never needed) — doing so regressed
+      // bare-key callers with a spurious "no remote signer DMZ url" throw.
+      if (apiKey.includes('.pmth_')) {
+        const url = this.resolveDmzUrl(await this.client().getSignerRouting());
+        return {
+          url,
+          headers: { Authorization: `Bearer ${apiKey}` },
+        };
+      }
+
       const session = await exchangeApiKeyForSignerSession(apiKeyCfg);
-      const url = session.signerUrl;
-      if (!url) {
+      const exchangeUrl = session.signerUrl;
+      if (!exchangeUrl) {
         throw new Error('pymthouse api-key signer-session returned no signerUrl');
       }
-      // Reject dashboard `/api/signer/*` proxy bases — signing RPCs must target
-      // the remote-signer DMZ origin directly (builder-sdk 0.4.6).
-      assertDirectSignerBaseUrl(url);
+      assertDirectSignerBaseUrl(exchangeUrl);
       return {
-        url,
+        url: exchangeUrl,
         headers: { Authorization: `Bearer ${session.accessToken}` },
       };
     }
 
-    const routing = await this.client().getSignerRouting();
+    const url = this.resolveDmzUrl(await this.client().getSignerRouting());
+
+    const externalUserId = context?.externalUserId;
+    if (!externalUserId) {
+      throw new Error('resolveSignerEndpoint requires externalUserId to mint the signer bearer');
+    }
+
+    // PR #210: DMZ expects composite `app_XXX.pmth_YYY` bearer, not user JWT.
+    // NOTE (follow-up): this legacy fallback mints a fresh long-lived key per
+    // resolution. It is only reached when neither an injected `apiKeyExchange`
+    // nor a global `PYMTHOUSE_API_KEY` composite key is configured (prod uses
+    // the composite fast-path above and never mints here). Key reuse/TTL/revoke
+    // is deferred: the Builder Apps API returns the full secret ONLY at creation
+    // (no list-returns-secret), so reuse needs new persistent secret storage +
+    // rotation — tracked as a follow-up rather than mixed into this PR.
+    const { apiKey } = await createPymthouseApiKey({
+      externalUserId,
+      label: 'naap-validate-signer',
+    });
+
+    return {
+      url,
+      headers: { Authorization: `Bearer ${apiKey}` },
+    };
+  }
+
+  /**
+   * Extract the direct-DMZ signer API url from a `getSignerRouting()` result and
+   * validate it. Prefers `patterns.directDmz.signerApiUrl`, then
+   * `routing.remoteDmzUrl`, then `routing.signerApiUrl`. Throws when none is
+   * present (so the front door can fail safe to the token-bundle form) and
+   * rejects dashboard `/api/signer` proxy bases via `assertDirectSignerBaseUrl`.
+   */
+  private resolveDmzUrl(
+    routing: Awaited<ReturnType<PmtHouseClient['getSignerRouting']>>,
+  ): string {
     const url =
       routing.patterns?.directDmz?.signerApiUrl ||
       routing.routing?.remoteDmzUrl ||
@@ -339,27 +387,8 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     if (!url) {
       throw new Error('pymthouse signer routing returned no remote signer DMZ url');
     }
-    // Reject dashboard `/api/signer/*` proxy bases — signing RPCs must target
-    // the remote-signer DMZ origin directly (builder-sdk 0.4.6).
     assertDirectSignerBaseUrl(url);
-
-    const externalUserId = context?.externalUserId;
-    if (!externalUserId) {
-      throw new Error('resolveSignerEndpoint requires externalUserId to mint the user signer JWT');
-    }
-
-    // Mint the Builder user-token JWT against THIS adapter's client (the
-    // per-instance client in subscription mode, else the global-env singleton),
-    // so the JWT's `client_id` matches the app whose DMZ we resolved above.
-    const { jwt } = await mintUserSignerJwtForExternalUser({
-      client: this.client(),
-      externalUserId,
-    });
-
-    return {
-      url,
-      headers: { Authorization: `Bearer ${jwt}` },
-    };
+    return url;
   }
 
   async receiveCuratedOrchestrators(
