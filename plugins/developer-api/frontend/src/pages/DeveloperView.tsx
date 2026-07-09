@@ -875,7 +875,9 @@ result = [...result].sort((a, b) => {
         setSelectedProjectId((projectList.find(p => p.isDefault) || projectList[0]).id);
       }
       if (providerList.length > 0) {
-        setSelectedBillingProviderId(providerList[0].id);
+        const preferred =
+          providerList.find((p) => p.slug === 'pymthouse') ?? providerList[0];
+        setSelectedBillingProviderId(preferred.id);
       }
     } catch (err) {
       console.error('Failed to load modal data:', err);
