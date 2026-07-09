@@ -104,16 +104,39 @@ preflight_check() {
     exit 1
   fi
 
-  # Auto-detect first run: no node_modules means fresh clone.
-  # All setup steps run inline — no separate setup.sh needed.
+  # Install or sync root dependencies when node_modules is absent, package-lock.json
+  # changed since the last install, or a declared workspace dep is missing.
+  # Covers fresh clones AND `git pull` adding new packages to an existing tree.
+  local needs_npm_install=false
+  local npm_install_reason=""
+  local was_fresh_clone=false
   if [ ! -d "$ROOT_DIR/node_modules" ]; then
-    echo ""
-    log_warn "node_modules not found — this looks like a fresh clone."
-    log_info "Running first-time setup automatically..."
-    echo ""
-    log_section "First-Time Setup"
+    needs_npm_install=true
+    was_fresh_clone=true
+    npm_install_reason="node_modules not found (fresh clone)"
+  elif [ ! -f "$ROOT_DIR/node_modules/.package-lock.json" ]; then
+    needs_npm_install=true
+    npm_install_reason="node_modules is incomplete (missing install marker)"
+  elif [ -f "$ROOT_DIR/package-lock.json" ] && \
+       [ "$ROOT_DIR/package-lock.json" -nt "$ROOT_DIR/node_modules/.package-lock.json" ]; then
+    needs_npm_install=true
+    npm_install_reason="package-lock.json changed since last install"
+  elif [ ! -d "$ROOT_DIR/node_modules/@pymthouse/builder-sdk" ]; then
+    needs_npm_install=true
+    npm_install_reason="@pymthouse/builder-sdk is missing from node_modules"
+  fi
 
-    # Step 1: Install dependencies
+  if [ "$needs_npm_install" = true ]; then
+    echo ""
+    if [ ! -d "$ROOT_DIR/node_modules" ]; then
+      log_warn "node_modules not found — this looks like a fresh clone."
+      log_info "Running first-time setup automatically..."
+    else
+      log_info "Syncing dependencies ($npm_install_reason)..."
+    fi
+    echo ""
+    log_section "Dependency Install"
+
     log_info "Installing dependencies (npm install)... This may take 1-2 minutes."
     cd "$ROOT_DIR" || { log_error "Cannot cd to project root"; exit 1; }
     npm_log="$LOG_DIR/npm-install.log"
@@ -127,13 +150,25 @@ preflight_check() {
     tail -5 "$npm_log"
     log_success "Dependencies installed"
 
-    # Step 2: Install git hooks (pre-push validation)
-    if [ -f "$SCRIPT_DIR/install-git-hooks.sh" ]; then
-      bash "$SCRIPT_DIR/install-git-hooks.sh" 2>/dev/null && \
-        log_success "Git hooks installed" || log_warn "Could not install git hooks"
-    fi
+  fi
 
-    log_success "First-time setup complete. Continuing to start..."
+  # Install git pre-push hook when absent (idempotent; independent of npm install).
+  if [ ! -d "$ROOT_DIR/.git/hooks" ] || [ ! -f "$ROOT_DIR/.git/hooks/pre-push" ]; then
+    if [ -f "$SCRIPT_DIR/install-git-hooks.sh" ]; then
+      if bash "$SCRIPT_DIR/install-git-hooks.sh" 2>/dev/null; then
+        log_success "Git hooks installed"
+      else
+        log_warn "Could not install git hooks"
+      fi
+    fi
+  fi
+
+  if [ "$needs_npm_install" = true ]; then
+    if [ "$was_fresh_clone" = true ]; then
+      log_success "First-time setup complete. Continuing to start..."
+    else
+      log_success "Dependency sync complete. Continuing to start..."
+    fi
     echo ""
   fi
 
