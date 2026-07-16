@@ -190,6 +190,98 @@ Optional env `BYOC_PAYMENT_TYPE=auto|lv2v|byoc` (`auto` = detect from `signer_ur
 
 **Live VM state (verified Run 35 post-deploy):** `/opt/sdk/.env` — `SIGNER_URL=https://signer.daydream.live`, `AUTH_VALIDATE_URL=…/keys/validate`, `SIGNER_FROM_VALIDATE=1`, `ADAPTER_URLS=http://8.229.77.130:9090,http://8.229.27.185:9090`, `SDK_IMAGE=…byoc-dual-path-1bf13cd-2026-07-16`; container gateway confirms `_payment_type_for_signer()` at byoc.py:151.
 
+### Staging signer canary (`-byocPerCapPricing` ON) — Run 36
+
+John enabled **`-byocPerCapPricing` only** on the staging signer:
+
+| Signer | URL | `-byocPerCapPricing` | Role |
+|---|---|---|---|
+| **Staging (canary)** | `https://pymthouse-signer-test-preview.up.railway.app` | **ON** (John, 2026-07-16) | Per-cap fee smoke without touching prod DMZ |
+| **Production DMZ** | `https://pymthouse-production.up.railway.app` | OFF (assumed) | Live billed path for `app_98575870` today |
+
+**Health probe (2026-07-16):** staging `/healthz` → **200**; `POST /generate-live-payment` (empty body) → **400** `missing orchestrator` (same as prod — signer process is up, not 401). Composite `app_98575870….pmth_…` bearer accepted on **both** hosts.
+
+#### Can we test against staging, or must it be production DMZ?
+
+**Staging is usable** for per-cap pricing verification. Production DMZ is **not required** for the fee-ratio smoke as long as:
+
+1. The staging signer runs the same go-livepeer image + `-byocPerCapPricing` flag John enabled.
+2. Traffic is routed to the staging URL (see routing below).
+3. OpenMeter ingest for `app_98575870` still applies — staging signer should emit to the same pymthouse app metering path (confirm with John if staging uses a separate Kafka/collector).
+
+Use production DMZ only when validating the **live** billed path end-to-end (Storyboard prod, prod validate, prod fee ledger).
+
+#### Where does `signerSession.url` come from?
+
+**Not from NaaP DB or `PYMTHOUSE_SIGNER_URL` on the validate path.** Code path:
+
+1. `POST /api/v1/keys/validate` with `per_key_remote_signer` ON → `PymthouseAdapter.resolveSignerEndpoint()`.
+2. URL = pymthouse Builder API `GET /api/v1/apps/{clientId}/signer/routing` → `patterns.directDmz.signerApiUrl` (fallback: `routing.remoteDmzUrl`, `routing.signerApiUrl`).
+3. Bearer = composite `app_XXX.pmth_YYY` from `PYMTHOUSE_API_KEY` (prod fast-path) or freshly minted per-user key (legacy path).
+
+**Live routing for `app_98575870` (M2M, 2026-07-16):**
+
+```json
+{
+  "patterns": {
+    "directDmz": {
+      "signerApiUrl": "https://pymthouse-production.up.railway.app"
+    }
+  }
+}
+```
+
+`PYMTHOUSE_SIGNER_URL` on NaaP Vercel affects **only** exchange routes (`/api/pymthouse/keys/exchange`, `/api/signer/device/exchange`) and `GET /api/v1/billing/pymthouse/config` — **not** validate's `signerSession.url`. There is **no NaaP operator UI / DB field** to override signer DMZ per app; the override lives in **pymthouse app signer routing** (John).
+
+#### `sdk-staging-1` config — what changes for staging signer?
+
+**No VM env change needed to isolate Daydream from staging signer.** Dual-path routing is already correct:
+
+| Caller | Signer used | Env driver |
+|---|---|---|
+| Daydream key (`pmth_` / `sk_`) | `https://signer.daydream.live` | Static `SIGNER_URL` (validate inert for non-`naap_`) |
+| NaaP key (`naap_`) | Whatever validate returns in `signerSession.url` | `SIGNER_FROM_VALIDATE=1` + `AUTH_VALIDATE_URL` |
+
+Keep on `sdk-staging-1`:
+
+```bash
+SIGNER_URL=https://signer.daydream.live          # Daydream only — do NOT point at pymthouse
+AUTH_VALIDATE_URL=https://operator.livepeer.org/api/v1/keys/validate
+SIGNER_FROM_VALIDATE=1
+SDK_IMAGE=…byoc-dual-path-1bf13cd-2026-07-16     # dual-path payment type
+```
+
+To route **`naap_` only** to the staging signer: **change pymthouse signer routing** for `app_98575870` → `https://pymthouse-signer-test-preview.up.railway.app`. Validate + SDK will follow automatically; Daydream traffic stays on `signer.daydream.live`.
+
+#### Test plan (staging canary)
+
+**Phase 0 — John (pymthouse):** Point `app_98575870` signer routing `directDmz.signerApiUrl` at `https://pymthouse-signer-test-preview.up.railway.app` (revert to production URL after smoke).
+
+**Phase 1 — Direct signer probe (no sdk-staging-1 change):**
+
+```bash
+# Health
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  https://pymthouse-signer-test-preview.up.railway.app/healthz
+
+# Auth + payment path (expect 400 missing orchestrator, NOT 401)
+export BYOC_SIGNER_URL='https://pymthouse-signer-test-preview.up.railway.app'
+# Mint composite key via pymthouse M2M, or use validate signerSession bearer:
+export NAAP_KEY='naap_…'   # livepeer-dev key with front door ON
+python3 scripts/byoc-e2e-probe.py
+```
+
+**Phase 2 — Hosted `naap_` inference (after routing flip):**
+
+1. `POST operator.livepeer.org/api/v1/keys/validate` (Bearer `naap_…`) → assert `signerSession.url` = staging host.
+2. `POST sdk.daydream.monster/inference` (flux-schnell, flux-dev) with `naap_` bearer → 200.
+3. `GET pymthouse.com/api/v1/apps/app_98575870…/usage?groupBy=pipeline_model` → new rows under `byoc/<cap>` with `networkFeeUsdMicros` > 0; assert flux-dev / flux-schnell fee ratio ≈ **8.3×** (staging `-byocPerCapPricing` ON).
+4. Control: Daydream key on same node → still hits `signer.daydream.live`, `type:lv2v` (dual-path image).
+
+**Phase 3 — Revert:** Restore pymthouse routing to `https://pymthouse-production.up.railway.app`; re-validate prod `signerSession.url`.
+
+**Owners:** John (routing flip + staging flag); qiang (probes + OpenMeter ratio check).
+
 ---
 
 ## Pillar C — Storyboard MCP + NaaP key parity with Daydream key
