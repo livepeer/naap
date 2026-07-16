@@ -3444,3 +3444,87 @@ Prod log (18:28:29Z): prior probes logged `malformed` (wrong 69-char reconstruct
 
 **$0** — flag confirm + key insert + validate smoke only. Next: fund app sender reserve → re-run flux-schnell probe (Run 41).
 
+---
+
+# Run 41 — Staging per-cap probe re-run (2026-07-16 ~11:35 PT)
+
+Follow-up to Run 40 (validate 200 confirmed). Re-ran staging per-cap probe with canonical `naap_…` key, `BYOC_SIGNER_URL=https://pymthouse-signer-test-preview.up.railway.app`, OpenMeter baseline→after, and optional hosted SDK inference. **No wallet funding** per instructions.
+
+## TL;DR
+
+| concern | status |
+|---|---|
+| **NaaP validate** | **PASS** — `POST operator.livepeer.org/api/v1/keys/validate` + Bearer (canonical `naap_8056755b…_a7a7a227…`) → **HTTP 200**, `valid:true`, composite `app_98575870….pmth_…` bearer; `signerSession.url` = prod DMZ (`pymthouse-production.up.railway.app`) |
+| **Staging signer healthz** | **PASS** — HTTP 200 |
+| **`byoc-e2e-probe.py` flux-schnell** | **FAIL (script)** — validate 200 OK but `gateway import skipped: No module named 'livepeer_gateway.types'` (stale import; class is `ByocJobRequest` in `byoc.py`) |
+| **Direct `submit_byoc_job` flux-schnell** | **FAIL** — orchestrator gRPC `insufficient sender reserve` on `byoc-staging-1.daydream.monster:8935` (~6 s); **sender reserve unfunded** on pymthouse `app_98575870` Turnkey wallet — **NOT funded** per instructions |
+| **`submit_byoc_job` flux-dev** | **SKIP** — schnell failed first |
+| **OpenMeter after / delta** | **FAIL (no new usage)** — totals unchanged: 261 reqs / 462977 µUSD; `byoc/flux-schnell` 34 reqs / 645 µ; `byoc/flux-dev` 4 reqs / 326 µ |
+| **flux-dev / flux-schnell fee ratio** | **FAIL vs 8.3× target** — lifetime avg **4.30×** (81.5 / 19.0 µUSD per req); staging `-byocPerCapPricing` not yet reflected in new rows |
+| **SDK hosted inference (`sdk.daydream.monster`)** | **FAIL** — HTTP 502; prod signer path → `invalid job type` on `/generate-live-payment` (validate returns prod URL; no staging routing flip) |
+| **Spend** | **$0** |
+
+## Pass/fail table
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| 1 | OpenMeter baseline (`groupBy=pipeline_model`) | **PASS** | `app_98575870…`; 261 reqs / 462977 µUSD |
+| 2 | NaaP validate → composite bearer | **PASS** | HTTP 200; canonical key; composite `app_….pmth_…` |
+| 3 | Signer URL from validate | **PASS (prod)** | `pymthouse-production.up.railway.app`; probe override → staging |
+| 4 | Staging signer healthz | **PASS** | HTTP 200 |
+| 5 | `byoc-e2e-probe.py` flux-schnell | **FAIL** | script import error (`types` module absent); validate leg OK |
+| 6 | Direct `submit_byoc_job` flux-schnell | **FAIL** | orch `insufficient sender reserve` |
+| 7 | `submit_byoc_job` flux-dev | **SKIP** | blocked on schnell |
+| 8 | OpenMeter fees > 0 (new gens) | **FAIL** | +0 reqs, +0 fee |
+| 9 | flux-dev / flux-schnell ratio ≈ 8.3× | **FAIL** | lifetime avg **4.30×** |
+| 10 | SDK hosted inference (optional) | **FAIL** | 502 `invalid job type` (prod signer) |
+
+## OpenMeter fee snapshot
+
+`GET pymthouse.com/api/v1/apps/app_98575870…/usage?groupBy=pipeline_model&include=retail` (Builder API M2M)
+
+### Baseline = after (no delta)
+
+| pipeline/model_id | reqs | networkFeeUsdMicros | µUSD/req |
+|---|---|---|---|
+| byoc/flux-schnell | 34 | 645 | 19.0 |
+| byoc/flux-dev | 4 | 326 | 81.5 |
+
+App totals: `requestCount=261`, `networkFeeUsdMicros=462977`. Lifetime ratio flux-dev/flux-schnell ≈ **4.30×** (expected **8.33×** with full `-byocPerCapPricing` on staging signer).
+
+## Probe commands (redacted)
+
+```bash
+export NAAP_KEY='naap_…'   # canonical naap_8056755b…_a7a7a227…
+export BYOC_SIGNER_URL='https://pymthouse-signer-test-preview.up.railway.app'
+export BYOC_ORCH_URL='https://byoc-staging-1.daydream.monster:8935'
+export PYMTHOUSE_M2M_CLIENT_SECRET='pmth_cs_…'
+
+# validate → 200 + composite bearer ✓
+# byoc-e2e-probe.py → validate OK, gateway import skipped
+# direct submit_byoc_job (PR #41 gateway venv) → insufficient sender reserve
+```
+
+## Errors (redacted)
+
+| step | error |
+|---|---|
+| `byoc-e2e-probe.py` | `No module named 'livepeer_gateway.types'` after validate 200 |
+| `submit_byoc_job` flux-schnell | `Orchestrator RPC error: StatusCode.UNKNOWN: insufficient sender reserve` |
+| SDK `/inference` flux-schnell | `502` — `invalid job type` on prod signer `/generate-live-payment` |
+
+## Blockers (unchanged from Run 39/40)
+
+1. **Sender reserve** — John / pymthouse ops: fund Livepeer **sender reserve** for `app_98575870` Turnkey wallet (deposit + reserve on bonding manager). Orch `byoc-staging-1` is healthy; `sdk-staging-1` sender is funded — failure is on the **pymthouse per-app sender**, not the orch wallet.
+2. **Staging per-cap flag** — confirm `-byocPerCapPricing` on `pymthouse-signer-test-preview` (lifetime ratio still 4.30×).
+3. **Probe script** — fix `byoc-e2e-probe.py` import to `from livepeer_gateway.byoc import submit_byoc_job, ByocJobRequest` + `payload=` (not `types.BYOCJobRequest` / `params=`).
+
+## Artifacts
+
+- `/tmp/run41-om-baseline.json`, `/tmp/run41-om-after.json` (local session)
+- `/tmp/run41-validate.json`, `/tmp/run41-sdk-inference.json` (local session)
+
+## Spend
+
+**$0** — validate + failed probes only; no billed generation.
+
