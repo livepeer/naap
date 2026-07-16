@@ -201,15 +201,33 @@ John enabled **`-byocPerCapPricing` only** on the staging signer:
 
 **Health probe (2026-07-16):** staging `/healthz` → **200**; `POST /generate-live-payment` (empty body) → **400** `missing orchestrator` (same as prod — signer process is up, not 401). Composite `app_98575870….pmth_…` bearer accepted on **both** hosts.
 
+**Re-probe (2026-07-16, Run 36 investigation):** both hosts identical on `/healthz` and unauthenticated `POST /generate-live-payment` (400, not 401). `GET …/signer/routing` for `app_98575870` still returns **`pymthouse-production.up.railway.app`** — validate has **not** been flipped to staging.
+
+#### What John means by “staging signer pointing to pymthouse production”
+
+The staging Railway service (`pymthouse-signer-test-preview`) is a **separate signer binary** with **`-byocPerCapPricing` ON**, but its **backend plumbing is production pymthouse**, not an isolated preview stack:
+
+| Integration | Staging signer (expected) | Source |
+|---|---|---|
+| Identity webhook | `https://pymthouse.com/webhooks/remote-signer` | `REMOTE_SIGNER_WEBHOOK_URL` in `config/railway/production.env.example`; routing API `patterns.directDmz.webhookUrl` |
+| OIDC / JWKS | `https://pymthouse.com/api/v1/oidc/jwks` | `NEXTAUTH_URL=https://pymthouse.com` on prod signer template |
+| Metering bus | Production Kafka → `openmeter-collector` → Konnect OpenMeter | `KAFKA_BROKERS=kafka.railway.internal:9092`; routing `meteringMode: platform_ingest` |
+| OpenMeter customer | Same hosted OpenMeter app for `app_98575870` | `GET …/openmeter` → `mode: pymthouse_hosted`, `meterSlug: network_fee_usd_micros` |
+| Wallet / Turnkey | Likely same funded wallet as prod DMZ (John clone) | Not externally visible; both signers accept composite `app_98575870….pmth_…` |
+
+**Only difference:** the go-livepeer process on staging has `-byocPerCapPricing` enabled (John, manual Railway deploy — not in pymthouse repo CI; `pymthouse-signer-test-preview` ≠ documented preview stack `pymthouse-preview.up.railway.app`).
+
+**Implication:** fees from staging signer **should** appear in production `GET …/apps/app_98575870…/usage?groupBy=pipeline_model` — no separate preview OpenMeter customer.
+
 #### Can we test against staging, or must it be production DMZ?
 
-**Staging is usable** for per-cap pricing verification. Production DMZ is **not required** for the fee-ratio smoke as long as:
+**Yes — direct probe works NOW without routing flip.** Production DMZ is **not required** for the per-cap fee-ratio smoke:
 
-1. The staging signer runs the same go-livepeer image + `-byocPerCapPricing` flag John enabled.
-2. Traffic is routed to the staging URL (see routing below).
-3. OpenMeter ingest for `app_98575870` still applies — staging signer should emit to the same pymthouse app metering path (confirm with John if staging uses a separate Kafka/collector).
+1. Staging signer runs `-byocPerCapPricing` ON (John).
+2. Point traffic at staging URL via **`BYOC_SIGNER_URL` override** (probe) or global pymthouse routing flip (hosted SDK).
+3. Metering lands on production OpenMeter for `app_98575870` (shared webhook + Kafka pipeline).
 
-Use production DMZ only when validating the **live** billed path end-to-end (Storyboard prod, prod validate, prod fee ledger).
+Use production DMZ only when validating the **live** billed path end-to-end (Storyboard prod, prod validate URL, prod fee ledger on the prod signer binary).
 
 #### Where does `signerSession.url` come from?
 
@@ -219,19 +237,27 @@ Use production DMZ only when validating the **live** billed path end-to-end (Sto
 2. URL = pymthouse Builder API `GET /api/v1/apps/{clientId}/signer/routing` → `patterns.directDmz.signerApiUrl` (fallback: `routing.remoteDmzUrl`, `routing.signerApiUrl`).
 3. Bearer = composite `app_XXX.pmth_YYY` from `PYMTHOUSE_API_KEY` (prod fast-path) or freshly minted per-user key (legacy path).
 
-**Live routing for `app_98575870` (M2M, 2026-07-16):**
+**Live routing for `app_98575870` (M2M, re-checked 2026-07-16):**
 
 ```json
 {
+  "routing": {
+    "signerApiUrl": "https://pymthouse-production.up.railway.app",
+    "meteringMode": "platform_ingest",
+    "identityMode": "webhook"
+  },
   "patterns": {
     "directDmz": {
-      "signerApiUrl": "https://pymthouse-production.up.railway.app"
+      "signerApiUrl": "https://pymthouse-production.up.railway.app",
+      "webhookUrl": "https://pymthouse.com/webhooks/remote-signer"
     }
   }
 }
 ```
 
-`PYMTHOUSE_SIGNER_URL` on NaaP Vercel affects **only** exchange routes (`/api/pymthouse/keys/exchange`, `/api/signer/device/exchange`) and `GET /api/v1/billing/pymthouse/config` — **not** validate's `signerSession.url`. There is **no NaaP operator UI / DB field** to override signer DMZ per app; the override lives in **pymthouse app signer routing** (John).
+**Important correction:** `GET …/signer/routing` is **global** — `getClientSignerApiUrl()` reads pymthouse Vercel `SIGNER_INTERNAL_URL` / `PYMTHOUSE_CLIENT_SIGNER_API_URL`, **not** a per-app DB field. There is no per-app override in the routing route (`pymthouse/src/app/api/v1/apps/[id]/signer/routing/route.ts`). A “routing flip” means John changes pymthouse **production** `SIGNER_INTERNAL_URL` (or `PYMTHOUSE_CLIENT_SIGNER_API_URL`) on Vercel — affecting **all** apps on pymthouse.com, not just `app_98575870`.
+
+`PYMTHOUSE_SIGNER_URL` on NaaP Vercel affects **only** exchange routes (`/api/pymthouse/keys/exchange`, `/api/signer/device/exchange`) and `GET /api/v1/billing/pymthouse/config` — **not** validate's `signerSession.url`.
 
 #### `sdk-staging-1` config — what changes for staging signer?
 
@@ -251,36 +277,44 @@ SIGNER_FROM_VALIDATE=1
 SDK_IMAGE=…byoc-dual-path-1bf13cd-2026-07-16     # dual-path payment type
 ```
 
-To route **`naap_` only** to the staging signer: **change pymthouse signer routing** for `app_98575870` → `https://pymthouse-signer-test-preview.up.railway.app`. Validate + SDK will follow automatically; Daydream traffic stays on `signer.daydream.live`.
+To route **`naap_` on sdk-staging-1** to the staging signer without a probe override: John must flip pymthouse **global** `SIGNER_INTERNAL_URL` → `https://pymthouse-signer-test-preview.up.railway.app` (revert after smoke). Validate + SDK will follow automatically; Daydream traffic stays on `signer.daydream.live`.
+
+**Without routing flip:** use `BYOC_SIGNER_URL` in `scripts/byoc-e2e-probe.py` (validate still returns prod URL; probe overrides signer host only).
 
 #### Test plan (staging canary)
 
-**Phase 0 — John (pymthouse):** Point `app_98575870` signer routing `directDmz.signerApiUrl` at `https://pymthouse-signer-test-preview.up.railway.app` (revert to production URL after smoke).
+**Phase 0 — OPTIONAL (hosted SDK only):** John flips pymthouse Vercel `SIGNER_INTERNAL_URL` to staging URL; revert after smoke. **Skip for direct probe** — John’s “pointing to production” means metering already works without this.
 
-**Phase 1 — Direct signer probe (no sdk-staging-1 change):**
+**Phase 1 — Direct signer probe (works NOW, no routing flip):**
 
 ```bash
 # Health
 curl -sS -o /dev/null -w '%{http_code}\n' \
   https://pymthouse-signer-test-preview.up.railway.app/healthz
 
-# Auth + payment path (expect 400 missing orchestrator, NOT 401)
+# Override signer host; bearer still from prod validate (composite app_98575870.pmth_…)
 export BYOC_SIGNER_URL='https://pymthouse-signer-test-preview.up.railway.app'
-# Mint composite key via pymthouse M2M, or use validate signerSession bearer:
-export NAAP_KEY='naap_…'   # livepeer-dev key with front door ON
+export BYOC_CAPABILITY='flux-schnell'   # repeat with flux-dev for ratio check
+export NAAP_KEY='naap_…'                # livepeer-dev key, front door ON
 python3 scripts/byoc-e2e-probe.py
+
+# OpenMeter before/after (M2M app_98575870)
+curl -sS -H "Authorization: Basic $(printf '%s:%s' 'm2m_5ad45661715c8bb7eb30d18f' "$PYMTHOUSE_M2M_SECRET" | base64)" \
+  'https://pymthouse.com/api/v1/apps/app_98575870d7ae33589a3f0660/usage?groupBy=pipeline_model&include=retail&from=2026-07-16&to=2026-07-17'
 ```
 
-**Phase 2 — Hosted `naap_` inference (after routing flip):**
+Expect: new `byoc/flux-schnell` and `byoc/flux-dev` rows with `networkFeeUsdMicros` > 0; flux-dev / flux-schnell fee ratio ≈ **8.3×**.
+
+**Phase 2 — Hosted `naap_` inference via sdk.daydream.monster (requires Phase 0 routing flip):**
 
 1. `POST operator.livepeer.org/api/v1/keys/validate` (Bearer `naap_…`) → assert `signerSession.url` = staging host.
 2. `POST sdk.daydream.monster/inference` (flux-schnell, flux-dev) with `naap_` bearer → 200.
-3. `GET pymthouse.com/api/v1/apps/app_98575870…/usage?groupBy=pipeline_model` → new rows under `byoc/<cap>` with `networkFeeUsdMicros` > 0; assert flux-dev / flux-schnell fee ratio ≈ **8.3×** (staging `-byocPerCapPricing` ON).
+3. `GET pymthouse.com/api/v1/apps/app_98575870…/usage?groupBy=pipeline_model` → fee ratio ≈ **8.3×**.
 4. Control: Daydream key on same node → still hits `signer.daydream.live`, `type:lv2v` (dual-path image).
 
-**Phase 3 — Revert:** Restore pymthouse routing to `https://pymthouse-production.up.railway.app`; re-validate prod `signerSession.url`.
+**Phase 3 — Revert:** Restore pymthouse `SIGNER_INTERNAL_URL` to `https://pymthouse-production.up.railway.app`.
 
-**Owners:** John (routing flip + staging flag); qiang (probes + OpenMeter ratio check).
+**Owners:** John (staging flag + optional global routing flip); qiang (Phase 1 probe + OpenMeter ratio check).
 
 ---
 
