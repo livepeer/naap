@@ -4,7 +4,7 @@ Official Builder API contract: [PymtHouse `docs/builder-api.md`](https://github.
 
 Server-to-server calls use the published npm package [`@pymthouse/builder-sdk`](https://www.npmjs.com/package/@pymthouse/builder-sdk) (source: [pymthouse/builder-sdk](https://github.com/pymthouse/builder-sdk)), wrapped in [apps/web-next/src/lib/pymthouse-client.ts](apps/web-next/src/lib/pymthouse-client.ts) with `import "server-only"` so M2M secrets never ship to the browser.
 
-**Dependency pin:** NaaP pins `@pymthouse/builder-sdk` at **`0.6.0`** (local `file:` link to the builder-sdk checkout until published) in [apps/web-next/package.json](../apps/web-next/package.json) (and matching pins in the developer-api plugin packages). Review [builder-sdk releases](https://github.com/pymthouse/builder-sdk/releases) before bumping, run `npm install` at the repo root (or `./bin/start.sh`, which syncs when `package-lock.json` changes), and re-verify billing/OIDC routes after any upgrade.
+**Dependency pin:** NaaP pins `@pymthouse/builder-sdk` at **`0.6.0`** in [apps/web-next/package.json](../apps/web-next/package.json) (and matching pins in the developer-api plugin packages). Review [builder-sdk releases](https://github.com/pymthouse/builder-sdk/releases) before bumping, run `npm install` at the repo root (or `./bin/start.sh`, which syncs when `package-lock.json` changes), and re-verify billing/OIDC routes after any upgrade.
 
 ## Plan-builder data (PymtHouse → NaaP)
 
