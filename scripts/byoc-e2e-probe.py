@@ -53,14 +53,13 @@ def main() -> int:
     # Probe 1: type byoc via gateway (if installed)
     try:
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "livepeer-python-gateway", "src"))
-        from livepeer_gateway.byoc import submit_byoc_job
-        from livepeer_gateway.types import BYOCJobRequest
+        from livepeer_gateway.byoc import ByocJobRequest, submit_byoc_job
 
-        req = BYOCJobRequest(capability=CAP, params={"prompt": "probe", "width": 512, "height": 512})
+        req = ByocJobRequest(capability=CAP, payload={"prompt": "probe", "width": 512, "height": 512})
         try:
             submit_byoc_job(
                 req,
-                orchestrator_urls=[ORCH.replace(":8935", ":8936")],
+                orch_url=ORCH,
                 signer_url=signer_url,
                 signer_headers=headers,
                 timeout=120.0,
