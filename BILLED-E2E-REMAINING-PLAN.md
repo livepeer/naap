@@ -382,6 +382,7 @@ Storyboard MCP tools (`list_capabilities`, `create_media`, `get_pricing`, etc.) 
 | 1 | **`NAAP_KEY` not available** in env / `/tmp/rawkey` | **HIGH** | Mint or hand over livepeer-dev `naap_` key for validate + inference + MCP tests |
 | 2 | ~~**type:byoc image breaks Daydream on shared node**~~ | **RESOLVED** | Dual-path image `byoc-dual-path-1bf13cd-2026-07-16` deployed Run 35; **Run 42 MCP PASS** confirms Daydream path still safe |
 | 2b | **Prod DMZ rejects `type:byoc`** (`invalid job type`) | **HIGH** | Run 42: prod `pymthouse-production` regressed vs Run 29; staging preview accepts type but wallet unfunded. John redeploy prod DMZ with #3980 |
+| 2c | **Staging preview 401 `not a JWT` on composite bearer** | **HIGH** | Run 44 addendum: webhook gap (not Railway regression) — `pymthouse.com/webhooks/remote-signer` lacks `app_XXX.pmth_YYY` verifier; unmasked after sender-reserve top-up. John: add `resolveActiveAppApiKey` verifier + Vercel deploy |
 | 3 | **Gateway #41 not merged** | **HIGH** | `j0sh` approval → merge → rebuild SDK image |
 | 4 | **Per-cap pricing ratio suspect** | **MEDIUM** | John enables `-byocPerCapPricing`; re-smoke + OpenMeter ratio check |
 | 5 | **Prod validate 404 without key** | **LOW (expected)** | Front door globally OFF; livepeer-dev per-team override required — not a regression if key-based tests pass |

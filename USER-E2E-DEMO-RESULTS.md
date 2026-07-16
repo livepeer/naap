@@ -3825,3 +3825,100 @@ App totals: `requestCount=261`, `networkFeeUsdMicros=462977`. Path B gens bill v
 
 **≈ $0.006** — two Path B flux-schnell generations (Storyboard MCP + direct SDK Daydream bearer), **$0.00320** each. Path A: **$0** (no billed generation; top-up did not change meter).
 
+---
+
+## Run 44 addendum — staging 401 `not a JWT` root cause (2026-07-16 ~12:05 PT)
+
+Independent investigation of the Run 43/44 staging auth regression. **Verdict: not a Railway staging-signer config regression — it is a pymthouse.com webhook verifier gap, unmasked after sender-reserve top-up.**
+
+### TL;DR
+
+| question | answer |
+|---|---|
+| **Why 401 on staging?** | Staging signer (`#3980` + `-byocPerCapPricing`) now reaches `authLivePayment` → `POST pymthouse.com/webhooks/remote-signer`. The webhook verifier chain accepts **bare `pmth_*` opaque sessions** and **OIDC JWTs** only — **not** NaaP's composite `app_XXX.pmth_YYY` API-key bearer. OIDC fallback returns `"not a JWT"` → go-livepeer surfaces **HTTP 401**. |
+| **Why prod "accepts" composite?** | **Misleading.** Prod DMZ lacks `#3980` → `type:byoc` fails at **line-710 type gate** (`invalid job type`) **before** webhook. `type:lv2v` control fails at **numTickets > 100** **before** webhook. Prod never exercises webhook auth in matrix probes. |
+| **Was Run 42 auth OK?** | **No — auth was never reached.** Run 42 staging failed at **`no sender reserve`** during `genPayment` (**before** `authLivePayment` at line 809). Composite bearer was **not** validated in Run 42; the top-up in Run 44 advanced the failure point from reserve → webhook. |
+| **What auth does staging expect?** | **Composite `app.pmth_` bearer** (same as prod validate output). Staging **expects** it; pymthouse **webhook** does not verify it yet. JWT-only docs in `builder-api.md` are stale post-PR #210 / NaaP #421. |
+| **NAAP validate** | **PASS** — still mints composite `app_98575870….pmth_…` + prod DMZ URL (reconfirmed `/tmp/run44-validate.json`). |
+
+### Auth path comparison — prod vs staging preview
+
+Both Railway services use the **same signer-dmz entrypoint** pattern (`docker/signer-dmz/entrypoint.sh`):
+
+| config | prod `pymthouse-production` | staging `pymthouse-signer-test-preview` |
+|---|---|---|
+| **Image / binary** | Older go-livepeer (**no `#3980` `type:byoc`**) | Newer go-livepeer (**`#3980` ON** + `-byocPerCapPricing`) |
+| **`REMOTE_SIGNER_WEBHOOK_URL`** | `https://pymthouse.com/webhooks/remote-signer` (expected) | Same (expected — `railway-signer-env.sh` default) |
+| **`WEBHOOK_SECRET`** | Shared with Vercel pymthouse | Same shared secret (expected) |
+| **OIDC / JWKS** | `NEXTAUTH_URL=https://pymthouse.com`, issuer `…/api/v1/oidc` | Same production pymthouse backend (John clone) |
+| **Webhook host** | **Vercel pymthouse.com** (not Railway) | **Same Vercel webhook** — fix is **app-side**, not staging Railway env |
+
+**Only meaningful runtime difference:** staging go-livepeer accepts `type:byoc` and proceeds far enough to call the identity webhook; prod rejects `type:byoc` earlier.
+
+### Webhook verifier chain (root cause)
+
+`pymthouse/src/app/webhooks/remote-signer/route.ts` builds:
+
+```text
+createFirstMatchEndUserVerifier([
+  opaqueSessionVerifier,   // matches token.startsWith("pmth_") → sessions table
+  legacyOidcVerifier,      // matches 3-part JWT → else throws "not a JWT"
+])
+```
+
+NaaP composite bearer format: `app_98575870d7ae33589a3f0660.pmth_<hex>` (PR #421 / pymthouse PR #210).
+
+- **Fails opaque verifier** — does not start with `pmth_` (starts with `app_`).
+- **Fails OIDC verifier** — not a 3-part JWT → `@pymthouse/clearinghouse-identity-webhook` throws `WebhookError("not a JWT", { status: 401 })`.
+- **Missing verifier** — no `resolveActiveAppApiKey()` path (`app-api-keys.ts` already implements DB lookup for `pmth_*` + `clientId`).
+
+`/sign-orchestrator-info` returns **HTTP 200** for composite bearer on **both** hosts — **does not call the webhook** (`SignOrchestratorInfo` has no auth). Do not use it as composite-auth proof.
+
+### Live minimal probes (2026-07-16, $0 spend)
+
+| probe | prod DMZ | staging preview |
+|---|---|---|
+| `GET /healthz` | **200** | **200** |
+| `POST /generate-live-payment` empty body (no bearer) | **400** `missing orchestrator` | **400** `missing orchestrator` |
+| `POST /generate-live-payment` composite bearer, empty orch | **400** `missing orchestrator` (auth not reached) | **400** `missing orchestrator` (auth not reached) |
+| `POST /sign-orchestrator-info` composite bearer | **200** (no webhook) | **200** (no webhook) |
+| `POST /sign-orchestrator-info` bare `pmth_…` | **200** | **200** |
+| `submit_byoc_job` flux-schnell (gateway venv, full orch blob) | **FAIL** `invalid job type` (pre-webhook) | **FAIL** **401 `not a JWT`** (webhook reached) |
+| NaaP `POST /keys/validate` + `naap_…` | **200** composite bearer (artifact) | n/a (same validate output) |
+
+Signer ETH addresses differ (separate Turnkey wallets): prod `0x6CAE3C7…`, staging `0x102148dB…`.
+
+### Corrected failure timeline
+
+```text
+Run 42 staging:  validate 200 → type:byoc ACCEPTED → genPayment → no sender reserve (STOP before webhook)
+Run 43/44 staging: same path, but EITHER (a) reserve topped up → reaches webhook → 401 not a JWT,
+                   OR (b) probe always reached webhook once #3980 live — reserve error masked earlier runs
+Run 44 prod:     validate 200 → type:byoc REJECTED at type gate (never reaches webhook)
+```
+
+### What John needs to fix (staging + prod)
+
+**P1 — pymthouse.com webhook (Vercel deploy, not Railway-only):**
+
+1. Add an **app-scoped API key verifier** to `/webhooks/remote-signer` **before** the OIDC verifier:
+   - Parse composite `app_<publicClientId>.pmth_<secret>` (split on `.pmth_`).
+   - Call `resolveActiveAppApiKey(pmth_secret, publicClientId)` (`src/lib/app-api-keys.ts`).
+   - Emit `UsageIdentity { client_id, usage_subject: externalUserId, usage_subject_type: external_user_id }`.
+2. Deploy **pymthouse.com** (Vercel). Both prod and staging Railway signers share this webhook — **one fix unblocks both** once each signer reaches `authLivePayment`.
+
+**P0 — prod DMZ `#3980` (unchanged):** Redeploy `pymthouse-production` with `type:byoc` support so prod path matches staging after webhook fix.
+
+**P2 — sender reserve (Run 44):** John reports topped up; **re-test only after P1 webhook fix** — expect payment generation to proceed past auth.
+
+**Not needed:** Changing `REMOTE_SIGNER_WEBHOOK_URL`, `WEBHOOK_SECRET`, or OIDC issuer on staging preview — configs match prod. Do **not** point staging at a JWT-only test webhook.
+
+### Owners
+
+| item | owner |
+|---|---|
+| Webhook composite `app.pmth_` verifier + Vercel deploy | **John / pymthouse** |
+| Prod DMZ `#3980` redeploy | **John / pymthouse** |
+| NaaP validate → composite bearer emission | **DONE** (NaaP #421) |
+| Re-smoke staging per-cap after P1 | **qiang** (`BYOC_SIGNER_URL` override or routing flip) |
+
