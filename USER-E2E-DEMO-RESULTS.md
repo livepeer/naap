@@ -4058,3 +4058,54 @@ App totals: `requestCount=261`, `networkFeeUsdMicros=462977`. Path B MCP gen bil
 
 **≈ $0.003** — one Path B Storyboard MCP flux-schnell generation (**$0.00320**). Path A: **$0** (no billed generation; webhook auth blocked before meter).
 
+---
+
+# Run 45b — Hosted SDK validate-session cache addendum (2026-07-16 ~14:40 PT)
+
+Follow-up to Run 45 **P1b discrepancy**: validate returns test-production signer but `sdk.daydream.monster/inference` + `naap_` returned **`invalid job type`** (old prod DMZ signature). SSH to `sdk-staging-1` to re-check env and re-smoke hosted path.
+
+## VM env — before (SSH `sdk-staging-1`, us-west1-b)
+
+| var | `/opt/sdk/.env` | `sdk-service` container |
+|---|---|---|
+| `SIGNER_FROM_VALIDATE` | **`1`** | **`1`** |
+| `AUTH_VALIDATE_URL` | `https://operator.livepeer.org/api/v1/keys/validate` | same |
+| `SIGNER_URL` | `https://signer.daydream.live` | same |
+| `SDK_IMAGE` | `…/sdk-service:byoc-dual-path-1bf13cd-2026-07-16` | same (digest live) |
+
+**No `.env` change required** — overlay already correct; not a `SIGNER_FROM_VALIDATE=0` drift.
+
+## Action taken
+
+`docker restart sdk-service` on `sdk-staging-1` to flush in-process `_validate_session_cache`. Container recreated on same image (`byoc-dual-path-1bf13cd-2026-07-16`); env unchanged.
+
+## VM env — after
+
+Identical to before (no file edits). Container up with same env + image post-restart.
+
+## Inference re-test (`POST sdk.daydream.monster/inference`, `naap_8056755b…`, `capability=flux-schnell`)
+
+| attempt | HTTP | error / latency | signer class |
+|---|---|---|---|
+| **Before restart** (Run 45 class) | **502** | `invalid job type` (~0.6 s) | **old prod DMZ** (type gate reject) |
+| **After restart** (Run 45b) | **502** | **`not a JWT`** (~5.4 s) | **test-production** (type gate **pass**, webhook auth fail) |
+
+Validate (external): HTTP 200 → `signerSession.url` = `pymthouse-signer-test-production.up.railway.app`; composite `app_98575870….pmth_<64hex>` bearer.
+
+## Root cause
+
+**Stale validate-session cache**, not missing `SIGNER_FROM_VALIDATE`. `_resolve_validate_session` caches successful resolutions in-process; an earlier empty or pre-flip session was cached → `_effective_signer` fell back to static `SIGNER_URL` / wrong pymthouse path → **`invalid job type`**. Container restart clears cache; hosted path now aligns with Run 45 direct probes (**401 `not a JWT`** on test-production).
+
+## Verdict
+
+| concern | Run 45 | Run 45b |
+|---|---|---|
+| P1b hosted signer URL drift | **OPEN** | **CLOSED** — cache flush; env was already `SIGNER_FROM_VALIDATE=1` |
+| P1 webhook composite bearer ([#255](https://github.com/pymthouse/pymthouse/pull/255)) | **401 `not a JWT`** | **unchanged** — remaining blocker for billed `naap_` gen |
+
+**Infra hygiene:** consider TTL on `_validate_session_cache` or bust cache on deploy so signer routing flips (John A/B) do not require manual VM restart.
+
+## Spend
+
+**$0** — inference probes only (no successful generation).
+

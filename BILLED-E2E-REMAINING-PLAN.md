@@ -383,7 +383,7 @@ Storyboard MCP tools (`list_capabilities`, `create_media`, `get_pricing`, etc.) 
 | 2 | ~~**type:byoc image breaks Daydream on shared node**~~ | **RESOLVED** | Dual-path image `byoc-dual-path-1bf13cd-2026-07-16` deployed Run 35; **Run 42 MCP PASS** confirms Daydream path still safe |
 | 2b | **Prod DMZ rejects `type:byoc`** (`invalid job type`) | **PARTIAL (Run 45)** | John A/B flip: `app_98575870` → **test-production** signer accepts `type:byoc`; old `pymthouse-production` still rejects for non-cohort apps |
 | 2c | **401 `not a JWT` on composite bearer** | **HIGH** | Run 45: test-production signer reaches webhook → **401 `not a JWT`** (unchanged). **Fix PR:** [pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255) — Vercel deploy required |
-| 2d | **Hosted SDK `naap_` signer URL drift** | **HIGH (new Run 45)** | Validate returns test-production; `sdk.daydream.monster/inference` returns **`invalid job type`** (old prod DMZ). Re-check `SIGNER_FROM_VALIDATE=1` on `sdk-staging-1` |
+| 2d | **Hosted SDK `naap_` signer URL drift** | **CLOSED (Run 45b)** | Env already `SIGNER_FROM_VALIDATE=1`; stale `_validate_session_cache` caused prod DMZ fallback. `docker restart sdk-service` → hosted path now **401 `not a JWT`** (test-production). Add cache TTL on deploy |
 | 3 | **Gateway #41 not merged** | **HIGH** | `j0sh` approval → merge → rebuild SDK image |
 | 4 | **Per-cap pricing ratio suspect** | **MEDIUM** | John enables `-byocPerCapPricing`; re-smoke + OpenMeter ratio check |
 | 5 | **Prod validate 404 without key** | **LOW (expected)** | Front door globally OFF; livepeer-dev per-team override required — not a regression if key-based tests pass |
