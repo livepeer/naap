@@ -33,7 +33,8 @@ def main() -> int:
         print("SKIP: set NAAP_KEY to run integration probes")
         return 2
 
-    code, body = _post(NAAP_VALIDATE, {"key": naap_key})
+    # Front door requires Authorization: Bearer naap_… (not JSON {key}).
+    code, body = _post(NAAP_VALIDATE, {}, headers={"Authorization": f"Bearer {naap_key}"})
     print(f"validate: HTTP {code}")
     if code != 200:
         print(body[:300])

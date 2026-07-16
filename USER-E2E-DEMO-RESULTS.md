@@ -3321,3 +3321,81 @@ SDK advertised ratio (reference): `flux-dev` / `flux-schnell` `price_per_unit` =
 
 **$0** — OpenMeter reads + failed probes; no billed generation completed.
 
+---
+
+# Run 39 — Validate 404 + sender reserve investigation (2026-07-16 ~11:25 PT)
+
+Follow-up to Run 38. Re-tested validate with Bearer (not JSON body), checked prod DB path / flag state, orch logs, and probe script. User supplied `naap_…` key (redacted; env only).
+
+## TL;DR
+
+| concern | status |
+|---|---|
+| **Root cause of validate 404** | **CONFIRMED** — global `key_validation_front_door` OFF + **no** `livepeer-dev` per-team override ON → endpoint fully masked (404 for all callers, Bearer or not) |
+| **What changed since Bearer worked** | Per-team overrides for `livepeer-dev` were **enabled in Runs 4–5** (Jul 3) then **cleared in teardown**; Run 38/39 prod has **zero** team overrides → back to masked 404 |
+| **JSON `{key}` vs Bearer** | Route **only** accepts `Authorization: Bearer naap_…` (`route.ts:111`). JSON body is ignored. Both returned 404 here because front door is OFF (not because Bearer broke) |
+| **Key format** | Supplied key is **64-hex continuous** (`naap_<64hex>`, no `_` separator). `parseApiKey` requires `naap_<16hex>_<48hex>`. Reconstructed canonical form also 404 (masked before format check matters) |
+| **DB / flag fix attempted** | **BLOCKED** — prod `DATABASE_URL` / admin session unavailable locally (`.env.vercel-prod` / `.env.prod-check` have empty DB + M2M secrets; Vercel OIDC → 403; localhost DB not running) |
+| **Fix applied** | **Probe script** — `scripts/byoc-e2e-probe.py` now sends Bearer (was wrongly posting `{key}`). **No prod flag flip** (needs admin session or Neon write) |
+| **Sender reserve root cause** | **CONFIRMED ops** — `insufficient sender reserve` is **not** `byoc-staging-1` orch wallet (`180859c3…` from `scope-stg-orch-wallet`). Orch is healthy; `sdk-staging-1` sender `0xCA3331…` (NAT `34.83.177.89`) completes jobs with reserve. M2M `app_98575870` composite bearer uses the **pymthouse per-app Turnkey sender**, which lacks Livepeer **sender reserve** on Arbitrum |
+| **Probe re-run (Run 39)** | **FAIL at validate** — Bearer + `BYOC_SIGNER_URL=staging` → HTTP 404; no billed gen; **$0** spend |
+| **Owner actions** | (1) **qiang / livepeer-dev admin:** `PUT /api/v1/admin/feature-flag-overrides` enable `key_validation_front_door` (+ `per_key_remote_signer`, `native_keys`) for team `b0600547-9a7c-434b-aa8b-8d1534c3d5b8`. (2) **John / pymthouse ops:** fund **sender reserve** for `app_98575870` wallet (deposit + reserve on Livepeer bonding manager) — same class as prior IncompleteRead/unfunded-wallet blockers |
+
+## Validate investigation detail
+
+### Endpoint tests (2026-07-16T18:17–18:25Z)
+
+| method | result |
+|---|---|
+| `POST operator.livepeer.org/api/v1/keys/validate` + `Authorization: Bearer naap_…` (raw 64-hex) | **404** `NOT_FOUND` |
+| Same + reconstructed `naap_<16hex>_<48hex>` | **404** `NOT_FOUND` |
+| Same + JSON body `{key:…}` (no Bearer) | **404** `NOT_FOUND` |
+
+### Code path (why 404, not 401)
+
+From `apps/web-next/src/app/api/v1/keys/validate/route.ts`:
+
+1. Global front door OFF **and** `anyTeamFlagOverrideEnabled('key_validation_front_door')` false → **immediate 404** (lines 82–85).
+2. When globally OFF but some team opted in, pre-resolution failures are also masked to 404 (lines 87–102).
+3. Bearer is required (line 111); JSON `key` field is never read.
+
+**Prior Bearer 200 runs** (Runs 4–5, Option A preview, Jul 3 prod quick-verify) had per-team override ON for `livepeer-dev`. Teardown / absence of overrides restored masked 404 — **not a Bearer regression**.
+
+### Safe enable path (zero prod blast radius)
+
+Per-team override only — no global flag flip:
+
+```http
+PUT /api/v1/admin/feature-flag-overrides
+Authorization: Bearer <system:admin session>
+{ "teamId": "b0600547-9a7c-434b-aa8b-8d1534c3d5b8", "key": "key_validation_front_door", "enabled": true }
+```
+
+Repeat for `per_key_remote_signer` and `native_keys`. Globals stay OFF; only `livepeer-dev` keys unmask.
+
+## Sender reserve investigation detail
+
+| wallet / role | address | reserve status |
+|---|---|---|
+| `byoc-staging-1` orch (GCP `scope-stg-orch-wallet`) | `0x180859c337d14edf588c685f3f7ab4472ab6a252` | Orch stack Up 2d; not the failing sender |
+| `sdk-staging-1` gateway sender (NAT `34.83.177.89`) | `0xCA3331D67e87816aDB30D9562a6e8c0623fB7feF` | **Funded** — orch logs show successful BYOC jobs + balance decrements (e.g. chatterbox-tts, 2026-07-16) |
+| `app_98575870` pymthouse DMZ signer sender (M2M composite probe) | Turnkey wallet (not externally listed) | **Unfunded reserve** → gRPC `insufficient sender reserve` on `byoc-staging-1.daydream.monster:8935` |
+
+**Not a simple-infra orch deploy issue** — orch + sdk-staging paths work. Fix is **fund the pymthouse app sender's Livepeer reserve** (John / pymthouse ops), not swap `byoc-staging-1` image.
+
+## Run 39 probe result
+
+```bash
+# Probe script fix: Bearer header (not JSON body)
+export NAAP_KEY='naap_…'   # redacted
+export BYOC_SIGNER_URL='https://pymthouse-signer-test-preview.up.railway.app'
+python3 scripts/byoc-e2e-probe.py
+# → validate: HTTP 404 — exits before BYOC submit
+```
+
+**Run 39 billed generation: NOT RUN** ($0). Unblock order: enable front door → validate 200 + composite bearer → fund app sender reserve → re-run flux-schnell probe.
+
+## Spend
+
+**$0** — investigation + validate probes only.
+
