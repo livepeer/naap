@@ -133,7 +133,7 @@ describe('mintUserSignerJwtForExternalUser (Builder user-token JWT for the remot
   });
 });
 
-describe('exchangeApiKeyForSignerSession (POST /api/v1/apps/{clientId}/auth/api-key/signer-session)', () => {
+describe('exchangeApiKeyForSignerSession (POST /api/v1/apps/{clientId}/oidc/token)', () => {
   function mockFetch(
     response: { ok?: boolean; status?: number; json: () => Promise<unknown> },
   ): ReturnType<typeof vi.fn> {
@@ -150,7 +150,7 @@ describe('exchangeApiKeyForSignerSession (POST /api/v1/apps/{clientId}/auth/api-
     vi.unstubAllGlobals();
   });
 
-  it('POSTs the api key as Bearer with scope body and parses the nested token envelope', async () => {
+  it('POSTs RFC 8693 form body and parses the nested token envelope', async () => {
     // Canonical example-client envelope: { token: { accessToken }, signerUrl }.
     const fetchMock = mockFetch({
       json: async () => ({
@@ -169,14 +169,18 @@ describe('exchangeApiKeyForSignerSession (POST /api/v1/apps/{clientId}/auth/api-
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://pymthouse.com/api/v1/apps/app_973064/auth/api-key/signer-session');
+    expect(url).toBe('https://pymthouse.com/api/v1/apps/app_973064/oidc/token');
     expect(init.method).toBe('POST');
     expect(init.headers).toMatchObject({
-      Authorization: 'Bearer pmth_test_key',
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
     });
-    expect(JSON.parse(init.body as string)).toEqual({ scope: 'sign:job' });
+    expect(init.headers).not.toHaveProperty('Authorization');
+    const form = new URLSearchParams(init.body as string);
+    expect(form.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:token-exchange');
+    expect(form.get('subject_token')).toBe('pmth_test_key');
+    expect(form.get('subject_token_type')).toBe('urn:ietf:params:oauth:token-type:access_token');
+    expect(form.get('scope')).toBe('sign:job');
 
     expect(out).toEqual({
       accessToken: 'eyJhbGciOiJSUzI1NiJ9.signer.sig',
@@ -200,7 +204,8 @@ describe('exchangeApiKeyForSignerSession (POST /api/v1/apps/{clientId}/auth/api-
     });
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toEqual({ scope: 'sign:job extra' });
+    const form = new URLSearchParams(init.body as string);
+    expect(form.get('scope')).toBe('sign:job extra');
     expect(out.accessToken).toBe('flat.jwt.sig');
     expect(out.signerUrl).toBe('https://dmz.example');
     // No expires_in in the response → conservative default TTL.
@@ -217,7 +222,7 @@ describe('exchangeApiKeyForSignerSession (POST /api/v1/apps/{clientId}/auth/api-
     });
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe(
-      'https://pymthouse.com/api/v1/apps/app%2Fwith%20space/auth/api-key/signer-session',
+      'https://pymthouse.com/api/v1/apps/app%2Fwith%20space/oidc/token',
     );
   });
 

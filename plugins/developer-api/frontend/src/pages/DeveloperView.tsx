@@ -24,7 +24,14 @@ ChevronUp,
 } from 'lucide-react';
 import { Card, Badge, Modal, Tooltip } from '@naap/ui';
 import type { NetworkModel } from '@naap/plugin-sdk';
+import { isCompositeApiKey } from '@pymthouse/builder-sdk';
 import { SubscriptionsPanel } from './SubscriptionsPanel';
+
+/** Presented PymtHouse billing key: composite `app_<24hex>_<secret>` or bare `pmth_*`. */
+function isPymthousePresentedApiKey(key: string): boolean {
+  const trimmed = key.trim();
+  return isCompositeApiKey(trimmed) || (trimmed.startsWith('pmth_') && !trimmed.startsWith('pmth_cs_'));
+}
 
 const PIPELINE_COLOR: Record<string, string> = {
   'text-to-image':           '#f59e0b',
@@ -986,10 +993,11 @@ result = [...result].sort((a, b) => {
       const directAccessToken = startData.data?.access_token || startData.access_token;
       const loginSessionId = startData.data?.login_session_id || startData.login_session_id;
 
-      // Server-to-server providers (e.g. PymtHouse) return a long-lived pmth_* API key
-      // as `access_token` directly. Browser-redirect providers (e.g. Daydream)
-      // hand back only a `login_session_id`; the popup opens a same-origin NaaP
-      // redirector that resolves the provider authorization URL server-side, so no
+      // Server-to-server providers (e.g. PymtHouse) return a long-lived API key
+      // (`app_<24hex>_<secret>` or bare `pmth_*`) as `access_token` directly.
+      // Browser-redirect providers (e.g. Daydream) hand back only a
+      // `login_session_id`; the popup opens a same-origin NaaP redirector that
+      // resolves the provider authorization URL server-side, so no
       // remote-controlled URL is ever passed into window.open.
       let providerApiKey: string | null = directAccessToken || null;
 
@@ -1930,7 +1938,8 @@ result = [...result].sort((a, b) => {
                           <code className="text-slate-300">GET …/manifest</code>
                           ); capabilities outside that list return no orchestrators. Discovery uses a new{' '}
                           <code className="text-slate-300">gw_…</code> gateway key; the signer uses your billing provider
-                          <code className="text-slate-300"> pmth_*</code> key (the SDK exchanges it for a signer JWT at runtime).
+                          <code className="text-slate-300"> app_*_*</code> (or bare <code className="text-slate-300">pmth_*</code>) key
+                          (the SDK exchanges it for a signer JWT at runtime, or the identity webhook accepts the composite Bearer).
                         </>
                       ) : (
                         <>
@@ -2041,7 +2050,7 @@ result = [...result].sort((a, b) => {
                 <p className="text-text-secondary mt-0.5">
                   {createdKeyWarning || 'This is the only time your API key will be shown. Copy it now and store it in a safe place.'}
                 </p>
-                {createdKeyExpiresAt && !createdRawKey.startsWith('pmth_') && (
+                {createdKeyExpiresAt && !isPymthousePresentedApiKey(createdRawKey) && (
                   <p className="text-amber-200 mt-1">
                     {`Expires at ${new Date(createdKeyExpiresAt).toLocaleString('en-US', {
                       month: 'short',
@@ -2052,9 +2061,9 @@ result = [...result].sort((a, b) => {
                     })}.`}
                   </p>
                 )}
-                {createdRawKey.startsWith('pmth_') && (
+                {isPymthousePresentedApiKey(createdRawKey) && (
                   <p className="text-text-secondary mt-1">
-                    Long-lived until revoked. The SDK exchanges this key for a short-lived signer session before streaming.
+                    Long-lived until revoked. Present this key to the remote signer (composite Bearer) or exchange it for a short-lived signer JWT before streaming.
                   </p>
                 )}
               </div>
@@ -2065,7 +2074,8 @@ result = [...result].sort((a, b) => {
                 <p className="text-xs text-text-secondary">
                   Base64 JSON for python-gateway <code className="text-slate-300">--token</code> flag — signer, discovery,
                   and header configuration. For PymtHouse, <code className="text-slate-300">signer_headers</code> carries
-                  your <code className="text-slate-300">pmth_*</code> key; the SDK exchanges it for a signer JWT before streaming.
+                  your <code className="text-slate-300">app_*_*</code> (or bare <code className="text-slate-300">pmth_*</code>) key;
+                  the SDK exchanges it for a signer JWT before streaming (or the identity webhook accepts the composite Bearer).
                 </p>
                 <div className="flex items-start gap-2">
                   <code className="max-h-40 flex-1 overflow-y-auto break-all rounded-lg border border-white/10 bg-bg-tertiary px-3 py-2 font-mono text-xs text-accent-emerald select-all">

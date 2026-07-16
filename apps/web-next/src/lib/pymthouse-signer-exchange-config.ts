@@ -85,15 +85,16 @@ export function readApiKeyExchangeConfig() {
 }
 
 /**
- * Config for the NEW single-call signer-session exchange
- * (`POST /api/v1/apps/{clientId}/auth/api-key/signer-session`).
+ * Config for the app-scoped RFC 8693 API-key → signer JWT exchange
+ * (`POST /api/v1/apps/{clientId}/oidc/token`).
  *
- * Sourced from the OPTIONAL `PYMTHOUSE_API_KEY` (composite `app_XXX.pmth_YYY` or bare
- * `pmth_…`) plus the existing `PYMTHOUSE_PUBLIC_CLIENT_ID` and `PYMTHOUSE_ISSUER_URL`.
- * any of these is missing — which is the DEFAULT posture (the env var is unset),
- * so callers fall back to today's per-user mint path with zero regression. The
- * `billingUrl` is the issuer ORIGIN (the endpoint lives under `/api/v1/apps`,
- * not the `/api/v1/oidc` issuer path). The API key value is never logged.
+ * Sourced from the OPTIONAL `PYMTHOUSE_API_KEY` (composite `app_<24hex>_<secret>`
+ * or bare `pmth_…`) plus the existing `PYMTHOUSE_PUBLIC_CLIENT_ID` and
+ * `PYMTHOUSE_ISSUER_URL`. Returns null when any of these is missing — which is
+ * the DEFAULT posture (the env var is unset), so callers fall back to today's
+ * per-user mint path with zero regression. The `billingUrl` is the issuer ORIGIN
+ * (the endpoint lives under `/api/v1/apps`, not the `/api/v1/oidc` issuer path).
+ * The API key value is never logged.
  */
 export function readApiKeySignerSessionConfig(): {
   billingUrl: string;
