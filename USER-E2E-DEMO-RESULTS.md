@@ -3528,3 +3528,75 @@ export PYMTHOUSE_M2M_CLIENT_SECRET='pmth_cs_…'
 
 **$0** — validate + failed probes only; no billed generation.
 
+---
+
+# Run 42 — Prod DMZ `type:byoc` regression + Daydream dual-path regression test (2026-07-16 ~11:45 PT)
+
+Follow-up to Run 41. Root-caused the hosted `naap_` **502 `invalid job type`** failure, confirmed dual-path gateway `1bf13cd` does **not** regress Daydream, and ran a **live billed** Storyboard MCP generation.
+
+## TL;DR
+
+| concern | status |
+|---|---|
+| **NaaP validate** | **PASS** — HTTP 200; `signerSession.url` = prod DMZ (`pymthouse-production.up.railway.app`); composite `app_98575870….pmth_…` bearer |
+| **Root cause: naap hosted 502** | **Prod DMZ signer regression** — gateway correctly sends `type:byoc` + capabilities proto to prod DMZ; prod DMZ returns **400 `invalid job type`**. **Not** a gateway/dual-path bug. Same failure class as Run 27/28 (pre-#3980). |
+| **Prod vs staging DMZ matrix** | **PROD:** `type:byoc` → **400 `invalid job type`**; `type:lv2v` → **400 `numTickets exceeds maximum`** (type **accepted**, ticket math only). **STAGING:** `type:byoc` → **400 `no sender reserve`** (type **accepted**, wallet unfunded). |
+| **Gateway dual-path (`1bf13cd`)** | **CONFIRMED working** — `_payment_type_for_signer(prod DMZ)` → `byoc`; Daydream MCP uses legacy signer → `lv2v` path |
+| **SDK hosted inference (`naap_`)** | **FAIL** — HTTP 502; payment step `invalid job type` on prod DMZ |
+| **Storyboard MCP Daydream test** | **PASS** — `create_media` flux-schnell → HTTP 200 equivalent; image in **2364 ms**; `https://v3b.fal.media/files/b/0aa283ce/phYS1v89fiiqH2ovQ-weA.jpg`; cost **$0.00320** |
+| **Daydream regression verdict** | **SAFE** — dual-path deploy did **not** break Daydream keys on `sdk.daydream.monster` |
+
+## Root cause analysis — naap path `invalid job type`
+
+**Trace:**
+
+1. `POST operator.livepeer.org/api/v1/keys/validate` + Bearer (canonical `naap_8056755b…_a7a7a227…`) → **200**; routes to **prod** pymthouse DMZ (`pymthouse-production.up.railway.app`), not staging preview.
+2. `sdk.daydream.monster` with `SIGNER_FROM_VALIDATE=1` uses validate `signerSession` for `naap_` keys → prod DMZ + composite bearer.
+3. Gateway `byoc-dual-path-1bf13cd` `_payment_type_for_signer(prod DMZ host)` → **`byoc`**; `_create_byoc_payment` posts `type:"byoc"` + base64 capabilities proto + orchestrator blob to `/generate-live-payment`.
+4. **Prod DMZ rejects** with **400 `{"error":{"message":"invalid job type"}}`**.
+5. Control on same prod DMZ with identical orch blob: **`type:lv2v`** → **400 `numTickets … exceeds maximum`** — proves prod binary **accepts lv2v** but **rejects byoc** at the type gate (Run 27/28 pattern; #3980 fix **not effective on prod DMZ today**).
+6. Staging preview signer (`pymthouse-signer-test-preview`) accepts **`type:byoc`** but fails later with **`no sender reserve`** (wallet unfunded — separate blocker from Run 39–41).
+
+**Conclusion:** Hosted naap_ inference is blocked by **John / pymthouse ops** — redeploy prod DMZ (`pymthouse-production.up.railway.app`) with go-livepeer **#3980** (or equivalent) so `type:byoc` + capabilities is accepted again. Gateway dual-path and validate wiring are **correct**.
+
+## Pass/fail table
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| 1 | NaaP validate → composite bearer | **PASS** | HTTP 200; prod DMZ URL |
+| 2 | Prod DMZ `type:byoc` + orch + caps | **FAIL** | HTTP 400 `invalid job type` |
+| 3 | Prod DMZ `type:lv2v` + orch (control) | **FAIL (expected)** | HTTP 400 `numTickets exceeds maximum` — type **not** rejected |
+| 4 | Staging DMZ `type:byoc` + orch + caps | **FAIL (wallet)** | HTTP 400 `no sender reserve` — type **accepted** |
+| 5 | SDK `/inference` flux-schnell (`naap_`) | **FAIL** | HTTP 502; prod DMZ `invalid job type` |
+| 6 | Storyboard MCP `create_media` flux-schnell | **PASS** | 2364 ms; fal.media URL; $0.00320 |
+| 7 | Storyboard MCP `list_capabilities` | **PASS** | 170 caps live |
+| 8 | Dual-path Daydream regression | **PASS** | Daydream gen succeeds post-`1bf13cd` |
+
+## Probe evidence (redacted)
+
+```text
+# Gateway local probe (PR #41 venv, composite bearer from validate)
+payment_type=byoc  signer=pymthouse-production.up.railway.app
+DMZ type:byoc -> HTTP 400 {"error":{"message":"invalid job type"}}
+DMZ type:lv2v -> HTTP 400 {"error":{"message":"numTickets 2236 exceeds maximum of 100"}}
+
+# SDK hosted
+POST sdk.daydream.monster/inference  capability=flux-schnell  -> HTTP 502
+  payment failed: BYOC payment generation failed: HTTP 400: invalid job type
+
+# Storyboard MCP (Daydream bearer, configured in MCP)
+create_media model_override=flux-schnell -> PASS 2364ms
+  URL: https://v3b.fal.media/files/b/0aa283ce/phYS1v89fiiqH2ovQ-weA.jpg
+  Cost: $0.00320
+```
+
+## Blockers (updated)
+
+1. **P0 — Prod DMZ `type:byoc`:** John redeploy `pymthouse-production.up.railway.app` with #3980 `RemoteType_BYOC` path (Run 29 had this working; prod regressed again).
+2. **P1 — Sender reserve:** fund pymthouse `app_98575870` Turnkey sender reserve (staging orch + staging signer probes fail here after type gate passes).
+3. **P2 — Staging routing (optional):** flip pymthouse global `SIGNER_INTERNAL_URL` → staging preview for canary without probe override.
+
+## Spend
+
+**≈ $0.003** — one Storyboard MCP flux-schnell generation (Daydream path regression test).
+

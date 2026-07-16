@@ -190,6 +190,8 @@ Optional env `BYOC_PAYMENT_TYPE=auto|lv2v|byoc` (`auto` = detect from `signer_ur
 
 **Live VM state (verified Run 35 post-deploy):** `/opt/sdk/.env` — `SIGNER_URL=https://signer.daydream.live`, `AUTH_VALIDATE_URL=…/keys/validate`, `SIGNER_FROM_VALIDATE=1`, `ADAPTER_URLS=http://8.229.77.130:9090,http://8.229.27.185:9090`, `SDK_IMAGE=…byoc-dual-path-1bf13cd-2026-07-16`; container gateway confirms `_payment_type_for_signer()` at byoc.py:151.
 
+**Daydream regression re-check (Run 42, 2026-07-16):** **NO REGRESSION.** Storyboard MCP `create_media` (flux-schnell) against `sdk.daydream.monster` → **PASS** in 2364 ms, image URL returned, $0.00320. Dual-path correctly routes Daydream bearer → `signer.daydream.live` → `type:lv2v`. Hosted `naap_` inference still **FAIL** — root cause is **prod DMZ** rejecting `type:byoc` (`invalid job type`), not the dual-path gateway image. Staging preview signer accepts `type:byoc` but hits `no sender reserve` (wallet unfunded).
+
 ### Staging signer canary (`-byocPerCapPricing` ON) — Run 36
 
 John enabled **`-byocPerCapPricing` only** on the staging signer:
@@ -378,7 +380,8 @@ Storyboard MCP tools (`list_capabilities`, `create_media`, `get_pricing`, etc.) 
 | # | Blocker | Severity | Next action |
 |---|---|---|---|
 | 1 | **`NAAP_KEY` not available** in env / `/tmp/rawkey` | **HIGH** | Mint or hand over livepeer-dev `naap_` key for validate + inference + MCP tests |
-| 2 | ~~**type:byoc image breaks Daydream on shared node**~~ | **RESOLVED** | Dual-path image `byoc-dual-path-1bf13cd-2026-07-16` deployed Run 35; Daydream path restored |
+| 2 | ~~**type:byoc image breaks Daydream on shared node**~~ | **RESOLVED** | Dual-path image `byoc-dual-path-1bf13cd-2026-07-16` deployed Run 35; **Run 42 MCP PASS** confirms Daydream path still safe |
+| 2b | **Prod DMZ rejects `type:byoc`** (`invalid job type`) | **HIGH** | Run 42: prod `pymthouse-production` regressed vs Run 29; staging preview accepts type but wallet unfunded. John redeploy prod DMZ with #3980 |
 | 3 | **Gateway #41 not merged** | **HIGH** | `j0sh` approval → merge → rebuild SDK image |
 | 4 | **Per-cap pricing ratio suspect** | **MEDIUM** | John enables `-byocPerCapPricing`; re-smoke + OpenMeter ratio check |
 | 5 | **Prod validate 404 without key** | **LOW (expected)** | Front door globally OFF; livepeer-dev per-team override required — not a regression if key-based tests pass |
