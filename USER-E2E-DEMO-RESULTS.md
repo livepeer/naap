@@ -3716,3 +3716,112 @@ App totals: `requestCount=261`, `networkFeeUsdMicros=462977`. Path B gens bill v
 
 **≈ $0.006** — two Path B flux-schnell generations (Storyboard MCP + direct SDK Daydream bearer), **$0.00320** each. Path A: **$0** (no billed generation).
 
+---
+
+# Run 44 — Full dual-path E2E post sender-reserve top-up (2026-07-16 ~12:00 PT)
+
+Follow-up to Run 43 after **John topped up pymthouse sender reserve** on `app_98575870…`. Re-ran both paths with gateway venv + `byoc-e2e-probe.py` / `submit_byoc_job`.
+
+## TL;DR
+
+| concern | status |
+|---|---|
+| **Path A — NaaP validate** | **PASS** — HTTP 200; composite `app_98575870….pmth_…` bearer; `signerSession.url` = prod DMZ |
+| **Path A — prod DMZ `type:byoc`** | **FAIL** — HTTP 400 `invalid job type` (unchanged from Run 43) |
+| **Path A — prod DMZ `type:lv2v` (control)** | **FAIL (expected)** — HTTP 400 `numTickets 2236 exceeds maximum of 100` — type **accepted** |
+| **Path A — staging signer override flux-schnell** | **FAIL (auth)** — HTTP 401 `not a JWT`; **sender reserve not reached** |
+| **Path A — staging flux-dev** | **SKIP** — schnell did not pass auth gate |
+| **Path A — SDK hosted `naap_` inference** | **FAIL** — HTTP 502; prod DMZ `invalid job type` |
+| **Path A — OpenMeter delta** | **PASS (read)** / **0 delta** — 261 reqs / 462977 µUSD unchanged; **top-up did not unblock billed naap_ gens** |
+| **Path B — Storyboard MCP `create_media`** | **PASS** — flux-schnell in **2380 ms**; fal.media URL; **$0.00320** |
+| **Path B — SDK direct Daydream bearer** | **PASS** — HTTP 200; `image_url` returned |
+| **Path B — `list_capabilities`** | **PASS** — 170 caps live |
+
+## Pass/fail table
+
+### Path A — NaaP + pymthouse
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| A1 | NaaP validate → composite bearer + signer URL | **PASS** | HTTP 200; prod DMZ `pymthouse-production.up.railway.app`; composite `.pmth_` bearer |
+| A2 | Prod DMZ `type:byoc` + orch + caps | **FAIL** | HTTP 400 `invalid job type` |
+| A3 | Prod DMZ `type:lv2v` + orch (control) | **FAIL (expected)** | HTTP 400 `numTickets 2236 exceeds maximum of 100` — type **not** rejected |
+| A4 | Staging signer + `BYOC_SIGNER_URL` override flux-schnell | **FAIL** | HTTP 401 `not a JWT` — cannot verify sender-reserve fix |
+| A5 | Staging flux-dev (conditional) | **SKIP** | Blocked by A4 auth failure |
+| A6 | `byoc-e2e-probe.py` (gateway venv, prod) | **FAIL** | validate 200; `submit_byoc_job` → `invalid job type` |
+| A7 | `byoc-e2e-probe.py` (staging override) | **FAIL** | validate 200; `submit_byoc_job` → `not a JWT` |
+| A8 | SDK `/inference` flux-schnell (`naap_`) | **FAIL** | HTTP 502; prod DMZ `invalid job type` |
+| A9 | OpenMeter baseline / after / delta | **PASS (read)** / **0 delta** | No new rows — top-up invisible at meter layer |
+
+### Path B — Daydream API key (existing path)
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| B1 | Storyboard MCP `create_media` flux-schnell | **PASS** | 2380 ms; fal.media URL; $0.00320 |
+| B2 | SDK `/inference` Daydream bearer flux-schnell | **PASS** | HTTP 200; image URL returned |
+| B3 | `list_capabilities` smoke | **PASS** | 170 caps (136 ai + 34 tool) |
+
+## Sender-reserve top-up verdict
+
+**Did not unblock billed naap_ generation.** Run 42 (pre–Run 43 auth regression) reached staging with `type:byoc` accepted and failed at **`no sender reserve`**. Run 44 still fails earlier at **401 `not a JWT`** on staging preview, so the reserve top-up cannot be exercised. Prod path remains blocked at **`invalid job type`** before any wallet/reserve check.
+
+## Root causes (unchanged)
+
+1. **P0 — Prod DMZ `type:byoc`:** John redeploy `pymthouse-production.up.railway.app` with go-livepeer **#3980**.
+2. **P1 — Staging preview composite bearer:** staging signer must accept composite `app.pmth_` bearer (401 `not a JWT` since Run 43).
+3. **P2 — Sender reserve:** John reports topped up; **not verifiable** until P1 auth fixed (Run 42 pattern: expect `no sender reserve` → PASS after funding).
+
+## Probe evidence (redacted)
+
+```text
+# validate
+POST operator.livepeer.org/api/v1/keys/validate + Bearer naap_8056755b… → HTTP 200
+  signerSession.url = pymthouse-production.up.railway.app
+  Authorization = Bearer app_98575870….pmth_… (composite)
+
+# Gateway venv byoc-e2e-probe.py + DMZ matrix
+payment_type=byoc  signer=pymthouse-production.up.railway.app
+PROD submit_byoc_job -> invalid job type
+STAGING submit_byoc_job -> not a JWT
+PROD DMZ type:byoc -> HTTP 400 invalid job type
+PROD DMZ type:lv2v -> HTTP 400 numTickets 2236 exceeds maximum of 100
+STAGING DMZ type:byoc -> HTTP 401 not a JWT
+STAGING DMZ type:lv2v -> HTTP 401 not a JWT
+
+# SDK hosted naap_
+POST sdk.daydream.monster/inference capability=flux-schnell -> HTTP 502 invalid job type
+
+# Path B Daydream
+Storyboard MCP create_media flux-schnell -> PASS 2380ms $0.00320
+POST sdk.daydream.monster/inference (Daydream bearer) -> HTTP 200 image_url
+```
+
+## OpenMeter snapshot (`app_98575870…`, `groupBy=pipeline_model`)
+
+Baseline = after (no naap-path delta this run):
+
+| pipeline/model_id | reqs | networkFeeUsdMicros | µUSD/req |
+|---|---|---|---|
+| byoc/flux-schnell | 34 | 645 | 19.0 |
+| byoc/flux-dev | 4 | 326 | 81.5 |
+
+Historical cumulative ratio flux-dev / flux-schnell ≈ **4.3×** (not the target **8.3×** per-cap tariff — per-cap ratio check **not run** because staging gens did not complete).
+
+App totals: `requestCount=261`, `networkFeeUsdMicros=462977`. Path B gens bill via Daydream signer (not this pymthouse app meter).
+
+## Blockers (updated)
+
+1. **P0 — Prod DMZ `type:byoc`:** unchanged.
+2. **P1 — Staging preview composite bearer:** must fix before sender-reserve top-up can be validated.
+3. **P2 — Sender reserve:** John reports funded; re-test after P1 (expect Run 42-style `no sender reserve` → success).
+
+## Artifacts
+
+- `/tmp/run44-validate.json`, `/tmp/run44-om-baseline.json`, `/tmp/run44-om-after.json`
+- `/tmp/run44-probe-prod-schnell.txt`, `/tmp/run44-probe-staging-schnell.txt`, `/tmp/run44-dmz-matrix.txt`
+- `/tmp/run44-sdk-inference-naap.json`, `/tmp/run44-sdk-inference-daydream.json`
+
+## Spend
+
+**≈ $0.006** — two Path B flux-schnell generations (Storyboard MCP + direct SDK Daydream bearer), **$0.00320** each. Path A: **$0** (no billed generation; top-up did not change meter).
+
