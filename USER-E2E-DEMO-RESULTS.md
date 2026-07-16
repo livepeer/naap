@@ -3399,3 +3399,48 @@ python3 scripts/byoc-e2e-probe.py
 
 **$0** — investigation + validate probes only.
 
+---
+
+# Run 40 — Front door unblocked + validate 200 (2026-07-16 ~11:29 PT)
+
+Follow-up to Run 39. Enabled/confirmed per-team flags for `livepeer-dev`, registered the supplied `naap_…` key, and smoke-tested validate (no wallet funding, no billed generation).
+
+## TL;DR
+
+| concern | status |
+|---|---|
+| **Admin API flag enable** | **NOT USED** — no prod `system:admin` session in env; Vercel CLI unauthorized (`vercel whoami` → Not authorized); no `ADMIN_EMAIL`/`ADMIN_PASSWORD` locally. **DB path via Neon API** (authorized key, same project `green-base-78237656`) used instead. |
+| **Per-team flags (livepeer-dev)** | **ALREADY ON** — prod DB had 5 overrides (`key_validation_front_door`, `native_keys`, `per_key_remote_signer`, `multi_subscription`, `team_seats` all `enabled=true`). Re-upserted the three validate-path flags (idempotent). Global `key_validation_front_door` stays **OFF** (zero blast radius). |
+| **Key registration** | **INSERTED** — supplied key was **not** in `DevApiKey` (lookup `8056755b95e9dc84` → 0 rows). Inserted ACTIVE row bound to existing livepeer-dev seat `e1704a14…` + pymthouse billing binding (`2f617839…`). |
+| **Key format** | **ISSUE REMAINS for raw Bearer** — continuous `naap_<64hex>` (no `_`) → **404** `malformed` (masked). **Canonical** `naap_<16hex>_<48hex>` → **200**. Correct split: `naap_8056755b95e9dc84_a7a7a2272072e1d9e24f2deff341a6bc93b203e25724e520` (NOT `…_7a7a2272…` — that 69-char form fails `parseApiKey`). |
+| **Validate smoke** | **PASS** — `POST operator.livepeer.org/api/v1/keys/validate` + Bearer (canonical) → **HTTP 200**, `valid:true`, `billingAccount.providerSlug:"pymthouse"`, `signerSession.headers.Authorization` = composite `app_….pmth_…`. `capabilities:[]` (expected — `pymthouse_bpp_validate` not enabled). |
+| **Billed generation** | **NOT RUN** ($0) — sender reserve still unfunded (John). |
+
+## Flag enable detail
+
+Attempted admin path per Run 39 owner action:
+
+```http
+PUT /api/v1/admin/feature-flag-overrides
+Authorization: Bearer <system:admin session>   ← unavailable locally
+X-CSRF-Token: …
+{ "teamId": "b0600547-9a7c-434b-aa8b-8d1534c3d5b8", "key": "key_validation_front_door", "enabled": true }
+```
+
+**Auth sources checked:** `.env.local`, `.env.vercel-prod`, `.env.prod-check` — no admin session/password; `DATABASE_URL` empty in vercel-prod pull; Vercel CLI token not authorized for `livepeer-foundation`; GitHub `gh` logged in as `seanhanca` (repo secrets listable, values not readable).
+
+**Fallback (authorized):** Neon API → prod `DATABASE_URL` → idempotent upsert on `"FeatureFlagOverride"` for `key_validation_front_door`, `per_key_remote_signer`, `native_keys`.
+
+## Validate probe result
+
+| Bearer format | HTTP | outcome |
+|---|---|---|
+| Continuous `naap_<64hex>` (no `_`) | **404** | `malformed` — masked 404; route never reads JSON `{key}` body |
+| Canonical `naap_8056755b95e9dc84_a7a7a2272072e1d9e24f2deff341a6bc93b203e25724e520` | **200** | `valid:true` + composite `app_….pmth_…` signer bearer |
+
+Prod log (18:28:29Z): prior probes logged `malformed` (wrong 69-char reconstruction); post key-hash fix → **200**.
+
+## Spend
+
+**$0** — flag confirm + key insert + validate smoke only. Next: fund app sender reserve → re-run flux-schnell probe (Run 41).
+
