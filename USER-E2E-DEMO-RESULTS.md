@@ -3600,3 +3600,119 @@ create_media model_override=flux-schnell -> PASS 2364ms
 
 **≈ $0.003** — one Storyboard MCP flux-schnell generation (Daydream path regression test).
 
+---
+
+# Run 43 — Full dual-path E2E (NaaP + Daydream) (2026-07-16 ~11:50 PT)
+
+Follow-up to Run 42. Re-ran **both paths** end-to-end with fixed `byoc-e2e-probe.py` (commit `53bf5d49`), infra state check on `sdk-staging-1`, and OpenMeter baseline→after on `app_98575870…`.
+
+## TL;DR
+
+| concern | status |
+|---|---|
+| **Infra: sdk.daydream.monster** | **PASS** — `/health` 200; image `byoc-dual-path-1bf13cd-2026-07-16`; `SIGNER_FROM_VALIDATE=1`; `SIGNER_URL=https://signer.daydream.live` |
+| **Path A — NaaP validate** | **PASS** — HTTP 200; composite `app_98575870….pmth_…` bearer; `signerSession.url` = prod DMZ |
+| **Path A — prod DMZ `type:byoc`** | **FAIL** — HTTP 400 `invalid job type` (unchanged from Run 42) |
+| **Path A — prod DMZ `type:lv2v` (control)** | **FAIL (expected)** — HTTP 400 `numTickets … exceeds maximum` — type **accepted** |
+| **Path A — staging signer override** | **FAIL (auth)** — HTTP 401 `not a JWT` on staging preview (Run 42 had `no sender reserve`; staging auth regression) |
+| **Path A — SDK hosted `naap_` inference** | **FAIL** — HTTP 502; prod DMZ `invalid job type` |
+| **Path A — OpenMeter delta** | **PASS (read)** / **no new usage** — 261 reqs / 462977 µUSD unchanged (no billed naap_ gen) |
+| **Path B — Storyboard MCP `create_media`** | **PASS** — flux-schnell in **2109 ms**; fal.media URL; **$0.00320** |
+| **Path B — SDK direct Daydream bearer** | **PASS** — HTTP 200; `image_url` returned |
+| **Path B — `list_capabilities`** | **PASS** — 170 caps live |
+| **Path B — dual-path routing** | **PASS** — Daydream bearer → `signer.daydream.live` + `type:lv2v` (container env + successful gen) |
+
+## Pass/fail table
+
+### Path A — NaaP + pymthouse
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| A1 | NaaP validate → composite bearer + signer URL | **PASS** | HTTP 200; prod DMZ `pymthouse-production.up.railway.app`; composite `.pmth_` bearer |
+| A2 | Prod DMZ `type:byoc` + orch + caps | **FAIL** | HTTP 400 `invalid job type` |
+| A3 | Prod DMZ `type:lv2v` + orch (control) | **FAIL (expected)** | HTTP 400 `numTickets 2236 exceeds maximum of 100` — type **not** rejected |
+| A4 | Staging signer + `BYOC_SIGNER_URL` override flux-schnell | **FAIL** | HTTP 401 `not a JWT` (composite bearer rejected on staging preview) |
+| A5 | `byoc-e2e-probe.py` (gateway venv, prod) | **FAIL** | validate 200; `submit_byoc_job` → `invalid job type` |
+| A6 | `byoc-e2e-probe.py` (staging override) | **FAIL** | validate 200; `submit_byoc_job` → `not a JWT` |
+| A7 | SDK `/inference` flux-schnell (`naap_`) | **FAIL** | HTTP 502; prod DMZ `invalid job type` |
+| A8 | OpenMeter baseline (`groupBy=pipeline_model`) | **PASS** | 261 reqs / 462977 µUSD |
+| A9 | OpenMeter after / delta | **PASS (read)** / **0 delta** | No new rows — naap path produced no billed usage |
+
+### Path B — Daydream API key (existing path)
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| B1 | Storyboard MCP `create_media` flux-schnell | **PASS** | 2109 ms; fal.media URL; $0.00320 |
+| B2 | SDK `/inference` Daydream bearer flux-schnell | **PASS** | HTTP 200; image URL returned |
+| B3 | Routes `signer.daydream.live` + `type:lv2v` | **PASS** | Container `SIGNER_URL=signer.daydream.live`; dual-path `_payment_type_for_signer()` → `lv2v`; gen succeeds |
+| B4 | `list_capabilities` smoke | **PASS** | 170 caps (136 ai + 34 tool) |
+
+### Infra state
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| I1 | `sdk.daydream.monster` `/health` | **PASS** | HTTP 200; orch `byoc-staging-1.daydream.monster:8935` |
+| I2 | `sdk-staging-1` image tag | **PASS** | `sdk-service:byoc-dual-path-1bf13cd-2026-07-16` |
+| I3 | `SIGNER_FROM_VALIDATE=1` | **PASS** | Container env confirmed via SSH |
+| I4 | Prod + staging signer `/healthz` | **PASS** | Both HTTP 200 |
+
+## Root causes
+
+1. **P0 — Prod DMZ `type:byoc` (Path A blocker):** Unchanged from Run 42. Gateway correctly sends `type:byoc` + capabilities proto to prod DMZ; prod rejects at type gate. **Owner: John / pymthouse ops** — redeploy prod DMZ with go-livepeer **#3980**.
+2. **P1 — Staging preview auth regression:** Staging signer now returns **401 `not a JWT`** for the composite bearer from NaaP validate (Run 42 accepted composite and failed later with `no sender reserve`). Staging canary cannot proceed until staging accepts composite API-key bearer again.
+3. **P2 — Sender reserve (Path A, after auth fix):** Still unfunded on `app_98575870` per prior runs; not reached this run due to auth/type gate failures.
+4. **Path B healthy:** Dual-path gateway `1bf13cd` continues to route Daydream keys safely; no regression.
+
+## Probe evidence (redacted)
+
+```text
+# validate
+POST operator.livepeer.org/api/v1/keys/validate + Bearer naap_8056755b… → HTTP 200
+  signerSession.url = pymthouse-production.up.railway.app
+  Authorization = Bearer app_98575870….pmth_… (composite)
+
+# Gateway venv (53bf5d49 probe script + direct matrix)
+payment_type=byoc  signer=pymthouse-production.up.railway.app
+PROD DMZ type:byoc -> HTTP 400 {"error":{"message":"invalid job type"}}
+PROD DMZ type:lv2v -> HTTP 400 {"error":{"message":"numTickets 2236 exceeds maximum of 100"}}
+STAGING DMZ type:byoc -> HTTP 401 {"error":{"message":"not a JWT"}}
+
+# SDK hosted naap_
+POST sdk.daydream.monster/inference capability=flux-schnell -> HTTP 502 invalid job type
+
+# Path B Daydream
+Storyboard MCP create_media flux-schnell -> PASS 2109ms $0.00320
+POST sdk.daydream.monster/inference (Daydream bearer) -> HTTP 200 image_url
+
+# Infra (sdk-staging-1 SSH)
+SDK_IMAGE=byoc-dual-path-1bf13cd-2026-07-16
+SIGNER_FROM_VALIDATE=1  AUTH_VALIDATE_URL=…/keys/validate  SIGNER_URL=https://signer.daydream.live
+```
+
+## OpenMeter snapshot (`app_98575870…`, `groupBy=pipeline_model`)
+
+Baseline = after (no naap-path delta):
+
+| pipeline/model_id | reqs | networkFeeUsdMicros | µUSD/req |
+|---|---|---|---|
+| byoc/flux-schnell | 34 | 645 | 19.0 |
+| byoc/flux-dev | 4 | 326 | 81.5 |
+
+App totals: `requestCount=261`, `networkFeeUsdMicros=462977`. Path B gens bill via Daydream signer (not this pymthouse app meter).
+
+## Blockers (updated)
+
+1. **P0 — Prod DMZ `type:byoc`:** John redeploy `pymthouse-production.up.railway.app` with #3980.
+2. **P1 — Staging preview composite bearer:** staging signer must accept composite `app.pmth_` bearer (currently 401 `not a JWT`).
+3. **P2 — Sender reserve:** fund pymthouse `app_98575870` Turnkey sender reserve after P0/P1.
+
+## Artifacts
+
+- `/tmp/run43-validate.json`, `/tmp/run43-om-baseline.json`, `/tmp/run43-om-after.json`
+- `/tmp/run43-probe-prod.txt`, `/tmp/run43-probe-staging.txt`
+- `/tmp/run43-sdk-inference-naap.json`, `/tmp/run43-sdk-inference-daydream.json`
+
+## Spend
+
+**≈ $0.006** — two Path B flux-schnell generations (Storyboard MCP + direct SDK Daydream bearer), **$0.00320** each. Path A: **$0** (no billed generation).
+
