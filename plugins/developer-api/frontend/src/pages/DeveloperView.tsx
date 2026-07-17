@@ -2063,7 +2063,9 @@ result = [...result].sort((a, b) => {
                 )}
                 {isPymthousePresentedApiKey(createdRawKey) && (
                   <p className="text-text-secondary mt-1">
-                    Long-lived until revoked. Present this key to the remote signer (composite Bearer) or exchange it for a short-lived signer JWT before streaming.
+                    {isCompositeApiKey(createdRawKey.trim())
+                      ? 'Long-lived until revoked. Present this key to the remote signer as Bearer, or exchange it for a short-lived signer JWT before streaming.'
+                      : 'Long-lived until revoked. Exchange this key for a short-lived signer JWT (e.g. via /api/pymthouse/keys/exchange) before calling the remote signer.'}
                   </p>
                 )}
               </div>
