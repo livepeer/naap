@@ -4109,3 +4109,150 @@ Validate (external): HTTP 200 → `signerSession.url` = `pymthouse-signer-test-p
 
 **$0** — inference probes only (no successful generation).
 
+---
+
+# Run 46 — Full dual-path E2E (2026-07-16 ~19:45 PT)
+
+Follow-up to Run 45/45b. Re-check whether [pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255) composite-bearer webhook fix landed on Vercel; full Path A + Path B + infra re-smoke.
+
+**Method:** gateway venv (`livepeer-python-gateway/.venv`) + `scripts/byoc-e2e-probe.py`, live validate/routing probes, Storyboard MCP Path B, OpenMeter M2M read, SSH `sdk-staging-1` (sudo) for `SIGNER_FROM_VALIDATE`.
+
+## TL;DR
+
+| concern | status |
+|---|---|
+| **John A/B routing flip** | **PASS (unchanged)** — validate + `GET …/signer/routing` both return **test-production** signer |
+| **Validate bearer shape** | **PASS** — composite `app_98575870….pmth_<64hex>` (not JWT) |
+| **pymthouse#255 deployed?** | **NO** — PR **OPEN** (not merged); latest commit 2026-07-16; live path still **401 `not a JWT`** |
+| **Path A — test-prod `type:byoc`** | **FAIL (auth)** — HTTP **401 `not a JWT`** at webhook (type gate **pass** — same as Run 45) |
+| **Path A — old prod DMZ control** | **FAIL (expected)** — HTTP 400 `invalid job type` |
+| **Path A — `byoc-e2e-probe.py`** | **FAIL** — validate 200 → `submit_byoc_job` → **401 `not a JWT`** |
+| **Path A — flux-dev** | **FAIL** — same **401 `not a JWT`** (not a capability issue) |
+| **Path A — SDK hosted `naap_` inference** | **FAIL** — HTTP **502 `not a JWT`** (~1.6 s schnell / ~0.7 s dev) — **test-production** class (Run 45b cache fix **holding**) |
+| **Path A — OpenMeter delta** | **PASS (read)** / **0 delta** — 261 reqs / 462977 µUSD unchanged; per-cap ratio still **~4.3×** |
+| **Path B — Storyboard MCP `create_media`** | **PASS** — flux-schnell in **1704 ms**; fal.media URL; **$0.00320** |
+| **Path B — `list_capabilities`** | **PASS** — 170 caps live (136 ai + 34 tool) |
+| **Infra — `SIGNER_FROM_VALIDATE=1`** | **PASS** — confirmed on `sdk-staging-1` via sudo SSH (env + container) |
+
+## Pass/fail table
+
+### Path A — NaaP + pymthouse (`app_98575870`)
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| A1 | NaaP validate → composite bearer + signer URL | **PASS** | HTTP 200; **`pymthouse-signer-test-production.up.railway.app`**; composite `.pmth_` bearer |
+| A2 | pymthouse `GET …/signer/routing` | **PASS** | `signerApiUrl` + `patterns.directDmz.signerApiUrl` = test-production |
+| A3 | Test-prod signer `/healthz` | **PASS** | HTTP 200 |
+| A4 | Test-prod `type:byoc` payment (`submit_byoc_job` flux-schnell) | **FAIL** | HTTP **401 `not a JWT`** — reaches webhook; **not** type-gate rejection |
+| A5 | Test-prod flux-dev (conditional) | **FAIL** | Same **401 `not a JWT`** |
+| A6 | Old prod DMZ `type:byoc` (control) | **FAIL (expected)** | HTTP 400 `invalid job type` — outside A/B cohort |
+| A7 | `byoc-e2e-probe.py` (gateway venv, validate URL) | **FAIL** | validate 200; `submit_byoc_job` → **401 `not a JWT`** |
+| A8 | SDK `/inference` flux-schnell (`naap_`) | **FAIL** | HTTP 502; **`not a JWT`** (~1.6 s) — test-production signer class |
+| A9 | SDK `/inference` flux-dev (`naap_`) | **FAIL** | HTTP 502; **`not a JWT`** (~0.7 s) |
+| A10 | OpenMeter baseline / after / delta | **PASS (read)** / **0 delta** | No new `byoc/*` rows |
+
+### Path B — Daydream API key (existing path)
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| B1 | Storyboard MCP `create_media` flux-schnell | **PASS** | 1704 ms; fal.media URL; $0.00320 |
+| B2 | SDK `/inference` Daydream bearer flux-schnell | **SKIP** | No local Daydream bearer; MCP confirms SDK + Daydream signer path |
+| B3 | `list_capabilities` smoke | **PASS** | 170 caps |
+| B4 | Daydream regression (no naap bleed) | **PASS (inferred)** | MCP gen succeeds; Path A failures isolated to pymthouse webhook |
+
+### Infra
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| I1 | `sdk.daydream.monster` `/health` | **PASS** | HTTP 200; orch `byoc-staging-1.daydream.monster:8935` |
+| I2 | `SIGNER_FROM_VALIDATE=1` on VM | **PASS** | sudo SSH `sdk-staging-1`: `.env` + `sdk-service` container both `=1`; image `byoc-dual-path-1bf13cd-2026-07-16` |
+| I3 | Validate JWT/bearer shape | **PASS** | Composite `app_<clientId>.pmth_<hex>`; **not** a 3-part JWT |
+| I4 | Discovery service raw | **PASS** | 29 orch entries |
+
+## pymthouse#255 deploy verdict
+
+**Not deployed.** `gh pr view 255 --repo pymthouse/pymthouse` → **`state: OPEN`**, `mergedAt: null`. Branch `fix/composite-app-api-key-remote-signer-webhook` has a 2026-07-16 commit adding composite `app_XXX.pmth_YYY` verifier, but **no Vercel merge/deploy yet**. Live webhook at `pymthouse.com/webhooks/remote-signer` still rejects the validate composite bearer with **401 `not a JWT`**.
+
+Direct signer probes (same composite bearer):
+
+| endpoint | test-production | notes |
+|---|---|---|
+| `POST /sign-orchestrator-info` | **200** | no webhook — not auth proof |
+| `POST /generate-live-payment` (minimal body) | **400 missing orchestrator** | not 401 — bearer accepted at DMZ edge |
+| Full BYOC job (`submit_byoc_job` / SDK `/inference`) | **401 `not a JWT`** | fails at identity webhook during payment gen |
+
+## vs Run 45 — what's fixed, what's still blocking
+
+| item | Run 45 | Run 46 | delta |
+|---|---|---|---|
+| Validate → test-production URL | PASS | **PASS** | unchanged |
+| `type:byoc` type gate (test-prod) | PASS | **PASS** | unchanged |
+| Webhook composite bearer (#255) | 401 `not a JWT` | **401 `not a JWT`** | **still blocked — PR not merged** |
+| Hosted SDK signer class | 502 `invalid job type` → 45b: `not a JWT` | **502 `not a JWT`** | **45b fix holding** (no cache regression) |
+| `SIGNER_FROM_VALIDATE` on VM | verified 45b | **re-verified 46** | unchanged `=1` |
+| Billed `naap_` generation | blocked | **blocked** | no OpenMeter delta |
+| Path B Daydream | PASS | **PASS** | healthy |
+
+## Probe evidence (redacted)
+
+```text
+# validate
+POST operator.livepeer.org/api/v1/keys/validate + Bearer naap_8056755b… → HTTP 200
+  signerSession.url = pymthouse-signer-test-production.up.railway.app
+  Authorization = Bearer app_98575870….pmth_… (composite, 64-hex secret)
+
+# routing (M2M)
+GET pymthouse.com/api/v1/apps/app_98575870…/signer/routing → HTTP 200
+  signerApiUrl = pymthouse-signer-test-production.up.railway.app
+
+# Gateway venv byoc-e2e-probe.py (validate URL, no override)
+validate 200 → submit_byoc_job flux-schnell → 401 not a JWT (test-production)
+
+# Old prod DMZ override (control)
+BYOC_SIGNER_URL=pymthouse-production → submit_byoc_job → invalid job type
+
+# SDK hosted naap_
+POST sdk.daydream.monster/inference capability=flux-schnell → HTTP 502 not a JWT (~1.6s)
+POST sdk.daydream.monster/inference capability=flux-dev     → HTTP 502 not a JWT (~0.7s)
+
+# Path B
+Storyboard MCP create_media flux-schnell → PASS 1704ms $0.00320
+list_capabilities → 170 caps
+
+# pymthouse#255
+gh pr view 255 --repo pymthouse/pymthouse → OPEN, mergedAt=null
+```
+
+## OpenMeter snapshot (`app_98575870…`, `groupBy=pipeline_model`)
+
+Baseline = after (no naap-path delta):
+
+| pipeline/model_id | reqs | networkFeeUsdMicros | µUSD/req |
+|---|---|---|---|
+| byoc/flux-schnell | 34 | 645 | 19.0 |
+| byoc/flux-dev | 4 | 326 | 81.5 |
+
+Historical cumulative ratio flux-dev / flux-schnell ≈ **4.3×** (target per-cap tariff **8.3×** — ratio check **not run** because no new billed gens completed).
+
+App totals: `requestCount=261`, `networkFeeUsdMicros=462977`. Path B MCP gen bills via Daydream signer (not this pymthouse app meter).
+
+## Blockers (updated)
+
+1. **P1 — pymthouse.com webhook composite verifier ([#255](https://github.com/pymthouse/pymthouse/pull/255)):** PR **OPEN, not merged**. Live path still **401 `not a JWT`**. **Owner: John / pymthouse — merge + Vercel deploy.**
+2. **P2 — Per-cap ratio proof:** `-byocPerCapPricing` may be ON on test-production, but no completed billed gen → ratio still **4.3×** historical, not **8.3×**.
+3. **P0 — Old prod DMZ (non-A/B apps):** Still rejects `type:byoc`; full prod cutover pending.
+
+**Closed since Run 45:** P1b hosted SDK signer URL drift (Run 45b cache flush) — **still closed** in Run 46.
+
+## Artifacts
+
+- `/tmp/run46-validate.json`, `/tmp/run46-routing.json`
+- `/tmp/run46-om-baseline.json` (same as after — 0 delta)
+- `/tmp/run46-byoc-probe.txt`, `/tmp/run46-oldprod-probe.txt`
+- `/tmp/run46-sdk-inference-schnell.json`, `/tmp/run46-sdk-inference-dev.json`
+- `/tmp/run46-sdk-staging-env-sudo.txt`
+
+## Spend
+
+**≈ $0.003** — one Path B Storyboard MCP flux-schnell generation (**$0.00320**). Path A: **$0** (no billed generation; webhook auth blocked before meter).
+
