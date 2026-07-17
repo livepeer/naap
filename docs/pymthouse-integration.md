@@ -4,7 +4,7 @@ Official Builder API contract: [PymtHouse `docs/builder-api.md`](https://github.
 
 Server-to-server calls use the published npm package [`@pymthouse/builder-sdk`](https://www.npmjs.com/package/@pymthouse/builder-sdk) (source: [pymthouse/builder-sdk](https://github.com/pymthouse/builder-sdk)), wrapped in [apps/web-next/src/lib/pymthouse-client.ts](apps/web-next/src/lib/pymthouse-client.ts) with `import "server-only"` so M2M secrets never ship to the browser.
 
-**Dependency pin:** NaaP pins `@pymthouse/builder-sdk` at **exact `0.5.0`** from the npm registry in [apps/web-next/package.json](../apps/web-next/package.json) (and matching pins in the developer-api plugin packages). Review [builder-sdk releases](https://github.com/pymthouse/builder-sdk/releases) before bumping, run `npm install` at the repo root (or `./bin/start.sh`, which syncs when `package-lock.json` changes), and re-verify billing/OIDC routes after any upgrade.
+**Dependency pin:** NaaP pins `@pymthouse/builder-sdk` at **`0.6.0`** in [apps/web-next/package.json](../apps/web-next/package.json) (and matching pins in the developer-api plugin packages). Review [builder-sdk releases](https://github.com/pymthouse/builder-sdk/releases) before bumping, run `npm install` at the repo root (or `./bin/start.sh`, which syncs when `package-lock.json` changes), and re-verify billing/OIDC routes after any upgrade.
 
 ## Plan-builder data (PymtHouse → NaaP)
 
@@ -49,17 +49,17 @@ NaaP server                                              PymtHouse
 - **Confidential M2M** (`m2m_…`) credentials are **`PYMTHOUSE_M2M_CLIENT_ID`** + **`PYMTHOUSE_M2M_CLIENT_SECRET`**. A single OIDC client cannot be both public (device flow) and confidential; PymtHouse provisions two clients per developer app when you enable **Backend device helper** in Auth & Scopes.
 - **End-user scope** is only **`sign:job`** on the token request.
 - The M2M client must allow **`users:read`**, **`users:write`**, **`users:token`**, and **`sign:job`** in its allowed scopes (defaults for the backend helper).
-- Short-lived Builder-minted user JWTs are **not** surfaced as NaaP developer API keys for the Create API Key flow. That flow mints long-lived **`pmth_*`** API keys via the Builder Apps **`…/users/{externalUserId}/keys`** route (Dashboard parity). Opaque signer sessions (~90 days) remain available via **`POST /api/v1/billing/pymthouse/token`** only.
+- Short-lived Builder-minted user JWTs are **not** surfaced as NaaP developer API keys for the Create API Key flow. That flow mints long-lived presented API keys via the Builder Apps **`…/users/{externalUserId}/keys`** route (Dashboard parity). Newly issued keys are composite **`app_<24hex>_<secret>`** (usually `app_…_pmth_…`); bare **`pmth_*`** remains valid as `subject_token` when `{clientId}` is already in the exchange path. Opaque signer sessions (~90 days) remain available via **`POST /api/v1/billing/pymthouse/token`** only.
 
 ### NaaP endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/v1/auth/providers/pymthouse/start` | First-time link from the **Create API Key** UI. Returns `{ access_token, token_type, expires_in, scope, login_session_id, auth_url: null, poll_after_ms: 0 }` where `access_token` is a long-lived **`pmth_*`** API key (Builder Apps user key). |
+| `POST` | `/api/v1/auth/providers/pymthouse/start` | First-time link from the **Create API Key** UI. Returns `{ access_token, token_type, expires_in, scope, login_session_id, auth_url: null, poll_after_ms: 0 }` where `access_token` is a long-lived presented API key (`app_<24hex>_<secret>` or bare `pmth_*`). |
 | `POST` | `/api/v1/billing/pymthouse/token` | Mint-on-demand opaque signer session. Returns `{ access_token, token_type, expires_in, scope }` where `access_token` is an opaque **`pmth_…`** signer session (~90 days). Auth: NaaP session + CSRF. Rate limited per user. Internally mints a short-lived JWT then RFC 8693 token-exchanges with the M2M client. |
 | `GET` | `/api/v1/billing/pymthouse/usage` | Session BFF over PymtHouse **Usage API** (see below). Auth: NaaP session cookie / bearer. `Cache-Control: no-store`. |
 | `GET` | `/api/v1/billing/pymthouse/config` | Public integration settings for the Developer API UI (`signerUrl` from `PYMTHOUSE_SIGNER_URL`). Auth: NaaP session cookie / bearer. |
-| `POST` | `/api/pymthouse/keys/exchange` | Public exchange: PymtHouse **`pmth_*`** API key → short-lived signer JWT. No NaaP session. Uses `@pymthouse/builder-sdk/signer/server` `createApiKeyExchangeHandler`. Same contract as Dashboard. |
+| `POST` | `/api/pymthouse/keys/exchange` | Public exchange: PymtHouse API key (`app_*_*` or bare `pmth_*`) → short-lived signer JWT via app-scoped RFC 8693 `POST …/apps/{clientId}/oidc/token`. No NaaP session. Uses `@pymthouse/builder-sdk/signer/server` `createApiKeyExchangeHandler`. Same contract as Dashboard. |
 | `POST` | `/api/signer/device/exchange` | Public exchange: device token → signer session. No NaaP session. Uses `createDeviceExchangeHandler`. Complements the browser device-approve step below. |
 
 ### Developer API manager SDK token
@@ -73,7 +73,7 @@ That SDK token is **base64-encoded JSON**, not a JWT. It bundles signer and disc
   "signer": "https://pymthouse-preview.up.railway.app",
   "discovery": "https://naap.example.com/api/v1/orchestrator-leaderboard/plans/{planId}/python-gateway",
   "signer_headers": {
-    "Authorization": "Bearer pmth_..."
+    "Authorization": "Bearer app_<24hex>_pmth_..."
   },
   "discovery_headers": {
     "Authorization": "Bearer gw_..."
@@ -81,7 +81,7 @@ That SDK token is **base64-encoded JSON**, not a JWT. It bundles signer and disc
 }
 ```
 
-- `signer_headers.Authorization` carries the long-lived **`pmth_*`** API key (same value as the billing key in the success dialog). **livepeer-python-gateway** detects `pmth_*` in `signer_headers`, infers the NaaP billing origin from the `discovery` URL host, and exchanges via **`POST /api/pymthouse/keys/exchange`** before calling the signer DMZ (same outcome as `--billing-url` + `--api-key`).
+- `signer_headers.Authorization` carries the long-lived presented API key (same value as the billing key in the success dialog — composite `app_<24hex>_<secret>` or bare `pmth_*`). **livepeer-python-gateway** may exchange via **`POST /api/pymthouse/keys/exchange`** before calling the signer DMZ; alternatively the remote-signer identity webhook accepts the full composite as Bearer and performs the same RFC 8693 exchange. Bare `pmth_*` alone is insufficient for webhook routing without client-id context.
 - `discovery_headers.Authorization` uses a separate NaaP service-gateway key (`gw_…`) minted during the same dialog via `/api/v1/gw/admin/keys`.
 - The `signer` field comes from **`PYMTHOUSE_SIGNER_URL`** when set (via `GET /api/v1/billing/pymthouse/config`), otherwise `{issuerOrigin}/api/signer`. Exchange may override the effective signer URL with the value returned from the exchange response.
 - If the user selects a saved discovery plan, the token points at `/api/v1/orchestrator-leaderboard/plans/{planId}/python-gateway`; otherwise it points at `/api/v1/orchestrator-leaderboard/python-gateway` for default model-based discovery (append `?billingProvider=pymthouse` for PymtHouse default discovery).
@@ -154,9 +154,9 @@ Legacy **`naap/link-user`**, **`naap-service`** seed-only flows, and **`gateway`
 - `PYMTHOUSE_PUBLIC_CLIENT_ID` is the public **`app_...`** id; `PYMTHOUSE_M2M_CLIENT_ID` is the confidential **`m2m_...`** id.
 - `PYMTHOUSE_M2M_CLIENT_SECRET` matches the M2M client’s secret.
 - NaaP logs show `[billing-auth:pymthouse] Linked user …` (no browser popup).
-- **Create API Key** (`/api/v1/auth/providers/pymthouse/start`) returns a long-lived **`pmth_*`** user API key (exchangeable via `/api/pymthouse/keys/exchange`).
+- **Create API Key** (`/api/v1/auth/providers/pymthouse/start`) returns a long-lived presented API key (`app_<24hex>_<secret>` or bare `pmth_*`, exchangeable via `/api/pymthouse/keys/exchange`).
 - **`POST /api/v1/billing/pymthouse/token`** still returns an opaque signer session (~90 days) for session/BFF use; implementation uses [`pymthouse-client.ts`](../apps/web-next/src/lib/pymthouse-client.ts) `mintSignerSessionForExternalUser` (omits token-exchange `resource` so PymtHouse selects gateway opaque-session exchange).
-- python-gateway `--token` with `signer_headers` carrying **`pmth_*`** logs `API-key signer exchange at {discovery-origin}` and receives a signer JWT + `signerUrl` from the exchange response.
+- python-gateway `--token` with `signer_headers` carrying a presented API key exchanges via `/api/pymthouse/keys/exchange` (or the identity webhook accepts a composite Bearer) and receives a signer JWT + `signerUrl` from the exchange response.
 
 ## Device login (RFC 8628) — Option B (NaaP-side approval)
 

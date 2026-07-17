@@ -65,11 +65,11 @@ beforeEach(() => {
     m2mClientSecret: 'secret_test',
   });
   createPymthouseApiKey.mockResolvedValue({
-    apiKey: 'app_testclient.pmth_composite_key_secret',
+    apiKey: 'app_3b386c81a1db1169fd2c3986_pmth_composite_key_secret',
     row: {
       id: 'key-1',
       label: 'naap-validate-signer',
-      prefix: 'app_test',
+      prefix: 'app_3b38',
       suffix: 'cret',
       status: 'active',
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -163,7 +163,7 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, composi
   const TOKEN = { accessToken: 'pmth_abc123', tokenType: 'Bearer', expiresIn: 3600, scope: 'sign:job' };
   const CTX = { externalUserId: 'acct_user_42' };
 
-  it('mints a composite app.pmth_ key and forwards it as the Bearer', async () => {
+  it('mints a composite app_<24hex>_ key and forwards it as the Bearer', async () => {
     getSignerRouting.mockResolvedValue({
       clientId: 'app_x',
       routing: { signerApiUrl: 'https://api.pymthouse.com', remoteDmzUrl: null, jwksUri: 'j', identityMode: 'jwt', meteringMode: 'platform_ingest' },
@@ -181,7 +181,7 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, composi
     });
     expect(ep).toEqual({
       url: 'https://signer-dmz.pymthouse.com',
-      headers: { Authorization: 'Bearer app_testclient.pmth_composite_key_secret' },
+      headers: { Authorization: 'Bearer app_3b386c81a1db1169fd2c3986_pmth_composite_key_secret' },
     });
     expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
   });
@@ -349,11 +349,12 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
         deprecatedHostedFacade: { description: '', signerApiUrl: null },
       },
     });
+    const compositeKey = 'app_3b386c81a1db1169fd2c3986_pmth_composite_secret';
     const a = new PymthouseAdapter({
       apiKeyExchange: {
         billingUrl: 'https://pymthouse.com',
-        clientId: 'app_x',
-        apiKey: 'app_x.pmth_composite_secret',
+        clientId: 'app_3b386c81a1db1169fd2c3986',
+        apiKey: compositeKey,
       },
     });
 
@@ -362,7 +363,7 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
     expect(exchangeApiKeyForSignerSession).not.toHaveBeenCalled();
     expect(ep).toEqual({
       url: 'https://signer-dmz.pymthouse.com',
-      headers: { Authorization: 'Bearer app_x.pmth_composite_secret' },
+      headers: { Authorization: `Bearer ${compositeKey}` },
     });
   });
 

@@ -11,7 +11,7 @@
 import 'server-only';
 
 import { isPymthouseConfigured } from '@pymthouse/builder-sdk/config';
-import { assertDirectSignerBaseUrl } from '@pymthouse/builder-sdk/signer/server';
+import { assertDirectSignerBaseUrl, isCompositeApiKey } from '@pymthouse/builder-sdk/signer/server';
 
 import type { MeScopeUsagePayload, PmtHouseClient, UsageApiResponse } from '@pymthouse/builder-sdk';
 
@@ -67,8 +67,8 @@ export interface PymthouseAdapterOptions {
    */
   signerExchange?: PymthouseSignerExchangeConfig;
   /**
-   * Optional config for the NEW single-call signer-session exchange
-   * (`POST /api/v1/apps/{clientId}/auth/api-key/signer-session`). When present,
+   * Optional config for the app-scoped RFC 8693 API-key → signer JWT exchange
+   * (`POST /api/v1/apps/{clientId}/oidc/token`). When present,
    * {@link PymthouseAdapter.resolveSignerEndpoint} prefers it over the legacy
    * `getSignerRouting()` + user-JWT mint. Omitted by default; the global-env
    * adapter resolves it lazily from `PYMTHOUSE_API_KEY` (unset ⇒ legacy path).
@@ -295,13 +295,11 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     _session: SignerSessionToken,
     context?: { externalUserId: string },
   ): Promise<SignerSessionEndpoint> {
-    // NEW contract: a single authenticated POST to
-    // `/api/v1/apps/{clientId}/auth/api-key/signer-session` returns BOTH the
-    // remote signer DMZ url AND the bearer in one call (replacing the legacy
-    // `getSignerRouting()` + user-JWT mint below). Preferred when an explicit
-    // `apiKeyExchange` was injected (per-instance) OR — for the GLOBAL-env
-    // adapter only — `PYMTHOUSE_API_KEY` is set. Unset by default ⇒ this branch
-    // is skipped and the legacy path runs byte-for-byte (zero regression).
+    // Preferred path: API-key config (`apiKeyExchange` or global `PYMTHOUSE_API_KEY`).
+    // Composite keys go to the DMZ as Bearer (identity webhook exchanges them).
+    // Bare `pmth_*` keys use RFC 8693 `POST …/apps/{clientId}/oidc/token` for a
+    // short-lived signer JWT + `signer_url`. Unset by default ⇒ legacy
+    // `getSignerRouting()` + mint path below (zero regression).
     //
     // The global `PYMTHOUSE_API_KEY` env is NOT consulted for a per-instance
     // adapter (one with an injected `clientOverride`): that key belongs to the
@@ -310,20 +308,20 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     // isolation. A per-instance adapter therefore uses the new path only when
     // its own `apiKeyExchange` is injected, else the legacy per-instance mint.
     //
-    // NOTE: this endpoint is authenticated by the `pmth_…` key itself and takes
+    // NOTE: this endpoint is authenticated by the API key itself and takes
     // no `externalUserId`, so identity/usage attribution is at the KEY level,
     // not per NaaP user.
     const apiKeyCfg =
       this.apiKeyExchange ?? (this.clientOverride ? undefined : readApiKeySignerSessionConfig());
     if (apiKeyCfg) {
       const apiKey = apiKeyCfg.apiKey.trim();
-      // PR #210 composite keys (`app_XXX.pmth_YYY`) authenticate the DMZ
-      // directly — no signer-session exchange hop. ONLY this path needs
+      // Composite keys (`app_<24hex>_<secret>`) authenticate the DMZ directly —
+      // the clearinghouse identity webhook exchanges them. ONLY this path needs
       // `getSignerRouting()` to discover the DMZ url. A bare `pmth_…` key gets
       // its url from `exchangeApiKeyForSignerSession()` below and must NOT be
       // gated on signer routing (which it never needed) — doing so regressed
       // bare-key callers with a spurious "no remote signer DMZ url" throw.
-      if (apiKey.includes('.pmth_')) {
+      if (isCompositeApiKey(apiKey)) {
         const url = this.resolveDmzUrl(await this.client().getSignerRouting());
         return {
           url,
@@ -350,7 +348,7 @@ export class PymthouseAdapter implements BillingProviderAdapter {
       throw new Error('resolveSignerEndpoint requires externalUserId to mint the signer bearer');
     }
 
-    // PR #210: DMZ expects composite `app_XXX.pmth_YYY` bearer, not user JWT.
+    // DMZ accepts composite `app_<24hex>_<secret>` Bearer (identity webhook).
     // NOTE (follow-up): this legacy fallback mints a fresh long-lived key per
     // resolution. It is only reached when neither an injected `apiKeyExchange`
     // nor a global `PYMTHOUSE_API_KEY` composite key is configured (prod uses
