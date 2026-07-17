@@ -400,11 +400,184 @@ Fallback (flag OFF or `resolveSignerEndpoint` throws): token-bundle `{ accessTok
 
 **Interpretation:** #424 is on `main` but prod validate **has not yet recovered** the endpoint form. Most likely: (1) Vercel prod not redeployed with #424 yet, and/or (2) `PYMTHOUSE_API_KEY` still unset or still in **old dot format** (`app_XXX.pmth_YYY`) which **`isCompositeApiKey()` no longer recognizes**, and/or (3) `per_key_remote_signer` OFF → endpoint swap never attempted. John's "working great" likely refers to the merge + clearinghouse alignment, not first billed gen.
 
+### Run 48 addendum (~11:50 PT — follow-ups after John #424)
+
+| Action / probe | Result | Notes |
+|---|---|---|
+| **[NaaP #427](https://github.com/livepeer/naap/pull/427)** | **CLOSED** | Comment: superseded by merged #424 (builder-sdk 0.6.0, clearinghouse). Not merged. |
+| **Prod deploy #424** | **YES** | GitHub Production deployment `db9a600` at **2026-07-17T16:35:43Z** (same merge commit as #424). |
+| **M2M Basic** (`m2m_5ad45661…` + supplied secret) | **PASS** | `GET …/apps/app_98575870…` → 200; `GET …/signer/routing` → **test-production** DMZ. |
+| **Mint underscore composite** | **PASS** | `POST …/users/a80a7b4e…/keys` (Builder API, M2M Basic) → **201**; key shape **`app_<24hex>_<secret>`** (NOT dot, NOT bare `pmth_` only). |
+| **`POST sdk.daydream.monster/inference`** + composite Bearer | **HTTP 502** | `IncompleteRead(82,112)` — same payment-gen truncation as Run 47/48 earlier. |
+| **`POST …/inference`** + `naap_…` | **HTTP 502** | Alternates `IncompleteRead` / `401 Invalid access token` on test-production webhook (opaque path). |
+| **`POST operator.livepeer.org/api/v1/keys/validate`** | **HTTP 200** | `valid:true` but **`signerSession` still token-bundle** (`accessToken: pmth_…`) — **no** `{ url, headers }` despite #424 deploy. |
+| **[pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255)** | **OPEN** | `mergeable: MERGEABLE`, `mergedAt: null` — still not merged/deployed. |
+
+**Revised interpretation:** #424 **is live on prod** (deploy confirmed), but validate endpoint form is still absent → **`PYMTHOUSE_API_KEY` unset or wrong format** and/or **`per_key_remote_signer` OFF**, not a missing redeploy. John's direct-Bearer path (underscore composite minted via Builder API) reaches the orchestrator but **payment generation still truncates** on test-production — ops blocker (sender reserve / signer deploy) remains on John even after auth fixes.
+
+### Run 48b (~12:00 PT — validate endpoint unblock follow-up)
+
+| Action / probe | Result | Notes |
+|---|---|---|
+| **Neon prod DB — `per_key_remote_signer` for livepeer-dev** | **ALREADY ON** | `b0600547-9a7c-434b-aa8b-8d1534c3d5b8`: override `enabled=true` (global OFF). Sibling flags also ON: `key_validation_front_door`, `native_keys`. `pymthouse_bpp_validate` global OFF, no override. **No DB mutation.** |
+| **Mint underscore composite (Builder API M2M)** | **PASS** | `POST …/apps/app_98575870…/users/2f617839-3588-4700-a6db-8438068c2b7f/keys` → **201**; shape **`app_98575870d7ae33589a3f0660_<secret>`** (underscore). Saved locally for ops handoff only — **not committed**. |
+| **Mint fresh `naap_` key (Neon insert)** | **PASS** | lookupId `8763606985f90e40`, team `livepeer-dev`, ACTIVE. Raw key in `/tmp/rawkey` only. |
+| **`vercel env add PYMTHOUSE_API_KEY` (prod)** | **BLOCKED** | `vercel whoami` → Not authorized; no `VERCEL_TOKEN` / `~/.vercel/auth.json`; `vercel env add` fails (cannot retrieve project settings). **Manual steps for qiang below.** |
+| **`POST operator.livepeer.org/api/v1/keys/validate`** + fresh `naap_…` | **HTTP 200** | `valid:true`, `billingAccount.providerSlug:pymthouse`, but **`signerSession` still token-bundle** (`accessToken: pmth_…`) — **no** `{ url, headers }`. Flag is ON in DB → **`resolveSignerEndpoint` likely throwing** on prod (fail-safe fallback), not flag OFF. |
+| **`POST sdk.daydream.monster/inference`** + composite Bearer | **HTTP 502** | `IncompleteRead(82,112)` on `byoc-staging-1.daydream.monster:8935` — unchanged vs Run 48. |
+| **`POST sdk.daydream.monster/inference`** + `naap_…` | **HTTP 502** | Same `IncompleteRead(82,112)` (~4.5 s). |
+
+**Run 48b interpretation:** `per_key_remote_signer` is **not** the missing piece (already ON). Validate endpoint regression persists → prod `resolveSignerEndpoint` fail-safe (check prod `PYMTHOUSE_*` M2M/routing env + Vercel logs for `keys.validate.signer_endpoint_unavailable`). Setting **`PYMTHOUSE_API_KEY`** to the new underscore composite + **redeploy** remains the recommended unblock for qiang (may also enable composite-bearer fast-paths). Payment-gen truncation on test-production remains **John / pymthouse ops** (sender reserve / #255).
+
+---
+
+## Vercel env checklist (Run 48b — `resolveSignerEndpoint` / validate endpoint form)
+
+**Prod deploy under test:** `db9a6006` ([#424](https://github.com/livepeer/naap/pull/424), builder-sdk **0.6.0**).  
+**DB flag:** `per_key_remote_signer` **ON** for `livepeer-dev` (Neon override `b0600547-…`, confirmed Run 48b).  
+**Live validate (Run 48b re-probe):** `valid:true`, `signerSession` still **token-bundle** (`accessToken: pmth_…`) → **`resolveSignerEndpoint` threw**; front door fail-safe kept opaque bundle (`keys/validate/route.ts:212-230`).
+
+### Fail-safe mechanism (why token-bundle persists)
+
+When `per_key_remote_signer` is ON and the adapter implements `resolveSignerEndpoint`, validate **attempts** endpoint swap, then:
+
+```text
+try { signerSession = await adapter.resolveSignerEndpoint(mintedBundle, { externalUserId }) }
+catch { log keys.validate.signer_endpoint_unavailable; keep token-bundle }
+```
+
+Any thrown error → **no 500**, **no `{ url, headers }`**. SDK `SIGNER_FROM_VALIDATE=1` cannot consume token-bundle.
+
+### `resolveSignerEndpoint` on main@#424 (exact logic)
+
+Source: `apps/web-next/src/lib/billing/pymthouse-adapter.ts` @ `db9a6006`.
+
+| Step | Condition | Action | Throws when |
+|---|---|---|---|
+| A | `readApiKeySignerSessionConfig()` non-null (`PYMTHOUSE_API_KEY` + issuer + public client set) **and** `isCompositeApiKey(apiKey)` | `getSignerRouting()` → DMZ url; Bearer = **underscore composite as-is** | routing empty/proxy DMZ; M2M/routing HTTP error |
+| B | Same config, key **not** composite (legacy **dot** `app_XXX.pmth_YYY`, bare `pmth_…`, etc.) | `POST …/apps/{clientId}/oidc/token` (RFC 8693) via `exchangeApiKeyForSignerSession` | exchange 401/400; **`signerUrl` missing** in response; dashboard `/api/signer` proxy url |
+| C | `PYMTHOUSE_API_KEY` **unset** (default) | `getSignerRouting()` + **`createPymthouseApiKey`** (`label: naap-validate-signer`) per validate | routing/DMZ issues; key mint 401/403; missing `externalUserId` |
+
+`readApiKeySignerSessionConfig()` (`pymthouse-signer-exchange-config.ts`) returns **`null`** unless all three are set: `PYMTHOUSE_ISSUER_URL`, `PYMTHOUSE_PUBLIC_CLIENT_ID`, `PYMTHOUSE_API_KEY`.
+
+**0.6.0 composite shape:** `app_<24hex>_<secret>` (underscore). Regex: `^(app_[a-f0-9]{24})_(.+)$`. Legacy dot `app_XXX.pmth_YYY` → **`isCompositeApiKey` = false** → branch **B** (exchange), **not** branch **A**.
+
+### Local simulation (no prod logs, no secrets echoed)
+
+```bash
+node scripts/run-48b-resolve-signer-sim.mjs
+```
+
+Run 48b simulation output (main #424 logic):
+
+| Scenario | Result |
+|---|---|
+| `PYMTHOUSE_API_KEY` **unset** + good routing | **PASS** → legacy `createPymthouseApiKey` path |
+| `PYMTHOUSE_API_KEY` **underscore composite** | **PASS** → composite fast-path + test-production DMZ |
+| `PYMTHOUSE_API_KEY` **legacy dot** `app_XXX.pmth_YYY` | **THROW** → exchange branch (expected prod failure mode if old env value remains) |
+| bare `pmth_` key, exchange returns no `signerUrl` | **THROW** |
+| routing returns empty DMZ | **THROW** |
+| routing returns `/api/signer` proxy | **THROW** |
+
+Live M2M probe in-script: **skipped** (no `PYMTHOUSE_*` in agent shell). Run 48 addendum M2M routing probe **PASS** externally (same app `app_98575870…` → test-production DMZ).
+
+### Most likely prod failure (Run 48b diagnosis)
+
+**Primary hypothesis:** Vercel prod still has **`PYMTHOUSE_API_KEY` set to pre-#424 dot-format** (`app_98575870….pmth_…`, Run 15–46 era). After #424, that value is **not** `isCompositeApiKey()` → branch **B** RFC8693 exchange **throws** (invalid/revoked subject token or missing `signerUrl`) → fail-safe → token-bundle. Opaque `pmth_` mint in the same request still succeeds (independent code path).
+
+**Secondary hypotheses** (if `PYMTHOUSE_API_KEY` is unset or already underscore):
+
+- `getSignerRouting()` M2M failure or empty/proxy DMZ (less likely — external M2M routing PASS Run 48).
+- Legacy **`createPymthouseApiKey`** failure (M2M missing `users:write` / key-create scope, or wrong `PYMTHOUSE_PUBLIC_CLIENT_ID` vs bound app).
+
+**Not the cause:** `per_key_remote_signer` OFF (DB confirms ON).
+
+### Vercel Production — required env vars (validate endpoint / pymthouse)
+
+Set in **`apps/web-next`** project (naap-platform / operator.livepeer.org). Values for `app_98575870…` canary unless prod has drifted.
+
+#### Required (M2M + validate mint + endpoint resolution)
+
+| Variable | Purpose | Validate impact if missing/wrong |
+|---|---|---|
+| **`PYMTHOUSE_ISSUER_URL`** | OIDC issuer, e.g. `https://pymthouse.com/api/v1/oidc` | `readApiKeySignerSessionConfig` null; client not configured; mint/routing fail |
+| **`PYMTHOUSE_PUBLIC_CLIENT_ID`** | Public `app_<24hex>` (Builder URL paths) | Wrong app; routing/key mint against wrong tenant |
+| **`PYMTHOUSE_M2M_CLIENT_ID`** | Confidential `m2m_…` client | Builder API 401; **both** opaque mint and `getSignerRouting` fail |
+| **`PYMTHOUSE_M2M_CLIENT_SECRET`** | M2M secret (**sensitive** — set in Vercel only) | Same as above |
+| **`PYMTHOUSE_API_KEY`** | **Optional for code default**, **required for stable prod fast-path**: underscore composite `app_<24hex>_<secret>` from Builder API user-key mint | **Unset** → legacy per-validate `createPymthouseApiKey` (works if M2M scopes OK). **Dot-format** → branch B throw → **token-bundle fail-safe**. **Underscore composite** → branch A → `{ url, headers }` |
+
+#### Strongly recommended (same deploy window)
+
+| Variable | Purpose |
+|---|---|
+| **`DATABASE_URL`** | Feature flags (`per_key_remote_signer`), key resolution |
+| **`NEXTAUTH_URL`** / **`NEXTAUTH_SECRET`** | Platform auth (validate front door) |
+
+#### Optional pymthouse (not blocking validate endpoint swap)
+
+| Variable | Purpose |
+|---|---|
+| `PYMTHOUSE_SIGNER_URL` | Developer API / `POST /api/pymthouse/keys/exchange` facade URL — **not** read by `resolveSignerEndpoint` on #424 |
+| `PMTHOUSE_BASE_URL` / `PYMTHOUSE_MARKETPLACE_URL` | Marketplace links |
+| `PYMTHOUSE_DEVICE_COOKIE_SECRET` | Device-flow cookie (falls back to `NEXTAUTH_SECRET`) |
+| `PYMTHOUSE_ALLOW_INSECURE_HTTP` | Local dev only |
+| `PYMTHOUSE_ALLOW_MISSING_MANIFEST_FAIL_OPEN` | Manifest sync fail-open (default deny) |
+| `PYMTHOUSE_CAPABILITY_CACHE_TTL_MS` | BPP capabilities cache |
+
+#### Not env — Neon feature flags (livepeer-dev)
+
+| Flag | Required value | Run 48b |
+|---|---|---|
+| `key_validation_front_door` | ON | ON (override) |
+| `per_key_remote_signer` | ON | **ON** (override) |
+| `native_keys` | ON | ON |
+| `pymthouse_bpp_validate` | ON for live caps | global OFF (empty `capabilities[]`, non-blocking) |
+
+### Ops fix (qiang — Vercel prod)
+
+1. **Inspect** Production env: is `PYMTHOUSE_API_KEY` present? If yes, is it **dot** or **underscore** format?
+2. **Mint** fresh underscore composite via Builder API (`POST …/users/{externalUserId}/keys`) — Run 48b PASS shape: `app_98575870d7ae33589a3f0660_<secret>`.
+3. **Set or replace** on Production:
+   - `PYMTHOUSE_ISSUER_URL=https://pymthouse.com/api/v1/oidc`
+   - `PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870d7ae33589a3f0660`
+   - `PYMTHOUSE_M2M_CLIENT_ID=m2m_5ad45661715c8bb7eb30d18f` (confirm not rotated)
+   - `PYMTHOUSE_M2M_CLIENT_SECRET=<current secret>`
+   - `PYMTHOUSE_API_KEY=<underscore composite from step 2>` (**sensitive**)
+4. **Redeploy** prod (`npx vercel deploy --prod` or push-trigger).
+5. **Re-probe:** `POST …/keys/validate` → expect `signerSession` keys `["url","headers"]`, `headers.Authorization` = `Bearer app_98575870d7ae33589a3f0660_…`.
+
+```bash
+cd apps/web-next
+printf '%s' 'app_98575870d7ae33589a3f0660_<secret>' | \
+  npx vercel env add PYMTHOUSE_API_KEY production --sensitive --yes --force
+npx vercel deploy --prod
+curl -sS -X POST https://operator.livepeer.org/api/v1/keys/validate \
+  -H "Authorization: Bearer naap_<lookup>_<secret>" | jq '.data.signerSession | keys'
+```
+
+**Alternative (no stable global key):** remove `PYMTHOUSE_API_KEY` from Production → legacy branch C (`createPymthouseApiKey` per validate). Works if M2M has user/key scopes; less ideal (new key every validate).
+
+**Manual Vercel steps (qiang — agent unauthorized):**
+
+```bash
+cd apps/web-next
+npx vercel login                    # livepeer-foundation org
+npx vercel link                     # project web-next if .vercel stale
+# Paste the underscore composite from Builder API (Run 48b mint or fresh mint):
+printf '%s' 'app_98575870d7ae33589a3f0660_<secret>' | \
+  npx vercel env add PYMTHOUSE_API_KEY production --sensitive --yes --force
+npx vercel deploy --prod            # pick up env change
+# Re-probe:
+curl -sS -X POST https://operator.livepeer.org/api/v1/keys/validate \
+  -H "Authorization: Bearer naap_<lookup>_<secret>" | jq '.data.signerSession | keys'
+# Expect: ["url","headers"] not ["accessToken","tokenType","expiresIn","scope"]
+```
+
 ### Compare to our open work
 
 | Item | Status after #424 | Action |
 |---|---|---|
-| **[NaaP #427](https://github.com/livepeer/naap/pull/427)** opaque-session forward | **Superseded / conflict** | #424 keeps composite + RFC 8693 paths on `main`; #427 deletes them (~340 lines) in favor of bare `pmth_` forward. **Close #427** or rebase only if John explicitly wants opaque-only path without composite env. |
+| **[NaaP #427](https://github.com/livepeer/naap/pull/427)** opaque-session forward | **CLOSED** (superseded) | Closed 2026-07-17 with comment pointing to merged #424. |
 | **[pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255)** composite webhook | **Still needed** (likely updated format) | Clearinghouse refactor may absorb verifier logic, but webhook still returned **401 `not a JWT`** on bare `pmth_` in Run 47. #255 is mergeable again — coordinate with John on underscore composite vs legacy `app.pmth_` verifier. |
 | **Validate regression** (token-bundle vs endpoint) | **NOT fixed by #424 alone** | Needs prod deploy + `PYMTHOUSE_API_KEY` in **new underscore format** + `per_key_remote_signer` ON. Old dot-format composite keys silently miss the fast-path. |
 | **[NaaP #421](https://github.com/livepeer/naap/pull/421)** composite bearer | **Superseded by #424** | #421 used dot format + old exchange; #424 is the clearinghouse-aligned successor. |
@@ -427,7 +600,7 @@ Grep of `livepeer/storyboard` `main` (Jul 17):
 1. **John / pymthouse:** Merge + deploy [pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255) (or confirm clearinghouse identity webhook on prod accepts underscore composite + opaque `pmth_`). Fund test-production sender reserve.
 2. **NaaP Vercel prod:** Redeploy from `main` (#424). Set `PYMTHOUSE_API_KEY` to a **new-format** composite `app_<24hex>_<secret>` (from Developer API / John). Confirm `per_key_remote_signer` ON for livepeer-dev.
 3. **Verify:** validate → endpoint form with composite bearer → `sdk.daydream.monster/inference` 200 → OpenMeter delta.
-4. **Close NaaP #427** unless team explicitly chooses opaque-forward workaround over composite env var.
+4. ~~**Close NaaP #427**~~ — **done** (Run 48 addendum).
 5. **Storyboard prod env** (after step 3 passes): enable `STORYBOARD_PROVIDER_SWITCH` + `NAAP_*`; re-run `sb4-server-naap.test.ts`.
 
 **Minimum chain unchanged in spirit:** webhook auth (#255/clearinghouse) + validate endpoint form (env + flag + #424 deploy) + funded signer → first billed gen.
