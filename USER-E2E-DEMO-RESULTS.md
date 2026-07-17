@@ -4256,3 +4256,99 @@ App totals: `requestCount=261`, `networkFeeUsdMicros=462977`. Path B MCP gen bil
 
 **≈ $0.003** — one Path B Storyboard MCP flux-schnell generation (**$0.00320**). Path A: **$0** (no billed generation; webhook auth blocked before meter).
 
+---
+
+# Run 49 — PYMTHOUSE_API_KEY env fix attempt + full E2E (2026-07-17 ~14:30 PT)
+
+Follow-up to Run 48b. Goal: set prod `PYMTHOUSE_API_KEY` to underscore composite (post-#424), redeploy NaaP prod, re-run Paths A/B/C to test whether [pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255) is still required or John's simple composite Bearer model unblocks billed gen.
+
+**Prod deploy under test:** `dpl_7KmqSuSy3FzzXzg9W4FvZKV7AepV` (John #424 merge, commit `db9a6006`, builder-sdk **0.6.0**). **No new redeploy** — Vercel env patch blocked.
+
+## TL;DR
+
+| concern | status |
+|---|---|
+| **Vercel `PYMTHOUSE_API_KEY` set + redeploy** | **BLOCKED** — all tokens (env + historical) → **403** on `GET …/projects/prj_PiZLL…/env`; MCP has no env-mutation tool |
+| **Validate endpoint form** | **FAIL (unchanged)** — `signerSession` still **token-bundle** (`accessToken: pmth_…`), not `{ url, headers }` |
+| **Path A — SDK `/inference` + `naap_`** | **FAIL** — HTTP **502** `IncompleteRead(82 bytes read, 112 more expected)` |
+| **Path B — SDK `/inference` + composite direct** | **FAIL** — same **502 IncompleteRead(82,112)** |
+| **Path C — Storyboard MCP `create_media` flux-schnell** | **PASS** — 2959 ms; fal.media URL; **$0.00320** |
+| **OpenMeter delta** | **0** — `requestCount=305`, `networkFeeUsdMicros=680373` unchanged |
+| **pymthouse#255** | **CLOSED unmerged** (2026-07-17); live failure is **IncompleteRead**, not **401 `not a JWT`** — **inconclusive** on #255 until validate emits composite endpoint bearer |
+
+## Step 1 — Vercel env + deploy
+
+| action | result |
+|---|---|
+| Composite key source | **PASS** — Run 48b underscore composite present locally (`/tmp/composite_key`, shape `app_98575870…_<secret>`) |
+| `vercel whoami` | **FAIL** — Not authorized |
+| Vercel API env GET/PATCH (`prj_PiZLLh1Ot3Qf6OBYr4f7Ebi77sP6`, `team_GOhUouAF8PsQO4CVvzpIriQV`) | **FAIL** — HTTP **403** (tested `VERCEL_TOKEN` from env files + two historical team tokens) |
+| `PYMTHOUSE_API_KEY` prod upsert (env id `GcRbvQx6pqd9FP4R`) | **NOT DONE** |
+| Prod redeploy | **NOT DONE** |
+
+**Manual unblock (qiang):** SAML-authorized Vercel token → upsert prod `PYMTHOUSE_API_KEY` (underscore composite from Builder API) + confirm `PYMTHOUSE_ISSUER_URL`, `PYMTHOUSE_PUBLIC_CLIENT_ID`, `PYMTHOUSE_M2M_CLIENT_ID`, `PYMTHOUSE_M2M_CLIENT_SECRET` → redeploy latest prod (`dpl_7KmqSuSy3FzzXzg9W4FvZKV7AepV` or newer from `main`).
+
+## Step 2 — E2E probes (current prod, no env change)
+
+### Path A — `naap_` key
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| A1 | OpenMeter baseline | **PASS (read)** | `requestCount=305`, `networkFeeUsdMicros=680373`, `source:openmeter` |
+| A2 | `POST …/keys/validate` (user `naap_8056755b…`) | **PASS (200)** | `valid:true`; **`signerSession` = token-bundle** (`accessToken`, `tokenType`, `expiresIn`, `scope`) — **not** endpoint form |
+| A3 | `POST …/keys/validate` (fresh `/tmp/rawkey`) | **PASS (200)** | Same token-bundle shape |
+| A4 | `POST sdk.daydream.monster/inference` flux-schnell + `naap_` | **FAIL** | HTTP **502** — `payment failed: IncompleteRead(82 bytes read, 112 more expected)` on `byoc-staging-1.daydream.monster:8935` |
+| A5 | OpenMeter after | **PASS (read)** / **0 delta** | Totals unchanged |
+
+### Path B — composite Bearer direct (John simple model)
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| B1 | `POST sdk.daydream.monster/inference` + underscore composite Bearer | **FAIL** | Same **502 IncompleteRead(82,112)** — reaches orchestrator; payment gen truncates |
+
+### Path C — Daydream regression
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| C1 | Storyboard MCP `create_media` flux-schnell | **PASS** | 2959 ms; fal.media URL; $0.00320 |
+
+### Infra / routing
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| I1 | `GET …/apps/app_98575870…/signer/routing` | **PASS** | `patterns.directDmz.signerApiUrl` = **`pymthouse-signer-test-production.up.railway.app`** |
+| I2 | pymthouse#255 | **CLOSED** | `mergedAt: null`, closed 2026-07-17 — not merged |
+
+## pymthouse#255 verdict (Run 49)
+
+**Cannot close as obsolete yet.** PR **CLOSED unmerged**; clearinghouse may supersede it, but this run never exercised composite-bearer webhook auth end-to-end because validate still returns **opaque token-bundle**. Live SDK failures are **`IncompleteRead(82,112)`** (payment-generation truncation on test-production DMZ) — **not** the Run 45/46 **`401 not a JWT`** pattern. Re-test #255 relevance **after** prod `PYMTHOUSE_API_KEY` underscore composite is set and validate emits `{ url, headers }` with composite Bearer.
+
+## vs Run 48b
+
+| item | Run 48b | Run 49 | delta |
+|---|---|---|---|
+| Vercel env patch | BLOCKED | **BLOCKED** | unchanged — needs SAML token |
+| Validate form | token-bundle | **token-bundle** | unchanged |
+| SDK `naap_` inference | IncompleteRead(82,112) | **IncompleteRead(82,112)** | unchanged |
+| Composite direct inference | IncompleteRead | **IncompleteRead** | unchanged |
+| Daydream MCP | not run | **PASS** | healthy |
+| OpenMeter delta | 0 | **0** | no billed naap-path gens |
+
+## Blockers (updated)
+
+1. **P0 — NaaP Vercel prod env (qiang):** Set `PYMTHOUSE_API_KEY` to underscore composite + redeploy. Without this, validate cannot emit endpoint form post-#424.
+2. **P1 — Payment gen truncation (John / pymthouse ops):** test-production DMZ `IncompleteRead(82,112)` on both `naap_` and direct-composite paths — sender reserve / signer deploy.
+3. **P2 — pymthouse#255 / webhook composite verifier:** **Inconclusive** this run; re-probe after P0.
+
+## Artifacts
+
+- `/tmp/run49-vercel-patch.log`, `/tmp/run49-e2e.log`
+- `/tmp/run49-validate-pathA-user.json`, `/tmp/run49-validate-pathA-tmp.json`
+- `/tmp/run49-sdk-pathA-user.json`, `/tmp/run49-sdk-pathB-composite.json`
+- `/tmp/run49-om-baseline.json`, `/tmp/run49-om-after.json`
+- `/tmp/run49-routing.json`
+
+## Spend
+
+**≈ $0.003** — one Path C Storyboard MCP flux-schnell (**$0.00320**). Paths A/B: **$0** (no billed generation).
+

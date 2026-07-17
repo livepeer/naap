@@ -605,6 +605,22 @@ Grep of `livepeer/storyboard` `main` (Jul 17):
 
 **Minimum chain unchanged in spirit:** webhook auth (#255/clearinghouse) + validate endpoint form (env + flag + #424 deploy) + funded signer → first billed gen.
 
+### Run 49 (~14:30 PT — PYMTHOUSE_API_KEY env fix attempt + E2E)
+
+| Action / probe | Result | Notes |
+|---|---|---|
+| **Underscore composite ready** | **PASS** | Run 48b key in `/tmp/composite_key` (not committed) |
+| **Vercel env PATCH `PYMTHOUSE_API_KEY`** | **BLOCKED** | HTTP **403** on env GET/PATCH for `prj_PiZLLh1Ot3Qf6OBYr4f7Ebi77sP6`; `vercel whoami` unauthorized; no usable `VERCEL_TOKEN` in repo env files |
+| **Prod redeploy** | **NOT DONE** | Latest prod still `dpl_7KmqSuSy3FzzXzg9W4FvZKV7AepV` (#424 / `db9a6006`) |
+| **`POST …/keys/validate`** + `naap_…` | **HTTP 200** | `valid:true`; **`signerSession` still token-bundle** (`pmth_…`) — endpoint form **not restored** |
+| **`POST sdk.daydream.monster/inference`** + `naap_` | **HTTP 502** | `IncompleteRead(82,112)` — unchanged vs Run 48b |
+| **`POST sdk.daydream.monster/inference`** + composite direct | **HTTP 502** | Same `IncompleteRead(82,112)` |
+| **Storyboard MCP `create_media` flux-schnell** | **PASS** | 2959 ms; $0.00320 — Daydream path healthy |
+| **OpenMeter delta** | **0** | `requestCount=305`, `networkFeeUsdMicros=680373` |
+| **pymthouse#255** | **CLOSED unmerged** | Closed 2026-07-17; live error is **IncompleteRead**, not **401 not a JWT** — **#255 relevance inconclusive** until validate emits composite endpoint bearer |
+
+**Run 49 interpretation:** Step 1 (Vercel env + redeploy) **did not execute** — same SAML/403 blocker as Run 48b. Step 2 confirms prod is **unchanged**: validate fail-safe token-bundle persists; naap + direct-composite SDK paths both hit **payment-gen truncation** on test-production DMZ. **#255 cannot be ruled out or confirmed** without first setting underscore `PYMTHOUSE_API_KEY` and observing whether webhook returns 401 vs payment proceeds.
+
 ---
 
 ## Related docs
