@@ -350,6 +350,90 @@ requestCount=286 networkFeeUsdMicros=599638 — 0 delta from probes
 
 ---
 
+## Post-#424 update (2026-07-17 — John merge + live re-probe)
+
+**Context:** John merged [NaaP #424](https://github.com/livepeer/naap/pull/424) today (~16:35Z). He reported prod NaaP is healthy, pymthouse moved to `@pymthouse/builder-sdk@0.6.0` + clearinghouse identity webhook, and platform apps should use simple `Authorization: Bearer <key>` without parsing composite keys or doing signer exchange locally.
+
+### What #424 changed (exact diff)
+
+| Area | Before (#421 era) | After (#424 on `main`) |
+|---|---|---|
+| `@pymthouse/builder-sdk` | `0.5.0` | **`0.6.0`** |
+| Composite key shape | `app_<clientId>.pmth_<secret>` (dot) | **`app_<24hex>_<secret>`** (underscore) — `isCompositeApiKey()` |
+| Bare `pmth_*` exchange | `POST …/auth/api-key/signer-session` | **`POST …/apps/{clientId}/oidc/token`** (RFC 8693 form body) |
+| Composite fast-path | `apiKey.includes('.pmth_')` | **`isCompositeApiKey(apiKey)`** from builder-sdk |
+| Identity webhook | In-SDK `@pymthouse/builder-sdk/signer/webhook` | **Removed** — use `@pymthouse/clearinghouse-identity-webhook` upstream |
+| Developer-api UI | Generic success copy | Clarifies composite vs bare `pmth_*` usage |
+
+Files touched: `pymthouse-adapter.ts`, `pymthouse-client.ts`, `pymthouse-signer-exchange-config.ts`, tests, `docs/pymthouse-integration.md`, developer-api packages.
+
+### builder-sdk 0.6.0 — validate contract NOW
+
+Per [builder-sdk CHANGELOG 0.6.0](https://github.com/pymthouse/builder-sdk/blob/v0.6.0/CHANGELOG.md):
+
+- Presented composite credentials are **`app_<24hex>_<secret>`** (underscore, not dot).
+- Clearinghouse identity webhook accepts them as Bearer — **NaaP/Storyboard should not parse or re-exchange them**.
+- Bare `pmth_*` still exchanges via RFC 8693 token endpoint for a short-lived signer JWT + `signer_url`.
+
+**What validate should return on prod** (when `per_key_remote_signer` ON and endpoint resolution succeeds):
+
+```json
+{
+  "signerSession": {
+    "url": "https://pymthouse-signer-test-production.up.railway.app",
+    "headers": { "Authorization": "Bearer app_<24hex>_<secret>" }
+  }
+}
+```
+
+Fallback (flag OFF or `resolveSignerEndpoint` throws): token-bundle `{ accessToken: "pmth_…", tokenType, expiresIn, scope }` — SDK `SIGNER_FROM_VALIDATE=1` cannot use this for DMZ signing.
+
+### Live probe after #424 merge (Run 48, ~11:38 PT)
+
+| Probe | Result | Notes |
+|---|---|---|
+| `POST operator.livepeer.org/api/v1/keys/validate` + canonical `naap_…` | **HTTP 200** | `valid:true`, `billingAccount.providerSlug:pymthouse` |
+| `signerSession` shape | **STILL token-bundle** | `{ accessToken: pmth_…, tokenType, expiresIn, scope }` — **no** `{ url, headers }` |
+| `capabilities[]` | **EMPTY** | `[]` |
+| `POST sdk.daydream.monster/inference` flux-schnell | **HTTP 502** | `IncompleteRead(82,112)` — same symptom as Run 47 |
+| [pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255) | **OPEN** | Now **`mergeable: MERGEABLE`** (was CONFLICTING Run 47) — still not merged |
+
+**Interpretation:** #424 is on `main` but prod validate **has not yet recovered** the endpoint form. Most likely: (1) Vercel prod not redeployed with #424 yet, and/or (2) `PYMTHOUSE_API_KEY` still unset or still in **old dot format** (`app_XXX.pmth_YYY`) which **`isCompositeApiKey()` no longer recognizes**, and/or (3) `per_key_remote_signer` OFF → endpoint swap never attempted. John's "working great" likely refers to the merge + clearinghouse alignment, not first billed gen.
+
+### Compare to our open work
+
+| Item | Status after #424 | Action |
+|---|---|---|
+| **[NaaP #427](https://github.com/livepeer/naap/pull/427)** opaque-session forward | **Superseded / conflict** | #424 keeps composite + RFC 8693 paths on `main`; #427 deletes them (~340 lines) in favor of bare `pmth_` forward. **Close #427** or rebase only if John explicitly wants opaque-only path without composite env. |
+| **[pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255)** composite webhook | **Still needed** (likely updated format) | Clearinghouse refactor may absorb verifier logic, but webhook still returned **401 `not a JWT`** on bare `pmth_` in Run 47. #255 is mergeable again — coordinate with John on underscore composite vs legacy `app.pmth_` verifier. |
+| **Validate regression** (token-bundle vs endpoint) | **NOT fixed by #424 alone** | Needs prod deploy + `PYMTHOUSE_API_KEY` in **new underscore format** + `per_key_remote_signer` ON. Old dot-format composite keys silently miss the fast-path. |
+| **[NaaP #421](https://github.com/livepeer/naap/pull/421)** composite bearer | **Superseded by #424** | #421 used dot format + old exchange; #424 is the clearinghouse-aligned successor. |
+
+### Storyboard SB-4 — what can be removed?
+
+Grep of `livepeer/storyboard` `main` (Jul 17):
+
+| File | Bearer / signer behavior |
+|---|---|
+| `lib/mcp-server/auth.ts` | Extracts `Authorization: Bearer <key>` — **no composite parsing, no exchange** |
+| `lib/mcp-server/sdk-call.ts` | Forwards caller `apiKey` to SDK base — **no validate signerSession consumption** |
+| `lib/sdk/provider-core.ts` | Routes `naap_` → `POST /api/v1/keys/validate` for Settings preflight only; reads `valid` flag, **ignores signerSession** |
+| `lib/sdk/client.ts` | Same — mentions `signerSession` in comments only |
+
+**Verdict:** Storyboard MCP already does the right thing for "simple Bearer auth." **No SB-4 code removal required** for composite parsing or signer exchange — that complexity lives in NaaP `resolveSignerEndpoint` + SDK `SIGNER_FROM_VALIDATE=1`, not Storyboard. Remaining Storyboard work is **ops**: `STORYBOARD_PROVIDER_SWITCH=1`, `NAAP_PROVIDER=naap`, `NAAP_BASE_URL=https://sdk.daydream.monster` once validate emits endpoint form.
+
+### Revised action plan (post-#424)
+
+1. **John / pymthouse:** Merge + deploy [pymthouse#255](https://github.com/pymthouse/pymthouse/pull/255) (or confirm clearinghouse identity webhook on prod accepts underscore composite + opaque `pmth_`). Fund test-production sender reserve.
+2. **NaaP Vercel prod:** Redeploy from `main` (#424). Set `PYMTHOUSE_API_KEY` to a **new-format** composite `app_<24hex>_<secret>` (from Developer API / John). Confirm `per_key_remote_signer` ON for livepeer-dev.
+3. **Verify:** validate → endpoint form with composite bearer → `sdk.daydream.monster/inference` 200 → OpenMeter delta.
+4. **Close NaaP #427** unless team explicitly chooses opaque-forward workaround over composite env var.
+5. **Storyboard prod env** (after step 3 passes): enable `STORYBOARD_PROVIDER_SWITCH` + `NAAP_*`; re-run `sb4-server-naap.test.ts`.
+
+**Minimum chain unchanged in spirit:** webhook auth (#255/clearinghouse) + validate endpoint form (env + flag + #424 deploy) + funded signer → first billed gen.
+
+---
+
 ## Related docs
 
 - `BILLED-E2E-REMAINING-PLAN.md` — pillar plan (Run 35–46 era)
