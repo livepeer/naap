@@ -16,15 +16,11 @@ import { assertDirectSignerBaseUrl } from '@pymthouse/builder-sdk/signer/server'
 import type { MeScopeUsagePayload, PmtHouseClient, UsageApiResponse } from '@pymthouse/builder-sdk';
 
 import {
-  exchangeApiKeyForSignerSession,
   getPmtHouseServerClient,
   mintOpaqueSignerSessionForExternalUser,
   mintSignerSessionForExternalUser,
-  type PymthouseApiKeyExchangeConfig,
   type PymthouseSignerExchangeConfig,
 } from '@/lib/pymthouse-client';
-import { createPymthouseApiKey } from '@/lib/pymthouse-keys-bff';
-import { readApiKeySignerSessionConfig } from '@/lib/pymthouse-signer-exchange-config';
 import { isFeatureEnabled, PYMTHOUSE_BPP_VALIDATE_FLAG } from '@/lib/feature-flags';
 import { resolvePymthouseCapabilities } from './pymthouse-capabilities';
 import {
@@ -66,14 +62,6 @@ export interface PymthouseAdapterOptions {
    * adapter, which uses the `PYMTHOUSE_*` env exchange.
    */
   signerExchange?: PymthouseSignerExchangeConfig;
-  /**
-   * Optional config for the NEW single-call signer-session exchange
-   * (`POST /api/v1/apps/{clientId}/auth/api-key/signer-session`). When present,
-   * {@link PymthouseAdapter.resolveSignerEndpoint} prefers it over the legacy
-   * `getSignerRouting()` + user-JWT mint. Omitted by default; the global-env
-   * adapter resolves it lazily from `PYMTHOUSE_API_KEY` (unset ⇒ legacy path).
-   */
-  apiKeyExchange?: PymthouseApiKeyExchangeConfig;
 }
 
 export class PymthouseAdapter implements BillingProviderAdapter {
@@ -82,13 +70,11 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   private readonly clientOverride?: PmtHouseClient;
   private readonly isConfiguredOverride?: () => boolean;
   private readonly signerExchange?: PymthouseSignerExchangeConfig;
-  private readonly apiKeyExchange?: PymthouseApiKeyExchangeConfig;
 
   constructor(options: PymthouseAdapterOptions = {}) {
     this.clientOverride = options.client;
     this.isConfiguredOverride = options.isConfigured;
     this.signerExchange = options.signerExchange;
-    this.apiKeyExchange = options.apiKeyExchange;
   }
 
   /**
@@ -267,105 +253,28 @@ export class PymthouseAdapter implements BillingProviderAdapter {
    * Per-key remote signer (endpoint form). Resolve the app's remote signer DMZ
    * via the Builder API `GET /api/v1/apps/{clientId}/signer/routing`
    * (`getSignerRouting()`), then return the {@link SignerSessionEndpoint} form:
-   * the DMZ `url` + an `Authorization: Bearer <jwt>` header carrying a freshly
-   * minted Builder USER-TOKEN JWT (via {@link mintUserSignerJwtForExternalUser}).
+   * the DMZ `url` + `Authorization: Bearer <pmth_…>` forwarding the opaque
+   * signer session already minted by {@link mintSignerSession} during validate.
    *
-   * Per the pymthouse "User-scoped JWTs" doc ("Passing the token to downstream
-   * services") and the signer-routing `directDmz` pattern, the token the remote
-   * signer DMZ validates is the Builder user-token (`/users/{id}/token`,
-   * `sign:job`) — NOT the token-exchange "Option A" `sign:mint_user_token`
-   * clearinghouse mint, which currently `500`s upstream. The DMZ identity
-   * webhook is OIDC/JWT-only: it verifies the bearer as a JWT (JWKS, `aud` =
-   * issuer, `client_id`/`azp`, `scope` ⊇ `sign:job`, `sub` = app-user) — an
-   * opaque `pmth_…` session is rejected with `Invalid JWT` (502). So we forward
-   * the user-token JWT here, NOT the opaque `session.accessToken`.
-   * `mintSignerSession` (the flag-OFF default/Daydream path) still mints the
-   * opaque bundle byte-for-byte; the JWT is produced ONLY inside this
-   * already-flag-gated method (front-door `PER_KEY_REMOTE_SIGNER_FLAG`,
-   * fail-safe on error).
+   * Workaround option 1 (no pymthouse#255): the remote-signer identity webhook
+   * on prod already verifies bare opaque `pmth_…` sessions; composite
+   * `app_XXX.pmth_YYY` API keys require #255. So we forward the validate-minted
+   * opaque session here instead of minting or forwarding a composite key.
    *
    * The DMZ URL is the direct-DMZ signer API (`patterns.directDmz.signerApiUrl`),
    * falling back to `routing.remoteDmzUrl`/`routing.signerApiUrl`, validated by
    * `assertDirectSignerBaseUrl` (rejects dashboard `/api/signer` proxy URLs).
-   * Throws when the provider exposes no DMZ URL or no `externalUserId` so the
-   * front door can fail safe (it keeps the token-bundle form rather than emit a
-   * half-formed endpoint).
+   * Throws when the provider exposes no DMZ URL so the front door can fail safe
+   * (it keeps the token-bundle form rather than emit a half-formed endpoint).
    */
   async resolveSignerEndpoint(
-    _session: SignerSessionToken,
-    context?: { externalUserId: string },
+    session: SignerSessionToken,
+    _context?: { externalUserId: string },
   ): Promise<SignerSessionEndpoint> {
-    // NEW contract: a single authenticated POST to
-    // `/api/v1/apps/{clientId}/auth/api-key/signer-session` returns BOTH the
-    // remote signer DMZ url AND the bearer in one call (replacing the legacy
-    // `getSignerRouting()` + user-JWT mint below). Preferred when an explicit
-    // `apiKeyExchange` was injected (per-instance) OR — for the GLOBAL-env
-    // adapter only — `PYMTHOUSE_API_KEY` is set. Unset by default ⇒ this branch
-    // is skipped and the legacy path runs byte-for-byte (zero regression).
-    //
-    // The global `PYMTHOUSE_API_KEY` env is NOT consulted for a per-instance
-    // adapter (one with an injected `clientOverride`): that key belongs to the
-    // global `PYMTHOUSE_*` app, so falling back to it would silently exchange a
-    // tenant's signer session against the WRONG app and break per-instance
-    // isolation. A per-instance adapter therefore uses the new path only when
-    // its own `apiKeyExchange` is injected, else the legacy per-instance mint.
-    //
-    // NOTE: this endpoint is authenticated by the `pmth_…` key itself and takes
-    // no `externalUserId`, so identity/usage attribution is at the KEY level,
-    // not per NaaP user.
-    const apiKeyCfg =
-      this.apiKeyExchange ?? (this.clientOverride ? undefined : readApiKeySignerSessionConfig());
-    if (apiKeyCfg) {
-      const apiKey = apiKeyCfg.apiKey.trim();
-      // PR #210 composite keys (`app_XXX.pmth_YYY`) authenticate the DMZ
-      // directly — no signer-session exchange hop. ONLY this path needs
-      // `getSignerRouting()` to discover the DMZ url. A bare `pmth_…` key gets
-      // its url from `exchangeApiKeyForSignerSession()` below and must NOT be
-      // gated on signer routing (which it never needed) — doing so regressed
-      // bare-key callers with a spurious "no remote signer DMZ url" throw.
-      if (apiKey.includes('.pmth_')) {
-        const url = this.resolveDmzUrl(await this.client().getSignerRouting());
-        return {
-          url,
-          headers: { Authorization: `Bearer ${apiKey}` },
-        };
-      }
-
-      const session = await exchangeApiKeyForSignerSession(apiKeyCfg);
-      const exchangeUrl = session.signerUrl;
-      if (!exchangeUrl) {
-        throw new Error('pymthouse api-key signer-session returned no signerUrl');
-      }
-      assertDirectSignerBaseUrl(exchangeUrl);
-      return {
-        url: exchangeUrl,
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-      };
-    }
-
     const url = this.resolveDmzUrl(await this.client().getSignerRouting());
-
-    const externalUserId = context?.externalUserId;
-    if (!externalUserId) {
-      throw new Error('resolveSignerEndpoint requires externalUserId to mint the signer bearer');
-    }
-
-    // PR #210: DMZ expects composite `app_XXX.pmth_YYY` bearer, not user JWT.
-    // NOTE (follow-up): this legacy fallback mints a fresh long-lived key per
-    // resolution. It is only reached when neither an injected `apiKeyExchange`
-    // nor a global `PYMTHOUSE_API_KEY` composite key is configured (prod uses
-    // the composite fast-path above and never mints here). Key reuse/TTL/revoke
-    // is deferred: the Builder Apps API returns the full secret ONLY at creation
-    // (no list-returns-secret), so reuse needs new persistent secret storage +
-    // rotation — tracked as a follow-up rather than mixed into this PR.
-    const { apiKey } = await createPymthouseApiKey({
-      externalUserId,
-      label: 'naap-validate-signer',
-    });
-
     return {
       url,
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: { Authorization: `Bearer ${session.accessToken}` },
     };
   }
 
