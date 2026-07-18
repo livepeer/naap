@@ -802,6 +802,80 @@ curl -s https://arb1.arbitrum.io/rpc -X POST -H 'content-type: application/json'
 
 ---
 
+# Run 52 validate 503 audit — `keys/validate` "Billing provider unavailable" (2026-07-18)
+
+**Symptom:** `POST https://operator.livepeer.org/api/v1/keys/validate` + `Bearer naap_8056755b…` →
+**HTTP 503** `{"code":"SERVICE_UNAVAILABLE","message":"Billing provider unavailable"}`.
+Regressed from Run 49 (200 token-bundle).
+
+## Root cause — CONFIRMED: NaaP prod Vercel env credential drift (NOT pymthouse outage, NOT SDK regression)
+
+Prod's `PYMTHOUSE_M2M_CLIENT_SECRET` (for M2M client `m2m_5ad4…` / app `app_98575870…`) on Vercel is
+**stale/revoked**. The validate mint (`upsertAppUser` → `mintUserAccessToken`, M2M Basic auth) fails auth
+→ `PymthouseAdapter.mintSignerSession()` throws → `native-key.ts` catches it → `reason: mint_failed` →
+route maps to 503 "Billing provider unavailable".
+
+### Evidence chain
+
+| # | Probe | Result | Meaning |
+|---|---|---|---|
+| 1 | `POST operator.livepeer.org/api/v1/keys/validate` + `naap_8056755b…` | **503** `SERVICE_UNAVAILABLE` / "Billing provider unavailable" (~1–3.5s) | reproduced |
+| 2 | Prod runtime log (`dpl_HUw4…`, branch `main`) for the request | `{"event":"keys.validate.provider_unavailable","reason":"mint_failed"}` | adapter **is configured** (env present); `mintSignerSession()` **threw** |
+| 3 | pymthouse OIDC discovery `GET pymthouse.com/api/v1/oidc/.well-known/openid-configuration` | **200** | pymthouse API is **healthy** (no outage / no migration break) |
+| 4 | `upsertAppUser` `POST …/apps/app_98575870…/users` (Basic `m2m_5ad4…:pmth_cs_7a45…`) | **201** | current M2M secret is **valid**; endpoint healthy |
+| 5 | `mintUserAccessToken` `POST …/apps/app_98575870…/users/{ext}/token` scope=`sign:job` | **200** (JWT) | user-token mint **works** with valid secret |
+| 6 | opaque token-exchange `POST …/oidc/token` grant=token-exchange, no `resource` | **200** `pmth_…` | **full NaaP mint flow succeeds end-to-end** with `pmth_cs_7a45…` |
+
+**Interpretation:** the exact 3-step mint the validate front door performs succeeds when driven with the
+**current** secret `pmth_cs_7a45…`. Prod validate still returns `mint_failed` → prod's env secret ≠ the
+valid `pmth_cs_7a45…` (it holds the previously-rotated/revoked value; cf. Run 11 where `pmth_cs_dfc0…`
+returned **401 Unauthorized** on `upsertAppUser`/`mintUserAccessToken`). Classic "John rotated the M2M
+secret; prod Vercel env not updated / not redeployed" drift.
+
+### Ruled OUT
+
+- **pymthouse outage / clearinghouse migration** — OIDC + apps + token endpoints all 200 (probes 3–6).
+- **M2M creds globally invalid** — `pmth_cs_7a45…` authenticates and mints fully (probes 4–6).
+- **builder-sdk 0.6.0 (#424) regression** — prod (`main` @ `9721b059`) DOES include #424 (0.6.0), but
+  #424 only refactored the fail-safe `resolveSignerEndpoint` / API-key exchange path (gated behind
+  `per_key_remote_signer`, wrapped in try/catch → never 503s). `upsertAppUser` / `mintUserAccessToken` /
+  `getAppsBaseUrl` / `builderHeaders` are **byte-identical** between SDK 0.4.x and 0.6.0 — the core
+  `mintSignerSession` path is unchanged. Not the cause.
+- **NaaP code bug** — the 503 mapping (`provider_unavailable`/`mint_failed` → 503) is correct fail-safe
+  behavior; the front-door flag/binding gates all pass (503, not 404/403), so key/flag/binding are fine.
+
+### Prod deploy / timeline
+
+- Live prod: `dpl_HUw4dvVKev15YowTwGJnQRm8aRu7` (READY, target=production) = `main` @ `9721b059`
+  ("feat(discovery): add Live Runner (lr) category (#428)"), deployed **2026-07-18 06:06Z**, includes
+  #424 (builder-sdk **0.6.0**).
+- Run 49's 200 token-bundle was earlier, before the current prod env drift; nothing in the #424 code
+  path explains the regression — the delta is the **env secret**, not the deploy code.
+
+## Owner + fix action
+
+- **Owner: qiang (NaaP prod Vercel env `naap-platform` / `prj_PiZLLh1Ot3Qf6OBYr4f7Ebi77sP6`).** Not John
+  (pymthouse healthy), not a code fix.
+- **Fix:** on Vercel prod, set `PYMTHOUSE_M2M_CLIENT_SECRET` = the current valid secret for `m2m_5ad4…`
+  (`pmth_cs_7a45…`, held env-only, proven in probes 4–6). Verify the sibling vars are consistent:
+  `PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870d7ae33589a3f0660`, `PYMTHOUSE_M2M_CLIENT_ID=m2m_5ad4…`,
+  `PYMTHOUSE_ISSUER_URL=https://pymthouse.com/api/v1/oidc`. Then **redeploy/promote `main`** (env changes
+  need a fresh deploy) and re-run validate → expect **200** `valid:true` + token-bundle `signerSession`.
+- **Follow-up (observability, NaaP code):** `resolveNativeKeyToProviderSession` swallows the provider
+  error in a bare `catch {}` (`native-key.ts` ~L149) → prod logs only show `mint_failed` with no
+  underlying reason, which is why every one of these drifts requires a manual out-of-band probe to
+  diagnose. Recommend logging the caught error's status/code (never the secret) before returning
+  `mint_failed`.
+
+## Billed composite direct-signer path — UNAFFECTED
+
+The billed path (composite `app_98575870…_pmth_…` bearer forwarded directly to the remote signer DMZ)
+uses a **different** credential (`PYMTHOUSE_API_KEY`, the funded composite key), not the M2M secret the
+opaque validate-mint uses. Run 52 billed composite generation passed (metering labels + cost correctness
+✅). The validate 503 does **not** block the composite direct path.
+
+---
+
 ## Related docs
 
 - `BILLED-E2E-REMAINING-PLAN.md` — pillar plan (Run 35–46 era)
