@@ -4473,3 +4473,61 @@ No `VERCEL_TOKEN` / `~/.vercel/auth.json`; `vercel whoami` unauthorized. Skipped
 
 `BYOC_SIGNER_URL=… COMPOSITE_BEARER="Bearer app_…_pmth_…" BYOC_CAPABILITY=flux-schnell scripts/run50b-decode-payment.py` (decode) and `scripts/run50-direct-signer-probe.py` (submit). `run50b` now accepts `COMPOSITE_BEARER`+`BYOC_SIGNER_URL` to decode against the exact billed signer (no OIDC mint).
 
+---
+
+# Run 52 — 2026-07-18 — METERING LABELS + COST CORRECTNESS (billed composite gen, `app_98575870…`) ✅
+
+**Headline:** Run 51 **holds**. Both `flux-schnell` and `flux-dev` still return **HTTP 200 + real fal image URLs** over the billed signer path. Metering **labels are correct** (`byoc/flux-schnell`, `byoc/flux-dev` — NOT `unknown`), and the **per-cap price + 8.33× ratio are exact** on the on-chain/decode seam. One nuance quantified: OpenMeter's `networkFeeUsdMicros` meters at a **1 µUSD/req floor**, so the USD-micros seam does not express the 8.33× ratio (the per-cap wei price is sub-µUSD and rounds up to the floor). Authoritative per-cap cost lives in the ticket/on-chain **wei** price.
+
+## Image generation (gateway venv `submit_byoc_job`, composite bearer, orch `byoc-staging-1`)
+
+| capability | result | time | image URL |
+|---|---|---|---|
+| flux-schnell | **PASS 200** | 6.6s | `https://v3b.fal.media/files/b/0aa2c76f/pNTB4JiWsrfop39B2OM3h.jpg` |
+| flux-dev | **PASS 200** | 3.7s | `https://v3b.fal.media/files/b/0aa2c771/HR0H9Fqz8tthdLsep1ZR5.jpg` |
+
+## Payment decode — ExpectedPrice == orch-bound TicketParams price (run50b)
+
+| capability | orch bound (TicketParams) | signer ExpectedPrice | recipientRandHash echoed | recipient == orch | verdict |
+|---|---|---|---|---|---|
+| flux-schnell | `1060500/1` | `1060500/1` | ✅ | ✅ | **MATCH** |
+| flux-dev | `8837500/1` | `8837500/1` | ✅ | ✅ | **MATCH** |
+
+**Per-cap price ratio flux-dev : flux-schnell = 8,837,500 / 1,060,500 = 8.333× — CORRECT.** Sender (signer wallet) `0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260` = expected `0x6CAE3C7a…`.
+
+## On-chain / sender balance debit (orch-reported, authoritative per-cap fee)
+
+| capability | balance after gen | debit vs 800,000,000,000 base | breakdown |
+|---|---|---|---|
+| flux-schnell | `799,998,939,500` | **−1,060,500** | 1 × per-cap price `1,060,500` |
+| flux-dev | `799,973,487,500` | **−26,512,500** | 3 × per-unit rate `8,837,500` |
+
+Per-**unit** rate ratio = 8,837,500 / 1,060,500 = **8.333× — CORRECT**. (flux-dev debited 3 units this run vs 2 in Run 51; the per-unit rate — not the unit count — is the price under test.)
+
+## OpenMeter (M2M Basic auth, `GET /api/v1/apps/app_98575870…/usage?groupBy=pipeline_model`, `source:openmeter`)
+
+| pipeline/model | reqs before | reqs after | Δ reqs | µUSD before | µUSD after | Δ µUSD | Δ µUSD/req |
+|---|---|---|---|---|---|---|---|
+| **byoc/flux-schnell** | 44 | 46 | **+2** | 655 | 657 | **+2** | **+1.0** |
+| **byoc/flux-dev** | 8 | 10 | **+2** | 330 | 332 | **+2** | **+1.0** |
+| totals (app) | 319 | 323 | +4 | 680,387 | 680,391 | +4 | +1.0 |
+
+- **Labels: PASS.** Both new gens land on the correct `byoc/flux-schnell` and `byoc/flux-dev` rows — **NOT `unknown`**. (+2 reqs each = the run50 submit + the run50b decode `/generate-live-payment`, one metering event apiece.)
+- **Legacy mislabeled rows** `flux-schnell/flux-schnell` (6 reqs, 0 µUSD) and `flux-dev/flux-dev` (1 req, 0 µUSD) from earlier floor-only runs got **NO new delta** (stayed 6 / 1) → Run 52's traffic is fully attributed to `byoc/<cap>`.
+- **µUSD/req: 1 µUSD FLOOR for both caps.** OpenMeter's `networkFeeUsdMicros` charges +1 µUSD per metering event regardless of cap, so the USD-micros seam shows ~1× (not 8.33×). Expected: the per-cap **wei** price (1.06e6 vs 8.84e6 wei) is far below 1 µUSD, so it quantizes up to OpenMeter's 1 µUSD floor. The differentiated 8.33× tariff is correct and only visible on the **wei** seam (decode + balance above), not on OpenMeter USD-micros.
+
+## naap_ front-door path (validate → SDK) — status only, non-blocking
+
+`POST operator.livepeer.org/api/v1/keys/validate` + `Bearer naap_8056755b…` → **HTTP 503 `Billing provider unavailable` (`SERVICE_UNAVAILABLE`)**. Regressed from Run 49's 200; validate now fails before returning a signer session, so endpoint-form vs token-bundle can't be observed. Prod pymthouse provider config appears unavailable on Vercel. **Does not affect the billed composite signer path** (which passed). Owner: qiang / NaaP Vercel.
+
+## SIMPLE answers
+
+- **Metering labeling correct (`byoc/<cap>`, not unknown)?** **PASS** — new rows on `byoc/flux-schnell` (+2) and `byoc/flux-dev` (+2); zero delta on the legacy `flux-*/flux-*` rows and zero `unknown`.
+- **Cost correctness — per-cap fee + ratio?** **PASS (wei / on-chain seam)** — ExpectedPrice == orch-bound price for both caps; per-cap price exact (schnell `1,060,500`, dev `8,837,500`/unit); ratio **8.33×**. **Caveat:** OpenMeter `networkFeeUsdMicros` is floored at **1 µUSD/req** for both caps, so the USD-micros ratio reads ~1× — the per-cap wei price is sub-µUSD and does not surface on that seam.
+- **Image gen still working?** **YES** — flux-schnell + flux-dev both 200 with real fal JPEG URLs.
+- **Spend:** OpenMeter +4 µUSD total (**≈ $0.000004**); on-chain 2 real fal renders debited `1,060,500` + `26,512,500` wei off the staging signer balance. Negligible USD.
+
+## Reproduce
+
+Baseline/after: `curl -u "$M2M_ID:$M2M_SECRET" "https://pymthouse.com/api/v1/apps/$APP/usage?groupBy=pipeline_model&include=retail"`. Gen: `BYOC_CAPABILITY=<cap> scripts/run50-direct-signer-probe.py`. Decode: `BYOC_CAPABILITY=<cap> scripts/run50b-decode-payment.py` (env `BYOC_SIGNER_URL` + `COMPOSITE_BEARER`, gateway venv). Secrets env-only, never committed.
+
