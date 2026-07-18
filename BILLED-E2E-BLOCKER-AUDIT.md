@@ -692,6 +692,106 @@ GATEWAY_SRC=../livepeer-python-gateway/src \
 
 ---
 
+## Run 50b (2026-07-17 — EXACT root cause of "Could not parse payment": price-overhead mismatch)
+
+**Breakthrough:** Reproduced the orch rejection end-to-end and **decoded the live payment**. Using the M2M confidential client (`m2m_5ad45661…` + env secret), minted a short-lived signer JWT via `POST /api/v1/oidc/token` (`grant_type=client_credentials` + `external_user_id`), then called `get_orch_info` (caps-aware) + `/generate-live-payment` against `byoc-staging-1` and **decoded the 281B `net.Payment` proto**. Also read the signer wallet's on-chain deposit/reserve on Arbitrum One.
+
+Repro: `scripts/run50b-decode-payment.py` (secret env-only: `PMTH_M2M_SECRET`).
+
+### THE ROOT CAUSE (one sentence)
+
+`byoc-staging-1` advertises the BYOC per-cap price in **two places that disagree by exactly the 1% txCost overhead**: `OrchestratorInfo.PriceInfo` (via `PriceInfoForCaps`, **with** overhead) is what the orch used to build `TicketParams.RecipientRandHash`, but `OrchestratorInfo.CapabilitiesPrices[]` (via `GetCapabilitiesPrices`, **without** overhead) is what the remote signer copies into the payment's `ExpectedPrice`; the orch then recomputes `recipientRand` from the (lower) `ExpectedPrice`, the Keccak hash no longer equals the echoed `RecipientRandHash`, ticket validation fails with **`invalid recipientRand for ticket recipientRandHash`**, and BYOC surfaces that as the misleading catch-all **HTTP 400 "Could not parse payment"**.
+
+### Live decode evidence (Run 50b)
+
+| Field | flux-schnell | flux-dev |
+|---|---|---|
+| orch `PriceInfo` → drives `RecipientRandHash` (**with** 1% overhead) | **1060500/1** | **8837500/1** |
+| payment `ExpectedPrice` (from `CapabilitiesPrices`, **no** overhead) | **1050000/1** | **8750000/1** |
+| overhead check | `1050000 × 1.01 = 1060500` ✅ | `8750000 × 1.01 = 8837500` ✅ |
+| `RecipientRandHash` echoed byte-identical | **YES** | **YES** |
+| ticket recipient == orch `0x180859c3…` | **YES** | **YES** |
+| sender | `0x6CAE3C7a…` (funded) | same |
+| orch verdict | **400 Could not parse payment** | **400 Could not parse payment** |
+
+Both caps fail the **same** way; the flux-dev/flux-schnell base ratio (8750000/1050000 = **8.33×**) proves per-cap pricing itself is correct — only the overhead-vs-no-overhead split breaks validation.
+
+### Which layer emits the error (go-livepeer)
+
+`byoc/job_orchestrator.go` `processPayment` returns `errPaymentError` ("Could not parse payment") from **two** places sharing one string:
+
+```490:501:byoc/job_orchestrator.go
+payment, err := getPayment(paymentHdr)     // (1) base64 + proto.Unmarshal — logs "job payment invalid"
+...
+if err := bso.orch.ProcessPayment(...); err // (2) ticket validation — logs "Error processing payment"
+```
+
+Our payment **decodes cleanly** (valid `net.Payment`, recipient correct) → path **(1) passes**. The failure is path **(2)** `core/orchestrator.go ProcessPayment` → `pm/recipient.go ReceiveTicket` → `pm/validator.go ValidateTicket`:
+
+```56:58:pm/validator.go
+if crypto.Keccak256Hash(...recipientRand...) != ticket.RecipientRandHash {
+    return errInvalidTicketRecipientRand
+}
+```
+
+`recipientRand` is an HMAC over `{seed, sender, faceValue, winProb, expirationBlock, price.Num(), price.Denom(), expirationParams}` (`pm/recipient.go rand()`), and `price` = `payment.ExpectedPrice`. Every input except **price** is echoed identically → the price delta alone flips the hash.
+
+**"Could not parse payment" vs "insufficient sender reserve":** different layers. Parse-string = BYOC catch-all for *any* `ProcessPayment` failure (real log: `Error processing payment: invalid recipientRand…`). Reserve errors would come from `ValidateSender`/redeem. We are in the **recipientRand** branch, not reserve.
+
+### On-chain check — sender wallet `0x6CAE3C7aa09Adf84C0eD1C3A53465364cEcb7260` (Arbitrum One)
+
+`TicketBroker.getSenderInfo` (`0xa8bB618B…`, selector `0xe1a589da`):
+
+| Field | Value |
+|---|---|
+| `sender.deposit` | **0.12335 ETH** (123351785666032360 wei) |
+| `sender.withdrawRound` | **0** (not unlocking) |
+| `reserve.fundsRemaining` | **0.28999 ETH** (289991570000000000 wei) |
+| `reserve.claimedInCurrentRound` | 0 |
+| wallet ETH balance | 0.00587 ETH |
+
+**Sender reserve/deposit is FUNDED.** Prior latent blocker **B2 (fund sender reserve) is DISPROVEN.** Reserve is not the cause.
+
+### #255 — truly not needed (confirmed)
+
+The composite/JWT path **fully passes remote-signer auth**: minted a `sign:job` JWT via M2M; `/sign-orchestrator-info` → 200 (address + sig) and `/generate-live-payment` → 200 (real 281B payment). The `401 not a JWT` that #255 targeted is **gone** on test-production. **#255 is NOT the blocker** for this path. The remaining failure is 100% orchestrator/signer price-alignment.
+
+### ONE clear action for John
+
+**Make the orchestrator's two BYOC price advertisements identical.** Pick one:
+
+1. **(Recommended, orch-side)** In `core/orchestrator.go GetCapabilitiesPrices`, apply the **same** `overhead = 1 + 1/txCostMultiplier` to the BYOC external-capability prices that `priceInfo()`/`PriceInfoForCaps` already applies (lines 444–459). Then `CapabilitiesPrices[flux-schnell]` = 1060500/1 (not 1050000/1) and the signer's `ExpectedPrice` matches `RecipientRandHash`. **This is the minimal fix and unblocks first billed gen.**
+2. **(Alt, signer-side)** In `server/remote_signer.go GenerateLivePayment`, do **not** override `ExpectedPrice` from `resolveByocPrice(CapabilitiesPrices)`; keep `ExpectedPrice = oInfo.PriceInfo` (the caps-aware price the orch used for `TicketParams`). Requires the gateway to pass `capabilities` into `get_orch_info` (it already does — `byoc.py:202`).
+3. **(Alt, orch validation)** In `ProcessPayment`, use the orch's own stored per-session price for `PricePerPixel` in `r.rand()` instead of `payment.ExpectedPrice` (weaker price enforcement).
+
+After the fix, redeploy byoc-staging-1 (and/or the signer image), then re-run `scripts/run50b-decode-payment.py` — expect `prices MATCH` and `submit_byoc_job` → 200 + image.
+
+### Billing flag — metered on REJECTED payments (pymthouse collector)
+
+OpenMeter incremented **+4 requestCount** purely from the `/generate-live-payment` probes in Run 50, with **no image produced** (orch rejected every ticket). `meteringMode: platform_ingest` fires the usage event at **signer payment-generation time**, decoupled from orchestrator acceptance. Result: **the app is billed (floor-rate ~1 µUSD/req) for payments the orchestrator throws away.** This is a **pymthouse collector correctness bug** — metering should be gated on orch success (job creds verified / segment accepted), not on payment mint. Owner: John / pymthouse metering. (Impact today is tiny — floor rate — but it will mis-bill at full tariff once payments start succeeding if not fixed.)
+
+### Run 50b answers (SIMPLE)
+
+- **Exact root cause of "Could not parse payment"?** **Ticket-param price mismatch → `invalid recipientRand for ticket recipientRandHash`.** The orch built `RecipientRandHash` with the overhead-adjusted price (`PriceInfo` 1060500/1) but the signer put the un-adjusted `CapabilitiesPrices` value (1050000/1) into `ExpectedPrice`. **Not** proto/parse, **not** reserve (wallet funded on-chain), **not** version/#3980, **not** auth/#255.
+- **One action for John:** apply the 1% txCost `overhead` to BYOC prices in `GetCapabilitiesPrices` (or stop the signer overriding `ExpectedPrice`) so `ExpectedPrice == TicketParams price`, then redeploy byoc-staging-1.
+- **#255 needed?** **NO** — composite/JWT auth passes `/sign-orchestrator-info` + `/generate-live-payment` (both 200).
+- **Spend:** ~$0.000004 (floor-rate metering from payment-gen probes). No image.
+
+### Reproduce
+
+```bash
+# env-only secret (never commit): PMTH_M2M_SECRET
+GWPY=../livepeer-python-gateway/.venv/bin/python
+GATEWAY_SRC=../livepeer-python-gateway/src \
+  PMTH_M2M_SECRET='pmth_cs_…' \
+  BYOC_CAPABILITY=flux-schnell "$GWPY" scripts/run50b-decode-payment.py
+# On-chain reserve:
+curl -s https://arb1.arbitrum.io/rpc -X POST -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"0xa8bB618B1520E284046F3dFc448851A1Ff26e41B","data":"0xe1a589da0000000000000000000000006cae3c7aa09adf84c0ed1c3a53465364cecb7260"},"latest"]}'
+```
+
+---
+
 ## Related docs
 
 - `BILLED-E2E-REMAINING-PLAN.md` — pillar plan (Run 35–46 era)
