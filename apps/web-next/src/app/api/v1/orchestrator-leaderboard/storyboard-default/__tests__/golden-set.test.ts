@@ -90,7 +90,10 @@ describe('NAAP-9 storyboard-default golden-set parity', () => {
       billingProviderSlug: 'daydream',
     });
     expect(SORT(result.byKind.scope)).toEqual(SORT(golden.scope));
-    expect(result.meta.staticFleetInjected).toBe(0);
+    // No scope drift → scope injects nothing. The tool + lr static fleets
+    // (tool-staging-1, liverunner-staging-1) are always gaps here because the
+    // mock returns byoc-staging-1 for every non-scope cap, so 2 are injected.
+    expect(result.meta.staticFleetInjected).toBe(2);
   });
 
   it('fails parity if a golden scope address is removed from both live and static fleet (catches missing)', async () => {

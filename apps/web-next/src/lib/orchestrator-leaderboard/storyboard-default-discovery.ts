@@ -44,6 +44,8 @@ export interface StoryboardDefaultByKind {
   byoc: string[];
   /** Tool CAPABILITIES included after the provider denylist. */
   tool: string[];
+  /** Live Runner CAPABILITIES included after the provider denylist. */
+  lr: string[];
 }
 
 export interface StoryboardDefaultDiscoveryResult {
@@ -158,8 +160,9 @@ export async function buildStoryboardDefaultDiscovery(
     scope: [],
     byoc: [],
     tool: [],
+    lr: [],
   };
-  const byKind: StoryboardDefaultByKind = { scope: [], byoc: [], tool: [] };
+  const byKind: StoryboardDefaultByKind = { scope: [], byoc: [], tool: [], lr: [] };
 
   for (const key of STORYBOARD_DEFAULT_CATEGORY_KEYS) {
     const baseCategory = plan[key];
@@ -207,6 +210,7 @@ export async function buildStoryboardDefaultDiscovery(
     ...scopeShuffled,
     ...perCategoryAddresses.byoc,
     ...perCategoryAddresses.tool,
+    ...perCategoryAddresses.lr,
   ];
   const addresses = tieredShuffleDiscoveryAddresses(
     flattened,

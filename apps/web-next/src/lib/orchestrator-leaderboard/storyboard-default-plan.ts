@@ -39,6 +39,7 @@ export interface StoryboardDefaultPlan {
   readonly scope: StoryboardDefaultCategory;
   readonly byoc: StoryboardDefaultCategory;
   readonly tool: StoryboardDefaultCategory;
+  readonly lr: StoryboardDefaultCategory;
   readonly topN: number;
 }
 
@@ -98,17 +99,34 @@ export const STORYBOARD_DEFAULT_PLAN: StoryboardDefaultPlan = {
       'cad-render',
       'cad-validate',
     ],
-    staticOrchestrators: ['https://byoc-staging-1.daydream.monster:8935'],
+    staticOrchestrators: ['https://tool-staging-1.daydream.monster:8935'],
+  },
+  lr: {
+    // Live Runner mirrors these fal caps; dual-homed with byoc where they overlap
+    // (flux-*/kontext-edit/chatterbox-tts). The gateway's capability filter +
+    // score picks between byoc-staging-1 and liverunner-staging-1 per request.
+    capabilities: [
+      'flux-dev',
+      'flux-schnell',
+      'gpt-image',
+      'kontext-edit',
+      'pixverse-i2v',
+      'seedance-mini-i2v',
+      'veo-t2v',
+      'chatterbox-tts',
+    ],
+    staticOrchestrators: ['https://liverunner-staging-1.daydream.monster:8935'],
   },
   topN: 100,
 } as const;
 
-export type StoryboardDefaultCategoryKey = 'scope' | 'byoc' | 'tool';
+export type StoryboardDefaultCategoryKey = 'scope' | 'byoc' | 'tool' | 'lr';
 
 export const STORYBOARD_DEFAULT_CATEGORY_KEYS: readonly StoryboardDefaultCategoryKey[] = [
   'scope',
   'byoc',
   'tool',
+  'lr',
 ];
 
 /**
