@@ -51,8 +51,17 @@ def _price_frac(pi) -> Fraction | None:
 
 
 def _mint_signer_jwt() -> tuple[str, str]:
+    # Fast path: a pre-decoded composite session bundle (signer_url + composite
+    # "Bearer app_<24hex>_pmth_<secret>") lets us decode against the exact billed
+    # signer without an OIDC client_credentials mint. Used for Run 50/51 where the
+    # bundle is provided directly.
+    composite = os.environ.get("COMPOSITE_BEARER", "").strip()
+    signer_url = os.environ.get("BYOC_SIGNER_URL", "").strip()
+    if composite and signer_url:
+        token = composite[len("Bearer "):].strip() if composite.lower().startswith("bearer ") else composite
+        return token, signer_url
     if not M2M_SECRET:
-        print("FATAL: set PMTH_M2M_SECRET env var")
+        print("FATAL: set PMTH_M2M_SECRET env var (or COMPOSITE_BEARER + BYOC_SIGNER_URL)")
         sys.exit(2)
     data = urllib.parse.urlencode({
         "grant_type": "client_credentials",

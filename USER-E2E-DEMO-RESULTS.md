@@ -4411,3 +4411,65 @@ No `VERCEL_TOKEN` / `~/.vercel/auth.json`; `vercel whoami` unauthorized. Skipped
 
 `scripts/run50-direct-signer-probe.py` (env: `BYOC_SIGNER_URL`, `COMPOSITE_BEARER`, `GATEWAY_SRC`, `BYOC_CAPABILITY`).
 
+---
+
+# Run 51 — 2026-07-17 — ORCH PRICE-PARITY FIX DEPLOYED → FIRST BILLED IMAGE ✅
+
+**Headline:** The Run 50/50b blocker (`HTTP 400 Could not parse payment`) was a **1% orchestrator price mismatch**, now **fixed and deployed** to `byoc-staging-1`. Both `flux-schnell` and `flux-dev` now return **HTTP 200 + a real image URL** over the billed signer path, charged at the **correct per-capability price**.
+
+## Root cause (confirmed with live numbers, run50b decode)
+
+`core/orchestrator.go`: `priceInfo` / `PriceInfoForCaps` apply the auto-adjust overhead `1 + 1/txCostMultiplier` to the price bound into `TicketParams`/`RecipientRandHash`, but `GetCapabilitiesPrices` advertised the **un-adjusted base** price. The remote signer copies the advertised `CapabilitiesPrices` into the payment's `ExpectedPrice`, so bound ≠ expected by `1/txCostMultiplier` (~1%) → orch recomputes `recipientRand` from `ExpectedPrice`, it no longer matches `RecipientRandHash` → `invalid recipientRand` → `400 Could not parse payment`.
+
+| capability | orch bound (TicketParams) | signer ExpectedPrice (advertised) | verdict |
+|---|---|---|---|
+| flux-schnell (BEFORE) | `1060500/1` (= 1050000 × 1.01) | `1050000/1` | **MISMATCH → 400** |
+| flux-schnell (AFTER) | `1060500/1` | `1060500/1` | **MATCH → 200** |
+| flux-dev (AFTER) | `8837500/1` (= 8750000 × 1.01) | `8837500/1` | **MATCH → 200** |
+
+## Fix (orchestrator-side only)
+
+- **PR:** [go-livepeer#3993](https://github.com/livepeer/go-livepeer/pull/3993) `fix/byoc-cap-price-overhead`.
+- Extracted the overhead into a shared `applyAutoAdjustOverhead(sender, basePrice)` helper and applied it in **both** `priceInfo` (bound price — unchanged behavior) and `GetCapabilitiesPrices` (advertised price — now overhead-inclusive), using identical `PriceToFixed`/`FixedToPrice` rounding so **advertised == bound**. No signer/gateway change.
+
+## Build + deploy (our infra — `livepeer-simple-infra`, gcloud `qiang@livepeer.org`)
+
+- `byoc-staging-1` ran `livepeer/go-livepeer:feat-byoc-payment-fleet-2026-05` @ commit `b1ea581`, `AutoAdjustPrice` ON (no `-autoAdjustPrice=false`).
+- Built an **exact-parity image** (`b1ea581` + the one-file fix) via **Cloud Build** `b5c72219` → `us-docker.pkg.dev/livepeer-simple-infra/simple-infra/go-livepeer:byoc-cap-price-overhead-20260717` (`sha256:7f3b666b…`).
+- Deployed on VM: backed up `/opt/byoc/.env` → `.env.bak.capfix`, set `ORCH_IMAGE=…:byoc-cap-price-overhead-20260717`, `docker compose up -d byoc-orch`, then restarted `byoc-adapter` to re-register per-cap prices (registration collided with the orch restart window on first pass).
+- **Rollback (one command):** restore `ORCH_IMAGE=livepeer/go-livepeer:feat-byoc-payment-fleet-2026-05` in `/opt/byoc/.env` + `docker compose up -d byoc-orch`.
+
+## Signer cache — NO restart needed
+
+`livepeer-python-gateway` `get_orch_info` makes a **fresh gRPC `GetOrchestrator`** call per job (prices + ticket params), and the signer builds the payment from the **per-request `oInfo`** (`byoc.py` sends `info.SerializeToString()` to `/generate-live-payment`). Only the signer's own auth signature and the TOFU cert are per-process cached; the TOFU cert **auto-evicts + retries** when the orch's self-signed cert changes on redeploy. ⇒ the new price is picked up automatically on the next job. **Signer restart: NO. Gateway restart: NO.**
+
+## E2E probes (gateway venv, composite bearer, orch `byoc-staging-1`)
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| 1 | decode `flux-schnell` (run50b) | **MATCH** | bound `1060500/1` == ExpectedPrice `1060500/1` |
+| 2 | decode `flux-dev` (run50b) | **MATCH** | bound `8837500/1` == ExpectedPrice `8837500/1` |
+| 3 | submit **flux-schnell** (run50) | **PASS 200 (1.8s)** | image `https://v3b.fal.media/files/b/0aa2b365/iD5XZpDwcQzGQ1ZH4pnV0.jpg` (JPEG, 273 KB) |
+| 4 | submit **flux-dev** (run50) | **PASS 200 (5.3s)** | image `https://v3b.fal.media/files/b/0aa2b365/l5ywkb3jazdZKHR7P46Lq.jpg` (JPEG, 157 KB) |
+
+## Per-cap billing + ratio (on-chain balance debits — authoritative)
+
+| capability | per-cap price | balance debit | note |
+|---|---|---|---|
+| flux-schnell | `1,060,500` | `800,000,000,000 → 799,998,939,500` = **1,060,500** | exact per-cap price (1 unit) |
+| flux-dev | `8,837,500`/unit | `800,000,000,000 → 799,982,325,000` = **17,675,000** = 2 × 8,837,500 | per-unit rate correct |
+
+**Per-cap ratio flux-dev : flux-schnell = 8,837,500 / 1,060,500 ≈ 8.33× — CORRECT** (matches the USD-derived per-cap tariff; the ~8.3× the demo expects). This is the full per-cap tariff, not the floor rate. (Direct OpenMeter admin query not run — the on-chain balance debit is the authoritative per-cap fee; the OpenMeter usage endpoint/creds were not in the provided bundle.)
+
+## SIMPLE answers
+
+- **Orch fix applied + deployed?** **YES** — PR #3993; exact-parity image built (Cloud Build `b5c72219`) and deployed to `byoc-staging-1` (our infra, reversible). **Not blocked on John.**
+- **Signer restart needed?** **NO** — gateway re-fetches orch info per job; signer is stateless on prices; TOFU cert auto-evicts on orch cert change.
+- **Image generated?** **YES** — flux-schnell + flux-dev both 200 with real JPEG URLs (above).
+- **Per-cap ratio correct?** **YES** — 8.33× (flux-dev vs flux-schnell), charged at the exact per-cap price on-chain.
+- **Spend:** two real fal renders billed at per-cap wei rate (~1.06e6 + ~1.77e7 wei off the signer's staging balance); negligible USD.
+
+## Reproduce
+
+`BYOC_SIGNER_URL=… COMPOSITE_BEARER="Bearer app_…_pmth_…" BYOC_CAPABILITY=flux-schnell scripts/run50b-decode-payment.py` (decode) and `scripts/run50-direct-signer-probe.py` (submit). `run50b` now accepts `COMPOSITE_BEARER`+`BYOC_SIGNER_URL` to decode against the exact billed signer (no OIDC mint).
+

@@ -6,6 +6,16 @@
 
 ---
 
+## ✅ UPDATE — Run 51 (2026-07-17): FIRST BILLED IMAGE — B5 RESOLVED
+
+The remaining hot blocker after auth/payment-gen was **not** sender reserve — it was an **orchestrator price mismatch** (latent blocker **B5**, `recipientRand`/ticket-param alignment). `GetCapabilitiesPrices` advertised the **un-adjusted base** per-cap price while `PriceInfoForCaps` bound `base × (1 + 1/txCostMultiplier)` (~1%) into `RecipientRandHash`; the signer copied the advertised price into `ExpectedPrice` → `invalid recipientRand` → `400 Could not parse payment`.
+
+- **Fixed:** [go-livepeer#3993](https://github.com/livepeer/go-livepeer/pull/3993) — shared `applyAutoAdjustOverhead` applied to advertised `CapabilitiesPrices` (advertised == bound).
+- **Deployed:** exact-parity image (`b1ea581` + fix) via Cloud Build `b5c72219` → GAR `…/go-livepeer:byoc-cap-price-overhead-20260717`, live on `byoc-staging-1` (`/opt/byoc/.env` `ORCH_IMAGE`, reversible; `.env.bak.capfix`).
+- **Result:** `flux-schnell` + `flux-dev` → **HTTP 200 + real image URLs**; prices match (`1060500`, `8837500`); per-cap ratio **8.33×** confirmed on-chain. **Signer restart NOT needed** (gateway re-fetches orch info per job). Full detail: `USER-E2E-DEMO-RESULTS.md` Run 51.
+
+---
+
 ## Executive answer
 
 **Is pymthouse#255 the only blocker left?** **No.**
@@ -173,7 +183,7 @@ Historical per-cap ratio flux-dev / flux-schnell ≈ **4.3×** (expected **8.3×
 | B2 | **Sender reserve / wallet funding** on test-production signer for `app_98575870` | Prior runs hit `no sender reserve` / IncompleteRead when wallet unfunded | John / pymthouse ops |
 | B3 | **`-byocPerCapPricing` confirmation** on test-production | Fees may stay at legacy ~4.3× ratio vs 8.3× tariff | John |
 | B4 | **`sign-byoc-job` V1 verify** on orch + signer image pin | #3980 merged but image pin on test-production not verified this run | John / infra |
-| B5 | **`recipientRand` / ticket param alignment** | If per-cap ON but orch/signer ticket params diverge → payment reject (not seen today — blocked earlier) | j0sh / John |
+| ~~B5~~ | ~~**`recipientRand` / ticket param alignment**~~ **✅ RESOLVED (Run 51)** — was the 1% orch advertised-vs-bound price mismatch; fixed in [go-livepeer#3993](https://github.com/livepeer/go-livepeer/pull/3993), deployed to `byoc-staging-1`; flux-schnell/flux-dev now 200 + image | ~~j0sh / John~~ → done (qiang, our infra) |
 | B6 | **SDK `_validate_session_cache` stale routing** | Run 45b — manual restart needed after signer routing flips; no TTL | qiang / infra |
 | B7 | **Old prod DMZ cutover** for non-A/B apps | `pymthouse-production` still rejects `type:byoc` | John |
 | B8 | **Gateway #41 upstream merge** | Image pinned; drift risk on next redeploy without merge | j0sh |
