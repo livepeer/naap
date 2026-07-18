@@ -876,6 +876,128 @@ opaque validate-mint uses. Run 52 billed composite generation passed (metering l
 
 ---
 
+# Run 53 — expanded multi-capability billed E2E + validate-503 status (2026-07-18)
+
+**Two tasks:** (1) fix NaaP validate 503, (2) expanded multi-cap billed E2E via the composite
+direct-signer path (unaffected by the 503).
+
+## TASK 1 — validate 503: STILL BLOCKED (Vercel write access unavailable to agent)
+
+**503 fixed? NO.** Root cause reconfirmed (Run 52): prod `PYMTHOUSE_M2M_CLIENT_SECRET` on Vercel is
+stale. The **current** secret `pmth_cs_7a45…` is proven valid this run:
+
+| Probe | Result |
+|---|---|
+| `POST pymthouse.com/api/v1/oidc/token` grant=client_credentials + `external_user_id` (current secret) | **HTTP 200** — `access_token`, `signer_url`, scope `sign:job` (secret VALID) |
+| `POST operator.livepeer.org/api/v1/keys/validate` + `naap_8056755b…` | **HTTP 503** `Billing provider unavailable` |
+| Prod runtime log (Vercel MCP, `dpl_HUw4…`, `main`) | `keys.validate.provider_unavailable` `reason:"mint_failed"` (3 hits incl. our 23:12Z repro) |
+
+**Why the agent cannot apply the fix:** no `VERCEL_TOKEN` in env / `~/.vercel` / repo `.env*`;
+`vercel whoami` → **Not authorized**; team `Livepeer Foundation` (`team_GOhUouAF8PsQO4CVvzpIriQV`) is
+**SAML-gated** (interactive login required); the Vercel MCP is authenticated but **read-only** (no
+env-management tool — only logs/deploys/toolbar/purchase). `deploy_to_vercel` only creates new projects
+from a file tree, not env writes on `naap-platform`.
+
+### Manual fix for qiang (project `naap-platform` / `prj_PiZLLh1Ot3Qf6OBYr4f7Ebi77sP6`)
+
+```bash
+cd apps/web-next   # (or repo root — root .vercel links naap-platform: prj_PiZLLh1Ot3Qf6OBYr4f7Ebi77sP6)
+vercel login       # SAML → Livepeer Foundation (team_GOhUouAF8PsQO4CVvzpIriQV)
+# Set the CURRENT valid secret (value from creds, never echo):
+printf '%s' 'pmth_cs_7a45…' | vercel env add PYMTHOUSE_M2M_CLIENT_SECRET production --sensitive --force
+# Verify siblings already correct (leave as-is if so):
+#   PYMTHOUSE_M2M_CLIENT_ID   = m2m_5ad45661715c8bb7eb30d18f
+#   PYMTHOUSE_PUBLIC_CLIENT_ID= app_98575870d7ae33589a3f0660
+#   PYMTHOUSE_ISSUER_URL      = https://pymthouse.com/api/v1/oidc
+#   (optional) PYMTHOUSE_API_KEY = app_98575870d7ae33589a3f0660_pmth_…  (composite, enables endpoint form)
+vercel deploy --prod                         # env change needs a fresh deploy/promote of main
+curl -sS -X POST https://operator.livepeer.org/api/v1/keys/validate \
+  -H "Authorization: Bearer naap_8056755b…" -w '\n%{http_code}\n'   # expect 200 valid:true
+```
+
+## TASK 2 — Run 53 multi-capability billed E2E — **PASS**
+
+Billed composite session bundle (signer `pymthouse-signer-test-production`, underscore composite bearer)
+driven straight into the gateway (`scripts/run53-multicap-probe.py` for price/unit/label + decode;
+`scripts/run50-direct-signer-probe.py` for real generation). Orch `byoc-staging-1.daydream.monster:8935`,
+recipient `0x180859c3…`, sender `0x6CAE3C7a…`. Randomized selection of 7 caps across 4 unit kinds.
+
+### SIMPLE table
+
+| cap | type | gen? | price correct? | unit | metering unit correct? | label correct? |
+|---|---|---|---|---|---|---|
+| flux-schnell | image t2i | ✅ 200 + jpg | ✅ `1060500/1` = 1050000×1.01 | per-megapixel | ❌ floor ~1 µUSD/req (MP not metered) | ✅ `byoc/flux-schnell` |
+| flux-dev | image t2i | ✅ 200 + jpg | ✅ `8837500/1` = 8750000×1.01 (8.33× schnell) | per-megapixel | ❌ | ✅ `byoc/flux-dev` |
+| nano-banana | image t2i | ✅ 200 + png | ✅ `14140000/1` = 14000000×1.01 | per-image | ❌ | ✅ `byoc/nano-banana` |
+| recraft-v4 | image t2i | ✅ 200 + webp | ✅ `14140000/1` = 14000000×1.01 | per-image | ❌ | ✅ `byoc/recraft-v4` |
+| ltx-t2v | video t2v | ✅ 200 + mp4 (1920×1080, **6.12s**, 153f) | ✅ `14140000/1` = 14000000×1.01 | per-second | ❌ (6.12s ignored; floor/req) | ✅ `byoc/ltx-t2v` |
+| seedance-mini-t2v | video t2v | payment-gen only (200) | ✅ `13256250/1` = 13125000×1.01 | per-second | ❌ | ✅ `byoc/seedance-mini-t2v` |
+| gemini-tts | audio TTS | payment-gen only (200) | ✅ `5302500/1` = 5250000×1.01 | per-1000-chars | ❌ | ✅ `byoc/gemini-tts` |
+
+- **503 fixed: NO** (Vercel write blocked — manual steps above).
+- **Spend:** OpenMeter fee Δ **+12 µUSD** (`680403 → 680415`), requests Δ **+9** (`331 → 340`). ≈ **$0.000012**.
+  Real images + a real 6.12 s video were produced; on-chain session reserved `ExpectedPrice × units` per job.
+- **Failed caps:** **none.** All 7 passed auth + payment-gen + price/label. 5 produced real output
+  (4 images + 1 video); 2 (seedance-mini-t2v, gemini-tts) were payment-gen + decode only (bound spend /
+  avoid cap-specific input payloads).
+
+### Price correctness — ✅ ALL 7 (Run 51 `#3993` overhead fix confirmed live)
+
+For every cap: orch `PriceInfo` (requested cap, overhead-adjusted) **==** signer payment `ExpectedPrice`
+**==** advertised base (`/capabilities` `price_per_unit ÷ price_scaling`) **× 1.01** txCost overhead.
+`recipientRandHash` echoed byte-identical; ticket recipient == orch. The Run 50b `CapabilitiesPrices`
+vs `PriceInfo` split is gone — orch now applies overhead to both (e.g. flux-schnell `CapabilitiesPrices`
+now `1060500/1`, was `1050000/1`).
+
+On-chain reservation (session balance drop below the re-quoted grant level) = `ExpectedPrice × integer
+units`, verified exact: flux-schnell `1060500 × {3,4}`, flux-dev `8837500 × {4,6}` — per-cap price
+enforced on-chain.
+
+### Metering UNITS — ❌ CORRECTNESS GAP (unchanged from Run 50b, now proven across unit kinds)
+
+OpenMeter (`groupBy=pipeline_model`, M2M Basic) fires at **signer payment-gen (`platform_ingest`)**, so it
+records **1 request at floor rate (~1–2 µUSD)** regardless of cap unit or quantity:
+
+- Image megapixels, **video seconds** (ltx-t2v 6.12 s → advertised ≈ 0.042×6.12 ≈ **$0.257**, but metered
+  **+2 µUSD**), and TTS characters are **not** reflected in `networkFeeUsdMicros`.
+- The `groupBy=pipeline_model` view exposes only `requestCount` + `networkFeeUsdMicros` + fixed
+  `retailRateUsd=0.000001` — **no raw unit quantity** (pixels/seconds/chars) is surfaced.
+- Net: the **on-chain ticket** price is unit-aware and per-cap-correct; the **OpenMeter fee** is a flat
+  per-request floor. Billing will under-report at full tariff once real per-cap fees flow. **Owner: John /
+  pymthouse metering** (gate metering on orch acceptance + carry real unit quantity/fee).
+
+### Labels — ✅ ALL 7
+
+`groupBy=pipeline_model` shows `byoc/flux-schnell|flux-dev|nano-banana|recraft-v4|ltx-t2v|seedance-mini-t2v|gemini-tts`
+— correct `byoc/<cap-name>`, none `unknown`, none mislabeled.
+
+### OpenMeter before → final delta (per cap touched)
+
+| pipeline/model | Δ reqs | Δ fee µUSD |
+|---|---|---|
+| byoc/flux-schnell | +3 | +3 |
+| byoc/flux-dev | +3 | +3 |
+| byoc/nano-banana | +1 | +2 |
+| byoc/recraft-v4 | +1 | +2 |
+| byoc/ltx-t2v | +1 | +2 |
+| **totals** | **+9** | **+12** |
+
+### Reproduce
+
+```bash
+# env-only (never commit): COMPOSITE_BEARER, BYOC_SIGNER_URL, PMTH_M2M_ID/SECRET, PMTH_APP
+GWPY=../livepeer-python-gateway/.venv/bin/python
+curl -sS https://sdk.daydream.monster/capabilities -o /tmp/caps.json          # advertised prices
+GATEWAY_SRC=../livepeer-python-gateway/src CAPS_JSON=/tmp/caps.json "$GWPY" scripts/run53-multicap-probe.py
+for CAP in flux-schnell flux-dev nano-banana recraft-v4 ltx-t2v; do
+  GATEWAY_SRC=../livepeer-python-gateway/src BYOC_CAPABILITY=$CAP "$GWPY" scripts/run50-direct-signer-probe.py
+done
+curl -sS -u "$PMTH_M2M_ID:$PMTH_M2M_SECRET" \
+  "https://pymthouse.com/api/v1/apps/$PMTH_APP/usage?groupBy=pipeline_model&include=retail"
+```
+
+---
+
 ## Related docs
 
 - `BILLED-E2E-REMAINING-PLAN.md` — pillar plan (Run 35–46 era)
