@@ -623,6 +623,75 @@ Grep of `livepeer/storyboard` `main` (Jul 17):
 
 ---
 
+## Run 50 (2026-07-17 — REAL composite session bundle, DIRECT signer-path test)
+
+**Breakthrough:** User supplied a live signer-session bundle for `app_98575870…` (base64 API key). This let us test the **signer path directly**, bypassing the NaaP validate / Vercel env blocker that stalled Runs 47–49.
+
+### Bundle (decoded — secret masked, env-only, never committed)
+
+| Field | Value |
+|---|---|
+| `signer` | `https://pymthouse-signer-test-production.up.railway.app` |
+| `signer_headers.Authorization` | `Bearer app_98575870d7ae33589a3f0660_pmth_…a78357` (**underscore composite**, 0.6.0 shape) |
+| `discovery` | `https://discovery-service-production-8955.up.railway.app/v1/discovery/raw` |
+
+### Direct probes (gateway venv `submit_byoc_job`, composite bearer, NO validate)
+
+| Probe | Result | Meaning |
+|---|---|---|
+| signer `/healthz` | **200 OK** | reachable |
+| `POST /sign-orchestrator-info` + **composite bearer** | **200** → `address 0x6CAE3C7a…` + signature | **webhook auth PASSED** (was 401 `not a JWT` on bare `pmth_`) |
+| `get_orch_info` gRPC `byoc-staging-1:8935` (signed, `capabilities=byoc`) | `ticket_params` present, recipient `0x180859c3…`, **price 1060500/1** | per-cap ticket params returned |
+| `POST /generate-live-payment` + composite bearer (`type:byoc`) | **200** → `payment` (281B **valid `net.Payment` proto**) + `segCreds` + `state` | **payment generation COMPLETES — no IncompleteRead, no 401** |
+| ↳ decoded payment | sender `0x6CAE3C7a…`, ticket recipient **matches orch** `0x180859c3…`, 1 signed `ticket_sender_params`, `expiration_params` set | payment is well-formed & recipient-correct |
+| `submit_byoc_job` **flux-schnell** (orch `byoc-staging-1`) | **FAIL HTTP 400 `Could not parse payment`** | orch rejects payment at ticket validation |
+| `submit_byoc_job` **flux-dev** | **FAIL HTTP 400 `Could not parse payment`** | same |
+| `POST sdk.daydream.monster/inference` + composite bearer (flux-schnell) | **HTTP 502 `IncompleteRead(82,112)`** | hosted node NOT using composite for payment-gen (own signer config) |
+| `sdk.daydream.monster/health` | **200**, orch `byoc-staging-1` | node up |
+
+### Root cause of "Could not parse payment" (go-livepeer `byoc/job_orchestrator.go`)
+
+`setupOrchJob → confirmPayment → processPayment` returns `errPaymentError` ("Could not parse payment") from **either**:
+
+1. `getPayment(hdr)` — base64 decode + `net.Payment` unmarshal, **or**
+2. `bso.orch.ProcessPayment(...)` — on-chain **ticket validation** (recipient, ticket params, sender reserve, signature).
+
+Our payment **decodes cleanly** (valid `net.Payment`, recipient == orch) → **(1) passes**. Therefore the failure is **(2) ProcessPayment / ticket validation**: most likely **sender reserve/deposit unfunded on-chain** for signer wallet `0x6CAE3C7aa09Adf84C0eD1C3A53465364cEcb7260` on test-production, or ticket-param/`recipientRand`/signature mismatch between signer and orch. This is latent blocker **B2 / B5** — surfaced now that auth + payment-gen finally pass.
+
+### OpenMeter (M2M `app_98575870`, before → after)
+
+| Metric | Before | After | Delta |
+|---|---|---|---|
+| totals `requestCount` | 305 | 309 | **+4** |
+| totals `networkFeeUsdMicros` | 680373 | 680377 | **+4** |
+| `byoc/flux-schnell` | 34 / 645 | 37 / 648 | +3 / +3 |
+| `byoc/flux-dev` | (1 / 0) | 5 / 327 | +4 / +327 |
+
+**Interpretation:** OpenMeter incremented **from the `/generate-live-payment` probes themselves** — metering fires at **signer payment-gen (`platform_ingest`)**, decoupled from orch success. Increments are floor-rate (~1 µUSD/req), **not** full per-cap tariff, and **no image was produced**. Billing is being recorded for payments the orch later rejects — worth flagging.
+
+### Vercel (optional)
+
+**BLOCKED** — no `VERCEL_TOKEN`, no `~/.vercel/auth.json`, `vercel whoami` unauthorized (same SAML/403 as Runs 48b/49). Skipped per task priority (direct test first).
+
+### Run 50 SIMPLE answers
+
+- **Is the composite bundle sufficient / working?** **PARTIAL — YES for auth + payment generation, NO for a returned image.** The composite bearer clears every pymthouse/signer gate (webhook auth + full payment gen). It does **not** yet yield an image because the **orchestrator** rejects the payment on-chain.
+- **Image generated?** **NO.** No URL — orch returns `HTTP 400 Could not parse payment` for flux-schnell and flux-dev.
+- **#255 still needed?** **NO** (for this composite path). The composite bearer **passed the remote-signer webhook auth**: `/sign-orchestrator-info` → 200 **and** `/generate-live-payment` → real payment. The `401 not a JWT` failure #255 targeted is **gone** on test-production for the underscore composite.
+- **Remaining blocker + owner:** **Orchestrator-side payment/ticket validation** — `byoc-staging-1` `ProcessPayment` rejects a valid, recipient-correct ticket → **fund sender reserve/deposit on-chain for `0x6CAE3C7aa09Adf84C0eD1C3A53465364cEcb7260` on test-production, and confirm orch on go-livepeer #3980 image + ticket-param alignment. Owner: John / pymthouse + orch infra.** Secondary: hosted `sdk.daydream.monster` node still `IncompleteRead` (not using composite bearer for payment-gen) → NaaP validate must emit composite endpoint form / node signer config — owner qiang / NaaP Vercel.
+- **Spend:** ~**$0.000004** (4 µUSD network fee metered from payment-gen probes). No image, no Daydream spend. Effectively **$0**.
+
+### Reproduce
+
+```bash
+# env-only (never commit): BYOC_SIGNER_URL, COMPOSITE_BEARER from decoded bundle
+GWPY=../livepeer-python-gateway/.venv/bin/python
+GATEWAY_SRC=../livepeer-python-gateway/src \
+  BYOC_CAPABILITY=flux-schnell "$GWPY" scripts/run50-direct-signer-probe.py
+```
+
+---
+
 ## Related docs
 
 - `BILLED-E2E-REMAINING-PLAN.md` — pillar plan (Run 35–46 era)

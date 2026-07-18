@@ -4352,3 +4352,62 @@ Follow-up to Run 48b. Goal: set prod `PYMTHOUSE_API_KEY` to underscore composite
 
 **≈ $0.003** — one Path C Storyboard MCP flux-schnell (**$0.00320**). Paths A/B: **$0** (no billed generation).
 
+---
+
+# Run 50 — 2026-07-17 — REAL composite session bundle, DIRECT signer-path test
+
+**Unblock:** User provided a live signer-session bundle for `app_98575870…` (base64 API key). This let us drive the **signer path directly**, bypassing the NaaP validate / Vercel env blocker that capped Runs 47–49. Secrets handled **env-only**, never echoed in full, never committed.
+
+## Bundle (decoded — secret masked)
+
+| Field | Value |
+|---|---|
+| signer | `https://pymthouse-signer-test-production.up.railway.app` |
+| Authorization | `Bearer app_98575870d7ae33589a3f0660_pmth_…a78357` (underscore composite, builder-sdk 0.6.0 shape) |
+| discovery | `https://discovery-service-production-8955.up.railway.app/v1/discovery/raw` |
+
+## Direct signer-path probes (gateway venv `submit_byoc_job`, composite bearer, NO validate)
+
+| # | Check | Result | Detail |
+|---|---|---|---|
+| 1 | signer `/healthz` | **PASS 200** | reachable |
+| 2 | `POST /sign-orchestrator-info` + composite bearer | **PASS 200** | `address 0x6CAE3C7a…` + signature → **webhook auth accepts composite** (was 401 `not a JWT` on bare `pmth_`) |
+| 3 | `get_orch_info` gRPC `byoc-staging-1:8935` (signed, `capabilities=byoc`) | **PASS** | `ticket_params` present, recipient `0x180859c3…`, **price 1060500/1** (per-cap) |
+| 4 | `POST /generate-live-payment` + composite (`type:byoc`) | **PASS 200** | `payment` (281B valid `net.Payment`) + `segCreds` + `state` — **NO IncompleteRead** |
+| 4b | decoded payment | **valid** | sender `0x6CAE3C7a…`, ticket recipient **matches orch**, 1 signed `ticket_sender_params`, `expiration_params` set |
+| 5 | `submit_byoc_job` **flux-schnell** (orch `byoc-staging-1`) | **FAIL 400** | `Could not parse payment` (orch ticket validation) |
+| 6 | `submit_byoc_job` **flux-dev** | **FAIL 400** | `Could not parse payment` |
+| 7 | `POST sdk.daydream.monster/inference` + composite (flux-schnell) | **FAIL 502** | `IncompleteRead(82,112)` — hosted node not using composite for payment-gen |
+| 8 | `sdk.daydream.monster/health` | **PASS 200** | orch `byoc-staging-1` |
+
+## Root cause — "Could not parse payment"
+
+go-livepeer `byoc/job_orchestrator.go`: `processPayment` → `errPaymentError` from **getPayment (decode)** OR **ProcessPayment (on-chain ticket validation)**. Our payment **decodes cleanly** and recipient **matches the orch**, so decode passes → failure is **ProcessPayment**: most likely **sender reserve/deposit unfunded** for signer wallet `0x6CAE3C7aa09Adf84C0eD1C3A53465364cEcb7260` on test-production, or ticket-param/`recipientRand`/sig mismatch. (Latent blockers B2/B5, now surfaced because auth + payment-gen finally pass.)
+
+## OpenMeter (M2M `app_98575870`)
+
+| Metric | Before | After | Delta |
+|---|---|---|---|
+| totals `requestCount` | 305 | 309 | +4 |
+| totals `networkFeeUsdMicros` | 680373 | 680377 | +4 |
+| `byoc/flux-schnell` | 34 / 645 | 37 / 648 | +3 / +3 |
+| `byoc/flux-dev` | 1 / 0 | 5 / 327 | +4 / +327 |
+
+Delta comes from the `/generate-live-payment` probes — metering fires at **signer payment-gen (`platform_ingest`)**, decoupled from orch success. Floor-rate (~1 µUSD/req), **not** full per-cap tariff, **no image produced**.
+
+## Vercel (optional) — BLOCKED
+
+No `VERCEL_TOKEN` / `~/.vercel/auth.json`; `vercel whoami` unauthorized. Skipped per task priority.
+
+## SIMPLE answers
+
+- **Sufficient / working?** **PARTIAL — YES for signer auth + payment generation, NO for a returned image.**
+- **Image generated?** **NO** — no URL. Orch: `HTTP 400 Could not parse payment` (flux-schnell + flux-dev).
+- **#255 still needed?** **NO** — composite bearer passed the webhook (`/sign-orchestrator-info` 200 + `/generate-live-payment` real payment); `401 not a JWT` is gone.
+- **Remaining blocker + owner:** orch-side ticket validation — fund sender reserve for `0x6CAE3C7a…` on test-production + confirm orch #3980 image / ticket-param alignment. **Owner: John / pymthouse + orch infra.** Secondary: hosted SDK node still `IncompleteRead` (needs composite via validate) — qiang / NaaP Vercel.
+- **Spend:** ~**$0.000004** metered from payment-gen probes; effectively **$0**.
+
+## Reproduce
+
+`scripts/run50-direct-signer-probe.py` (env: `BYOC_SIGNER_URL`, `COMPOSITE_BEARER`, `GATEWAY_SRC`, `BYOC_CAPABILITY`).
+
