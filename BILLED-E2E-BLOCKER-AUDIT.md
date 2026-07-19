@@ -998,6 +998,63 @@ curl -sS -u "$PMTH_M2M_ID:$PMTH_M2M_SECRET" \
 
 ---
 
+---
+
+# Run 54 — validate 503 ✅ RESOLVED (Vercel env) + new multi-unit billed E2E (2026-07-18)
+
+## TASK 1 — validate 503: ✅ **FIXED**
+
+The Run 52/53 root cause (stale prod `PYMTHOUSE_M2M_CLIENT_SECRET`) is **resolved**. A supplied Vercel API
+token (scope `livepeer-foundation`) gave the agent write access to `naap-platform`
+(`prj_PiZLLh1Ot3Qf6OBYr4f7Ebi77sP6`). Applied:
+
+1. `vercel env add PYMTHOUSE_M2M_CLIENT_SECRET production --sensitive --force` = **current valid secret**
+   (`pmth_cs_7a45…`) — **THE fix**.
+2. `vercel env add PYMTHOUSE_API_KEY production --sensitive --force` = **underscore composite**
+   (`app_98575870…_pmth_…`) — enables validate endpoint form.
+3. Confirmed siblings already correct: `PYMTHOUSE_M2M_CLIENT_ID=m2m_5ad4…`,
+   `PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870…`, `PYMTHOUSE_ISSUER_URL=https://pymthouse.com/api/v1/oidc`.
+4. `vercel redeploy` latest prod (`dpl_HUw4…` → `naap-platform-cg41hqo2h`, aliased `operator.livepeer.org`).
+
+**Verification:**
+
+| Probe | Before (Run 52/53) | After (Run 54) |
+|---|---|---|
+| `POST …/keys/validate` + `naap_8056755b…` | **503** `Billing provider unavailable` | ✅ **200** `valid:true` |
+| `signerSession` shape | — (503) | ✅ **endpoint form** `["url","headers"]`, url=test-production, Bearer=composite |
+| `POST sdk.daydream.monster/inference` + `naap_` | 502 `IncompleteRead` | ✅ **200 + real image** (naap path works end-to-end) |
+
+**503 fixed? YES — and the endpoint form is now the ideal `{url, headers}` composite (not token-bundle).**
+The full `naap_` → validate → SDK → signer → gen path produces a real image. `capabilities[]` still empty
+(`pymthouse_bpp_validate` OFF, non-blocking). Prior "agent cannot write Vercel env" blocker (Runs 48b–53)
+is **cleared** with the supplied token.
+
+## TASK 2 — Run 54 multi-unit billed E2E — **PASS** (6 caps, all NEW vs Run 53, 5 unit kinds)
+
+| cap | type | gen? | price correct? | unit | metering unit correct? | label correct? |
+|---|---|---|---|---|---|---|
+| ideogram-v4 | image t2i | ✅ jpg | ✅ `14140000/1` | per-megapixel | ❌ floor | ✅ `byoc/ideogram-v4` |
+| gpt-image | image t2i | ⚠️ paygen (real-gen timeout) | ✅ `742350/1` | per-image | ❌ | ✅ `byoc/gpt-image` |
+| ltx-i2v | video **i2v** | ✅ mp4 (6.12 s) | ✅ `14140000/1` | per-second | ❌ | ✅ `byoc/ltx-i2v` |
+| inworld-tts | audio TTS | paygen | ✅ `1767500/1` | per-1000-chars | ❌ | ✅ `byoc/inworld-tts` |
+| gemini-text | text LLM | paygen | ✅ orch==Exp `13298333/500` (adv ε-round) | per-1000-tokens | ❌ | ✅ `byoc/gemini-text` |
+| music | audio/music | paygen | ✅ `35350000/1` | per-call/track | ❌ | ✅ `byoc/music` |
+
+- **Price:** orch `PriceInfo` == signer `ExpectedPrice` for all 6; `= advertised × 1.01` for 5/6 (gemini-text
+  off only by per-token sub-unit rounding). On-chain reservation = `ExpectedPrice × integer units`
+  (ideogram-v4 first gen = `14,140,000 × 6` exact).
+- **Metering units:** ❌ still flat µUSD floor (`platform_ingest` at payment-gen); MP / seconds / chars /
+  tokens / track quantities not reflected in `networkFeeUsdMicros`. Gap now proven across 5 unit kinds.
+  **Owner: John / pymthouse metering.**
+- **Labels:** ✅ all `byoc/<cap>`, none `unknown`. (Separate: `naap_` live-runner image labeled
+  `live-video-to-video/unknown` — live-runner labeling gap.)
+- **Spend:** +16 µUSD (`680416→680432`), +9 reqs (`341→350`) ≈ **$0.000016**. Real jpg + real i2v mp4.
+  **Regressions: none.**
+
+Detail: `USER-E2E-DEMO-RESULTS.md` Run 54.
+
+---
+
 ## Related docs
 
 - `BILLED-E2E-REMAINING-PLAN.md` — pillar plan (Run 35–46 era)

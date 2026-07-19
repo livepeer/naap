@@ -4622,3 +4622,134 @@ done
 # env-only: COMPOSITE_BEARER, BYOC_SIGNER_URL, PMTH_M2M_ID/SECRET, PMTH_APP — never committed.
 ```
 
+---
+
+# Run 54 — validate 503 FIXED (Vercel env) + new multi-unit billed E2E (2026-07-18)
+
+**Two tasks:** (1) fix the NaaP validate **503** using a supplied Vercel API token, (2) a fresh randomized
+multi-unit billed E2E (6 caps, **all new models** vs Run 53) via the billed composite direct-signer path.
+
+## TASK 1 — validate 503: ✅ **FIXED** (endpoint form + full naap path working)
+
+**Root cause (Run 52/53):** prod `PYMTHOUSE_M2M_CLIENT_SECRET` on Vercel (`naap-platform` /
+`prj_PiZLLh1Ot3Qf6OBYr4f7Ebi77sP6`, team `livepeer-foundation`) was **stale/revoked** → validate mint
+threw → `mint_failed` → **503 "Billing provider unavailable"**.
+
+**Fix applied this run (Vercel token, `--scope livepeer-foundation`):**
+
+| Step | Action | Result |
+|---|---|---|
+| 1 | `vercel whoami` / `teams ls` / `projects ls` | token scoped to **Livepeer Foundation**; `naap-platform` → `operator.livepeer.org` |
+| 2 | Confirm identifiers (`env pull` prod) | `PYMTHOUSE_M2M_CLIENT_ID=m2m_5ad4…`, `PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870…`, `PYMTHOUSE_ISSUER_URL=…/api/v1/oidc` — **all correct** |
+| 3 | `vercel env add PYMTHOUSE_M2M_CLIENT_SECRET production --sensitive --force` (current valid secret) | **Overrode** (the 503 fix) |
+| 4 | `vercel env add PYMTHOUSE_API_KEY production --sensitive --force` (underscore composite `app_…_pmth_…`) | **Overrode** (enables endpoint form) |
+| 5 | `vercel redeploy` latest prod (`dpl_HUw4…` → `naap-platform-cg41hqo2h`) | **Ready**, aliased `operator.livepeer.org` (~3 min) |
+
+**Verification (post-redeploy):**
+
+| Probe | Result |
+|---|---|
+| `POST operator.livepeer.org/api/v1/keys/validate` + `naap_8056755b…` | **HTTP 200** `valid:true`, `providerSlug:pymthouse` |
+| `signerSession` shape | ✅ **ENDPOINT FORM** — keys `["url","headers"]` (not token-bundle) |
+| `signerSession.url` | `https://pymthouse-signer-test-production.up.railway.app` |
+| `signerSession.headers.Authorization` | `Bearer app_98575870d7ae33589…` (composite) |
+| `capabilities[]` | `[]` (empty — `pymthouse_bpp_validate` still OFF, **non-blocking**) |
+| `POST sdk.daydream.monster/inference` flux-schnell + **`naap_…`** | ✅ **HTTP 200 + real image** `https://v3b.fal.media/…/egY7yWzGAa-zWWxue2H_a.jpg` (7.6 s) |
+
+**503 fixed? YES.** Validate returns 200 with the **ideal endpoint form** (composite `{url, headers}`, not
+just token-bundle). The **full `naap_` → validate → SDK → signer → gen path now works end-to-end** — first
+successful image via a `naap_` bearer through the hosted SDK. (SDK response reported
+`orchestrator:"live-runner"` for this naap path; the billed BYOC caps below run against `byoc-staging-1`.)
+
+## TASK 2 — Run 54 multi-unit billed E2E — **PASS**
+
+Billed composite session (signer `pymthouse-signer-test-production`, underscore composite bearer) →
+`scripts/run53-multicap-probe.py` (price/unit/label + payment decode) and `scripts/run50-direct-signer-probe.py`
+(real gen). Orch `byoc-staging-1.daydream.monster:8935`, recipient `0x180859c3…`, sender `0x6CAE3C7a…`.
+**6 caps, all NEW vs Run 53, spanning 5 unit kinds** (megapixel / per-image / per-second **i2v** / characters /
+tokens / call).
+
+### SIMPLE table
+
+| cap | type | gen? | price correct? | unit | metering unit correct? | label correct? |
+|---|---|---|---|---|---|---|
+| ideogram-v4 | image t2i | ✅ 200 + jpg | ✅ `14140000/1` (=14000000×1.01) | per-megapixel | ❌ floor (~2 µUSD/req; MP not metered) | ✅ `byoc/ideogram-v4` |
+| gpt-image | image t2i | ⚠️ payment-gen 200 (real-gen orch **timeout** 181 s) | ✅ `742350/1` (=735000×1.01) | per-image | ❌ | ✅ `byoc/gpt-image` |
+| ltx-i2v | video **i2v** | ✅ 200 + mp4 (1920×1080, **6.12 s**, 153f) | ✅ `14140000/1` (=14000000×1.01) | per-second | ❌ (6.12 s ignored; floor) | ✅ `byoc/ltx-i2v` |
+| inworld-tts | audio TTS | payment-gen 200 | ✅ `1767500/1` (=1750000×1.01) | per-1000-chars | ❌ | ✅ `byoc/inworld-tts` |
+| gemini-text | text LLM | payment-gen 200 | ✅ orch==Exp `13298333/500` (adv×1.01 off by rounding ε only) | per-1000-tokens | ❌ | ✅ `byoc/gemini-text` |
+| music | audio/music | payment-gen 200 | ✅ `35350000/1` (=35000000×1.01) | per-call/track | ❌ | ✅ `byoc/music` |
+
+Real media (fal, ephemeral): ideogram-v4 `.jpg`; **ltx-i2v `.mp4`** (image-to-video from the ideogram jpg,
+1920×1080, 6.12 s, 25 fps, 153 frames).
+
+### Price correctness — ✅ ALL 6
+
+For every cap: orch `PriceInfo` (requested cap, overhead-adjusted) **==** signer payment `ExpectedPrice`;
+`recipientRandHash` echoed byte-identical; ticket recipient == orch. `ExpectedPrice == advertised base
+(price_per_unit ÷ price_scaling) × 1.01` holds exactly for 5/6. **gemini-text** is the lone `advOK=False`
+— but only because the per-1000-**tokens** price is so small (`$7.9e-05/1k`) that the orch quantizes it to
+`13298333/500` (= 26596.666) vs the exact `adv×1.01` = 26596.66666633; **orch price == ExpectedPrice still
+matches** (internally consistent), so this is a sub-unit rounding artifact, not a real mismatch.
+
+**On-chain reservation** = `ExpectedPrice × integer units`: first real gen `ideogram-v4` drew
+`800B − 799,915,160,000 = 84,840,000` = `14,140,000 × 6` exactly; the subsequent `ltx-i2v` gen drew a
+further `14,140,000 × 45` reservation (`→ 799,278,860,000`). Per-cap price is enforced on-chain and
+unit-aware (confirmed across the new unit kinds too).
+
+### Metering UNITS — ❌ correctness gap (unchanged from Run 53, now proven across 5 unit kinds)
+
+OpenMeter (`groupBy=pipeline_model`, M2M Basic) still meters at **payment-gen (`platform_ingest`)** → **1
+request at ~1–4 µUSD floor** regardless of cap unit or quantity. Megapixels, **video seconds** (ltx-i2v
+6.12 s → advertised ≈ 0.042×6.12 ≈ **$0.257**, metered **+4 µUSD** total across 2 reqs), TTS characters,
+LLM tokens, and per-track (music `$0.105` → **+4 µUSD**) are all invisible on `networkFeeUsdMicros`. The
+view surfaces no raw unit quantity (`retailRateUsd` fixed `0.000001`). On-chain ticket = unit-aware +
+per-cap-correct; OpenMeter fee = flat per-request floor. **Owner: John / pymthouse metering** — gate on
+orch acceptance + carry real unit quantity + fee.
+
+### Labels — ✅ ALL 6
+
+`byoc/ideogram-v4 | gpt-image | ltx-i2v | inworld-tts | gemini-text | music` — correct `byoc/<cap-name>`,
+none `unknown`, none mislabeled. (Note: the earlier `naap_` SDK live-runner image showed as
+`live-video-to-video / unknown` — a separate live-runner labeling gap, not the billed BYOC path.)
+
+### OpenMeter before → after delta (M2M Basic, `source:openmeter`)
+
+| pipeline/model | Δ reqs | Δ fee µUSD |
+|---|---|---|
+| byoc/ideogram-v4 | +2 | +4 |
+| byoc/gpt-image | +2 | +2 |
+| byoc/ltx-i2v | +2 | +4 |
+| byoc/inworld-tts | +1 | +1 |
+| byoc/gemini-text | +1 | +1 |
+| byoc/music | +1 | +4 |
+| **app totals** | **+9 (341→350)** | **+16 (680416→680432)** |
+
+### Spend
+
+≈ **$0.000016** OpenMeter fee (+16 µUSD, floor-rate). Real jpg image + real **i2v** mp4 video produced;
+on-chain session reserved `ExpectedPrice × units` per job. **Failed caps: none** (gpt-image real gen timed
+out at the orch after payment/price/label all passed — a generation-latency issue, not a billing/auth one).
+
+### Regressions
+
+**None.** Price overhead (`#3993`), labels, auth, payment-gen all green — matching Run 51/53. The validate
+503 is resolved and did not regress any billed path.
+
+## Reproduce
+
+```bash
+# env-only (never commit): COMPOSITE_BEARER, BYOC_SIGNER_URL, PMTH_M2M_ID/SECRET, PMTH_APP, VERCEL_TOKEN
+# --- TASK 1 (validate 503 fix) ---
+printf '%s' '<current-m2m-secret>' | vercel env add PYMTHOUSE_M2M_CLIENT_SECRET production --sensitive --force --yes --token "$VERCEL_TOKEN" --scope livepeer-foundation
+printf '%s' '<underscore-composite>' | vercel env add PYMTHOUSE_API_KEY production --sensitive --force --yes --token "$VERCEL_TOKEN" --scope livepeer-foundation
+vercel redeploy https://naap-platform-<latest-prod>.vercel.app --token "$VERCEL_TOKEN" --scope livepeer-foundation
+curl -sS -X POST https://operator.livepeer.org/api/v1/keys/validate -H "Authorization: Bearer naap_…" | jq '.data.signerSession | keys'  # → ["headers","url"]
+# --- TASK 2 (Run 54 multi-unit) ---
+GWPY=../livepeer-python-gateway/.venv/bin/python
+curl -sS https://sdk.daydream.monster/capabilities -o /tmp/caps.json
+CAP_LIST='ideogram-v4,gpt-image,ltx-i2v,inworld-tts,gemini-text,music' \
+  GATEWAY_SRC=../livepeer-python-gateway/src CAPS_JSON=/tmp/caps.json "$GWPY" scripts/run53-multicap-probe.py
+GATEWAY_SRC=../livepeer-python-gateway/src BYOC_CAPABILITY=ideogram-v4 "$GWPY" scripts/run50-direct-signer-probe.py
+```
+
