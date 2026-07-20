@@ -12,6 +12,160 @@ description: >-
 
 # pymthouse billed E2E
 
+## For the AI agent — runbook (read this first)
+
+You have been handed this file and asked something like **"run an e2e test for
+me."** Do **not** dump the whole doc back at the user. Instead follow this loop:
+
+1. **Step 0 — collect inputs from the user** (secrets never live in git; you
+   prompt for them at runtime and `export` them into the shell you run probes
+   in). See the [required-inputs checklist](#step-0--required-inputs-checklist).
+2. **Steps 1–N — do everything else autonomously**: environment setup, resolve
+   the signer credentials, pick the default orch, run the right probe scripts,
+   and read their stdout.
+3. **Final step — emit the [report](#report-template)** with a per-stage
+   PASS/FAIL verdict, the endpoints used, the fee observed, and any blocker +
+   owner. That report is your deliverable.
+
+### Step 0 — required-inputs checklist
+
+Ask the user for the items below **before running anything**. Tell them these are
+read from environment variables only and must never be committed. If the user
+says something vague like *"just run it"*, collect the **mandatory** items, take
+the **defaults** for everything optional, and proceed with the
+[default happy path](#step-3--default-happy-path-just-run-it).
+
+**Mandatory — signer credentials (get them ONE of two ways):**
+
+- **Path A (preferred, most autonomous)** — ask for:
+  - `NAAP_KEY` — the `naap_…` front-door key.
+  - Prompt: *"Paste your `naap_…` key. I'll call NaaP validate to derive the
+    signer URL and composite bearer for you."*
+  - The agent then derives `BYOC_SIGNER_URL` + `COMPOSITE_BEARER` from the
+    validate response (see [Step 2](#step-2--resolve-signer-credentials)).
+    `NAAP_VALIDATE_URL` defaults to
+    `https://operator.livepeer.org/api/v1/keys/validate`.
+- **Path B (direct)** — if the user already has them, ask for:
+  - `BYOC_SIGNER_URL` — prompt: *"Signer base URL (the `*.up.railway.app`
+    host)."*
+  - `COMPOSITE_BEARER` — prompt: *"Composite bearer, shape
+    `Bearer app_<24hex>_pmth_<secret>` (NOT the opaque `pmth_` session)."*
+
+**Mandatory — environment:**
+
+- `GATEWAY_SRC` — path to the sibling `livepeer-python-gateway/src`. Required;
+  `run57-lr-auth-vs-pay.py` has **no default** and hard-crashes if it is unset.
+  You set this during [Step 1 setup](#step-1--environment-setup-deterministic).
+
+**Optional (proceed with the default if the user does not specify):**
+
+| Input | Env var | Default / when needed |
+|---|---|---|
+| Target orch | `BYOC_ORCH_URL` | Default `https://byoc-staging-1.daydream.monster:8935` (fully-priced control → expected full PASS). Only switch to the LR host if the user explicitly wants the LR scenario. |
+| Single capability | `BYOC_CAPABILITY` | Default `flux-schnell`. |
+| Multi-cap list | `CAP_LIST` | Only for the multi-cap probe (Step 4). |
+| M2M client id / secret | `PMTH_M2M_ID` / `PMTH_M2M_SECRET` | **Not read by any probe script.** Only needed for a manual OpenMeter metering read. Skip unless the user wants metering verified. |
+| pymthouse app id | `PMTH_APP` | Same — manual OpenMeter usage lookups only. |
+| LV2V model / discovery | `LV2V_MODEL` / `DISCOVERY_URL` | Only for the optional native-LV2V probe (Step 5). |
+
+> **Note:** `NAAP_KEY` + `NAAP_VALIDATE_URL` are themselves *optional* for the
+> billed probe scripts (none of `run50/run53/run55*/run57` read them) — they are
+> only used to (a) auto-derive the signer credentials in Path A and (b) run the
+> optional validate front-door proof. If the user goes with Path B, you can skip
+> the naap key entirely.
+
+### Step 1 — environment setup (deterministic)
+
+Run these once. `naap` (this repo) and `livepeer-python-gateway` must be
+**siblings**.
+
+```bash
+# from the parent dir that holds both repos (skip clones if already present):
+#   git clone <naap> && git clone <livepeer-python-gateway>
+cd livepeer-python-gateway
+uv sync --extra examples          # installs grpcio / protobuf / aiohttp / av
+GWPY="$PWD/.venv/bin/python"      # gateway interpreter the probes must run under
+cd -                              # back to the naap repo root
+export GATEWAY_SRC="../livepeer-python-gateway/src"   # sibling src (from naap root)
+```
+
+All probe commands below run **from the naap repo root** and use `"$GWPY"`.
+
+### Step 2 — resolve signer credentials
+
+- **Path A (from `NAAP_KEY`):** call validate and extract the endpoint-form
+  `signerSession` into the two env vars every script reads:
+
+```bash
+export NAAP_VALIDATE_URL="${NAAP_VALIDATE_URL:-https://operator.livepeer.org/api/v1/keys/validate}"
+_resp="$(curl -sS -X POST "$NAAP_VALIDATE_URL" -H "Authorization: Bearer $NAAP_KEY")"
+export BYOC_SIGNER_URL="$(printf '%s' "$_resp" | jq -r '.data.signerSession.url')"
+export COMPOSITE_BEARER="$(printf '%s' "$_resp" | jq -r '.data.signerSession.headers.Authorization')"
+# sanity: COMPOSITE_BEARER must look like "Bearer app_<24hex>_pmth_…" (keep the "Bearer " prefix)
+printf 'signer=%s bearer=%.40s…\n' "$BYOC_SIGNER_URL" "$COMPOSITE_BEARER"
+```
+
+  If `.data.signerSession` is null or you get a `503 Billing provider
+  unavailable`, that is the validate blocker (see troubleshooting) — record it as
+  a Stage-0 FAIL and ask the user for Path B credentials instead.
+
+- **Path B (direct):** the user already exported `BYOC_SIGNER_URL` +
+  `COMPOSITE_BEARER`; nothing to derive.
+
+### Step 3 — default happy path ("just run it")
+
+Point at the **fully-priced control** orch and run the single-cap billed probe.
+This exercises signer auth → payment → generation → image in one shot and is the
+canonical PASS.
+
+```bash
+export BYOC_ORCH_URL="${BYOC_ORCH_URL:-https://byoc-staging-1.daydream.monster:8935}"
+BYOC_CAPABILITY="${BYOC_CAPABILITY:-flux-schnell}" GATEWAY_SRC="$GATEWAY_SRC" \
+  "$GWPY" scripts/run50-direct-signer-probe.py
+```
+
+Expected PASS: `submit_byoc_job: PASS (…s) HTTP 200` plus a real `image_url`
+(fal.media JPEG). If the user asked for the LR orch instead, jump to the
+[LR-orch scenario](#scenario-test-against-liverunner-staging-1-lr-orch) — its
+FAIL-on-price outcome is expected and NOT a bug.
+
+### Step 4 — broaden coverage (optional, if the user wants more than one cap)
+
+Run the multi-cap price/payment probe and/or the LR-vs-control pricing diagnosis
+(see [Step-by-step](#step-by-step-run-instructions) Steps 2–4 for exact args).
+
+### Step 5 — emit the report
+
+Fill in the [report template](#report-template) from the probe stdout and hand it
+to the user. Map each probe line to a stage using
+[Reading PASS/FAIL per stage](#reading-passfail-per-stage).
+
+### Report template
+
+Fill this in and return it as the deliverable (one table row per stage):
+
+```markdown
+## pymthouse billed E2E — report
+
+- **Date:** <YYYY-MM-DD>
+- **Orch:** <byoc-staging-1 (control) | liverunner-staging-1 (LR)>
+- **Signer:** <signer host>
+- **Capability(ies):** <flux-schnell | …>
+- **Credential path:** <A: naap_ key → validate | B: direct composite bearer>
+
+| Stage | Endpoint / probe | Result | Evidence | Blocker → owner |
+|---|---|---|---|---|
+| 0 validate (front door) | `POST /api/v1/keys/validate` | PASS / FAIL / SKIP | `signerSession {url,headers}`, composite bearer | <e.g. 503 → NaaP M2M secret> |
+| 1 signer auth | `/sign-orchestrator-info` | PASS / FAIL | composite ACCEPTED, recipient `0x…` | <401 not a JWT → wrong bearer> |
+| 2 payment | `/generate-live-payment` | PASS / FAIL | `ExpectedPrice=…`, ~281 B `net.Payment` | <400 zero priceInfo → John/orch-infra> |
+| 3 generation | `submit_byoc_job` | PASS / FAIL | `image_url=…` (fal.media) | <400 verify creds → unpriced orch> |
+| 4 metering | OpenMeter `byoc/<cap>` | PASS / SKIP | `+1 req, +µUSD` | <SKIP if M2M creds not provided> |
+
+- **Verdict:** ✅ PASS / ❌ FAIL — <one-line summary>
+- **Fee observed:** <~µUSD on the byoc path | $0 (no payment minted)>
+- **Top blocker + owner:** <none | LR zero-pricing → John / orch-infra | …>
+```
+
 ## Overview / when to use
 
 Use this skill to drive and verify the **billed** Livepeer inference path that
@@ -114,6 +268,13 @@ GWPY="$PWD/.venv/bin/python"
 The probe scripts read the **script env-var names** in the right column. The left
 column is the canonical placeholder name for documentation; set whichever your
 workflow prefers, but the scripts consume the right-column names.
+
+> **Every probe reads `BYOC_SIGNER_URL` + `COMPOSITE_BEARER`** — they are the
+> mandatory signer credentials. Most scripts default `GATEWAY_SRC`, but
+> `run57-lr-auth-vs-pay.py` reads `GATEWAY_SRC`, `BYOC_SIGNER_URL`, and
+> `COMPOSITE_BEARER` with **no default** and will hard-crash (`KeyError`) if any
+> is unset, so always `export GATEWAY_SRC` before running probes. None of the six
+> scripts read `NAAP_KEY`, `NAAP_VALIDATE_URL`, `PMTH_M2M_*`, or `PMTH_APP`.
 
 | Canonical placeholder | Script env var (what the code reads) | Purpose / example |
 |---|---|---|
