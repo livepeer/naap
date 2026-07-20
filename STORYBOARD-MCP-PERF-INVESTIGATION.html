@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storyboard MCP Performance Investigation — 2026-07-20</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b22; --panel2:#1e242d; --ink:#e7ecf3; --muted:#9aa7b8;
+    --line:#2a323d; --good:#3ecf8e; --warn:#f5b544; --bad:#f2555a; --accent:#5b9dff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  p{margin:10px 0}
+  .sub{color:var(--muted);margin:0 0 18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .verdict{display:flex;gap:16px;flex-wrap:wrap;align-items:stretch;margin:16px 0}
+  .pill{flex:1;min-width:210px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .pill .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .pill .v{font-size:18px;font-weight:650;margin-top:4px}
+  .tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+  .t-bad{background:rgba(242,85,90,.16);color:var(--bad)}
+  .t-warn{background:rgba(245,181,68,.16);color:var(--warn)}
+  .t-good{background:rgba(62,207,142,.16);color:var(--good)}
+  .t-acc{background:rgba(91,157,255,.16);color:var(--accent)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  td.num{font-variant-numeric:tabular-nums;text-align:right}
+  code{background:#0b0e12;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12.5px}
+  .err{color:var(--bad);font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+  ol.rank{padding-left:0;list-style:none;counter-reset:r}
+  ol.rank li{counter-increment:r;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px 12px 52px;position:relative;margin:10px 0}
+  ol.rank li::before{content:counter(r);position:absolute;left:14px;top:12px;width:26px;height:26px;border-radius:50%;background:var(--accent);color:#08111f;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .muted{color:var(--muted)}
+  .win{border-left:3px solid var(--good);padding-left:12px;margin:10px 0}
+  .struct{border-left:3px solid var(--warn);padding-left:12px;margin:10px 0}
+  .flow{background:#0b0e12;border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--muted);white-space:pre-wrap;overflow-x:auto}
+  small{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Storyboard MCP — Performance &amp; Capacity Investigation</h1>
+  <p class="sub">Test-based root-cause investigation · Monday 2026-07-20, 15:16–15:21 PDT · live tests against the production Daydream path (<code>sdk.daydream.monster</code> → <code>signer.daydream.live</code> / lv2v). Total spend this run: <strong>$1.62</strong>.</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">Executive summary</h3>
+    <p><strong>Is it still happening today? <span class="tag t-bad">YES</span></strong> — but it is <strong>concentrated, not universal</strong>. The slowness / "out of capacity" reports are real and reproduced live today, and they trace almost entirely to <strong>image-to-video (i2v)</strong> on a handful of capabilities — above all <code>seedance-i2v-fast</code>. Text-to-video and ffmpeg are largely healthy.</p>
+    <div class="verdict">
+      <div class="pill"><div class="k">Severity</div><div class="v"><span class="tag t-bad">High for i2v</span> · low elsewhere</div></div>
+      <div class="pill"><div class="k">Worst offender</div><div class="v"><code>seedance-i2v-fast</code> (i2v)</div></div>
+      <div class="pill"><div class="k">#1 root cause</div><div class="v">Livepeer orchestrator / GPU capacity per-capability</div></div>
+    </div>
+    <p>The single clearest result: <code>seedance-i2v-fast</code> — advertised as the <em>fast</em> i2v tier (~30&nbsp;s p50 / 75&nbsp;s p95) — actually ran <strong>176–181&nbsp;s</strong> in every one of today's 3 runs and <strong>failed 2 of 3</strong> by hitting a hard <strong>~180&nbsp;s abort ceiling</strong> (<span class="err">SDK /inference failed: This operation was aborted</span>). That is a 33% success rate — exactly matching the 7-day server telemetry. "Slow" and "out of capacity" are the same problem seen from two angles: the model has no warm orchestrator, so it either cold-starts slowly or times out.</p>
+  </div>
+
+  <h2>1 · Methodology</h2>
+  <div class="card">
+    <p>All generations were run <strong>through the Storyboard MCP</strong> (the exact surface users hit), using <code>create_media</code> + <code>get_create_media</code> polling, with <code>on_i2v_timeout:"wait"</code> so failures surfaced instead of being masked by stock-footage fallback. Every call carried <code>session_id: perfinv-jul20</code> for clean cost attribution and a <code>max_cost_usd</code> cap.</p>
+    <ul>
+      <li><strong>Representative models</strong> chosen from the 136 live caps (<code>list_capabilities</code>): <br>
+        i2v → <code>seedance-i2v-fast</code> (the <code>prefer_fast</code> animate default) + <code>ltx-i2v</code>; &nbsp; t2v → <code>ltx-t2v</code> + <code>pixverse-t2v</code>; &nbsp; ffmpeg → <code>ffmpeg-mux</code> (mux_audio). Control: <code>flux-schnell</code> image, <code>chatterbox-tts</code>.</li>
+      <li><strong>Repeated runs</strong> for intermittency (i2v run 3×). Note: identical animate calls <em>deduplicate</em> to one job server-side, so runs were varied by duration (4/5/6&nbsp;s) to force distinct jobs — itself a useful finding.</li>
+      <li><strong>Corroboration</strong>: server-side <code>get_perf_report</code> (1h + 7d), <code>get_recent_failures</code>, <code>get_cost_report</code>, and the repo docs (<code>STORYBOARD-SIGNER-ROUTING.md</code>, <code>USER-E2E-DEMO-RESULTS.md</code>).</li>
+      <li><strong>Caveat</strong>: server perf telemetry is recorded in shadow mode on <em>completed</em> inferences; the ~180&nbsp;s client-side aborts are under-counted there, so real user-perceived failure rate is <em>higher</em> than <code>get_perf_report</code> alone suggests.</li>
+    </ul>
+  </div>
+
+  <h2>2 · Per-modality results (measured live today)</h2>
+
+  <h3>Image-to-video (i2v) — the problem area</h3>
+  <table>
+    <thead><tr><th>Model</th><th>Run</th><th>Dur</th><th>Result</th><th class="num">Latency</th><th>Error</th></tr></thead>
+    <tbody>
+      <tr><td><code>seedance-i2v-fast</code></td><td>1</td><td>4s</td><td><span class="tag t-bad">FAILED</span></td><td class="num">180s</td><td class="err">This operation was aborted</td></tr>
+      <tr><td><code>seedance-i2v-fast</code></td><td>2</td><td>5s</td><td><span class="tag t-bad">FAILED</span></td><td class="num">181s</td><td class="err">This operation was aborted</td></tr>
+      <tr><td><code>seedance-i2v-fast</code></td><td>3</td><td>6s</td><td><span class="tag t-good">done</span></td><td class="num">176s</td><td class="muted">squeaked under the ceiling</td></tr>
+      <tr><td><code>ltx-i2v</code></td><td>1</td><td>6s</td><td><span class="tag t-good">done</span></td><td class="num">57s</td><td class="muted">—</td></tr>
+    </tbody>
+  </table>
+  <p><code>seedance-i2v-fast</code>: <strong>success 1/3 (33%)</strong>; latency min 176 / median 180 / p95 181 / max 181&nbsp;s — vs an advertised 30&nbsp;s p50. <code>ltx-i2v</code> was healthy today (57&nbsp;s, 1/1), though it carries no warm-orchestrator ("live") tag and is therefore variable. The whole <strong>seedance i2v family</strong> is slow by design on this network: server priors are <code>seedance-i2v</code> p50 <strong>238&nbsp;s</strong>, <code>seedance-mini-i2v</code> p50 <strong>185&nbsp;s</strong> — all above or near the abort ceiling.</p>
+
+  <h3>Text-to-video (t2v) — largely healthy</h3>
+  <table>
+    <thead><tr><th>Model</th><th>Prompt</th><th>Dur</th><th>Result</th><th class="num">Latency</th></tr></thead>
+    <tbody>
+      <tr><td><code>pixverse-t2v</code></td><td>lake</td><td>5s</td><td><span class="tag t-good">done</span></td><td class="num">37s</td></tr>
+      <tr><td><code>ltx-t2v</code></td><td>lake</td><td>5s</td><td><span class="tag t-good">done</span></td><td class="num">61s</td></tr>
+      <tr><td><code>ltx-t2v</code></td><td>city</td><td>5s</td><td><span class="tag t-good">done</span></td><td class="num">62s</td></tr>
+    </tbody>
+  </table>
+  <p>t2v: <strong>3/3 success</strong>. <code>pixverse-t2v</code> (a warm/"live" cap) is fast and consistent (37&nbsp;s, matching its 37&nbsp;s p50). <code>ltx-t2v</code> is moderate (~61&nbsp;s). The slow t2v caps are the premium ones (<code>veo-t2v</code> p50 90&nbsp;s, <code>kling-*-t2v</code> 145–185&nbsp;s, <code>seedance-mini-t2v</code> 168&nbsp;s, <code>ray-32-t2v</code> 120&nbsp;s) — same capacity pattern as i2v, just less frequently hit.</p>
+
+  <h3>ffmpeg — fast; NOT the bottleneck (one sync-path bug)</h3>
+  <table>
+    <thead><tr><th>Path</th><th>Op</th><th>Result</th><th class="num">Latency</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td>sync</td><td>mux_audio</td><td><span class="tag t-bad">FAILED</span></td><td class="num">~instant</td><td class="err">Mime type video/mp4 does not support decoding</td></tr>
+      <tr><td>async</td><td>mux_audio</td><td><span class="tag t-good">done</span></td><td class="num">3s</td><td class="muted">identical inputs, succeeded</td></tr>
+    </tbody>
+  </table>
+  <p>ffmpeg finishing itself is <strong>fast (~3&nbsp;s)</strong> and cheap ($0.0025). It is <strong>not</strong> a compute bottleneck. Two real issues explain any ffmpeg "slowness" perception: (a) an <strong>MCP-layer bug on the synchronous mux path</strong> — the same inputs that succeed async fail sync with a mime-decode error, forcing retries; and (b) ffmpeg steps are <strong>downstream of slow i2v</strong> — a finishing job that waits on a 180&nbsp;s (or aborted) i2v clip inherits that latency.</p>
+
+  <h3>Control (image / TTS)</h3>
+  <p><code>flux-schnell</code> image returned in <strong>1.6&nbsp;s</strong>; <code>chatterbox-tts</code> in 8.3&nbsp;s. The fast MCP/image path is healthy — this rules out a broad MCP-layer or signer/gateway slowdown.</p>
+
+  <h2>3 · Server-side corroboration (get_perf_report, 7d — 160 attempts)</h2>
+  <table>
+    <thead><tr><th>Capability</th><th class="num">n</th><th class="num">Success</th><th class="num">p50</th><th class="num">p95</th><th>Read</th></tr></thead>
+    <tbody>
+      <tr><td><code>seedance-i2v-fast</code></td><td class="num">3</td><td class="num" style="color:var(--bad)">33%</td><td class="num">170.6s</td><td class="num">170.6s</td><td><span class="tag t-bad">broken</span></td></tr>
+      <tr><td><code>veo-i2v</code></td><td class="num">15</td><td class="num" style="color:var(--warn)">73%</td><td class="num">131.5s</td><td class="num">172.6s</td><td><span class="tag t-warn">flaky</span></td></tr>
+      <tr><td><code>kling-v3-turbo-i2v</code></td><td class="num">14</td><td class="num" style="color:var(--warn)">79%</td><td class="num">137.4s</td><td class="num">208.1s</td><td><span class="tag t-warn">flaky</span></td></tr>
+      <tr><td><code>hyperframes-render</code></td><td class="num">7</td><td class="num" style="color:var(--bad)">43%</td><td class="num">129.5s</td><td class="num">207.8s</td><td><span class="tag t-bad">broken</span></td></tr>
+      <tr><td><code>flux-dev</code> / <code>ltx-q-i2v</code> / <code>ltx-q-t2v</code> / <code>sfx</code> / <code>mirelo-sfx</code></td><td class="num">1–2</td><td class="num" style="color:var(--bad)">0%</td><td class="num">—</td><td class="num">—</td><td><span class="tag t-bad">0/n</span></td></tr>
+      <tr><td><code>pixverse-t2v</code></td><td class="num">21</td><td class="num" style="color:var(--good)">100%</td><td class="num">37.3s</td><td class="num">40.7s</td><td><span class="tag t-good">healthy</span></td></tr>
+      <tr><td><code>pixverse-i2v</code></td><td class="num">16</td><td class="num" style="color:var(--good)">100%</td><td class="num">48.5s</td><td class="num">135.8s</td><td><span class="tag t-warn">slow p95</span></td></tr>
+      <tr><td><code>kling-o3-i2v</code></td><td class="num">13</td><td class="num" style="color:var(--good)">100%</td><td class="num">169.8s</td><td class="num">260.5s</td><td><span class="tag t-warn">slow</span></td></tr>
+      <tr><td><code>music</code></td><td class="num">22</td><td class="num" style="color:var(--good)">100%</td><td class="num">46.6s</td><td class="num">138.3s</td><td><span class="tag t-warn">slow p95</span></td></tr>
+    </tbody>
+  </table>
+  <p><code>get_recent_failures</code> returned no scout-ledger entries (routing/gap failures are not the story). The 24h window had only 2 attempts (<code>gpt-image</code>, p50 <strong>225.7s</strong>) — low traffic, so the 7d window is the reliable corroborator. The 1h report of my own run recorded <code>seedance-i2v-fast</code> p50 175.9&nbsp;s (+134.5% vs SLA), <code>ltx-i2v</code> 56.5&nbsp;s, <code>ltx-t2v</code> 61.5&nbsp;s, <code>pixverse-t2v</code> 37.0&nbsp;s, <code>ffmpeg-mux</code> 2.6&nbsp;s.</p>
+
+  <h2>4 · The "live" tag correlates perfectly with success</h2>
+  <div class="card">
+    <p><code>list_capabilities</code> annotates caps that have a warm orchestrator right now as <strong>"live"</strong>, and separately lists 8 caps as <em>"registered — no live capacity, awaiting an orchestrator."</em> The correlation with reliability is near-perfect:</p>
+    <table>
+      <thead><tr><th>Warm ("live") caps → reliable/fast</th><th>No warm orchestrator → slow / failing</th></tr></thead>
+      <tbody><tr>
+        <td class="muted"><code>pixverse-t2v</code>, <code>pixverse-i2v</code>, <code>veo-i2v</code>, <code>kling-o3-i2v</code>, <code>kling-v3-turbo-i2v</code>, <code>nano-banana</code>, <code>kontext-edit</code>, <code>seedance-i2v</code>(premium), <code>music</code></td>
+        <td class="muted"><code>seedance-i2v-fast</code>, <code>ltx-i2v</code>, <code>ltx-t2v</code>, <code>flux-dev</code>, <code>seedance-mini-i2v/t2v</code>, <code>veo-t2v</code>, <code>gpt-image</code>, <code>ltx-q-*</code></td>
+      </tr></tbody>
+    </table>
+    <p>This is the mechanism behind "out of capacity": a request routed to a capability with no warm orchestrator either waits for a cold orchestrator (slow) or gets rejected. Historically this surfaced as explicit orchestrator <code>HTTP 503 "No capacity available for capability"</code> (see <code>USER-E2E-DEMO-RESULTS.md</code> Runs 19–20); today, for the tested caps, it surfaces as a <strong>~180&nbsp;s timeout abort</strong> instead. Same layer, same cause.</p>
+  </div>
+
+  <h2>5 · Request path (where the ~180s ceiling lives)</h2>
+  <div class="flow">Storyboard MCP  ──►  sdk.daydream.monster (SDK service)  ──►  signer.daydream.live (lv2v)
+                                   │
+                                   ▼
+              Livepeer orchestrator  /process/request/{cap}   ◄── per-capability capacity
+                                   │                                (warm "live" orch or not)
+                                   ▼
+                       fal upstream model (fal-ai/… , bytedance/… , luma/…)
+
+  Hard ~180s abort  ⟵  observed at SDK /inference: "This operation was aborted"
+  (also seen historically: gpt-image real-gen orch timeout 181s)</div>
+  <p class="muted">Production runs the stable Daydream lv2v path (per <code>STORYBOARD-SIGNER-ROUTING.md</code>; the pymthouse per-key path is canary-only). No signer/gateway latency was observed in this run — the fast image/TTS/ffmpeg calls travel the same chain and return in seconds, so the signer and MCP layers are exonerated as the primary cause.</p>
+
+  <h2>6 · Ranked root-cause hypotheses</h2>
+  <ol class="rank">
+    <li><strong>Livepeer orchestrator / GPU capacity, per-capability</strong> — <span class="tag t-acc">strongest evidence</span><br>
+      <span class="muted">The "live"/no-orchestrator split predicts success almost exactly. <code>seedance-i2v-fast</code> (no warm orch) = 33% today and 33% over 7d; warm caps (<code>pixverse-t2v/i2v</code>, <code>veo-i2v</code>, <code>kling-o3-i2v</code>) = 100%. Historical repo runs show the identical layer failing as explicit 503 "no capacity." This is the primary cause.</span></li>
+    <li><strong>~180s hard timeout in the SDK /inference chain</strong> — <span class="tag t-acc">converts "slow" into "failed"</span><br>
+      <span class="muted">Two i2v jobs aborted at exactly 180–181&nbsp;s with "This operation was aborted"; one completed at 176&nbsp;s. gpt-image historically timed out at 181&nbsp;s. Any cap whose real processing sits near 180&nbsp;s (the entire seedance i2v family) lands on a coin-flip. This amplifies #1 and is why users see hard failures, not just waits.</span></li>
+    <li><strong>fal upstream model capacity</strong> — <span class="tag t-warn">contributor, not primary</span><br>
+      <span class="muted">Cannot be fully separated from #1 at this layer, but the same provider (fal) serves both the fast caps (<code>pixverse</code>, <code>veo</code>) and the broken ones — the differentiator is the Livepeer orchestrator availability, not fal per se. Lower confidence that fal is the driver.</span></li>
+    <li><strong>MCP layer</strong> — <span class="tag t-warn">one real bug, otherwise healthy</span><br>
+      <span class="muted">Image path 1.6&nbsp;s, polling sub-second, cost attribution clean. The one defect: the <em>synchronous</em> <code>mux_audio</code> path fails with "Mime type video/mp4 does not support decoding" while the async path succeeds in 3&nbsp;s on identical inputs.</span></li>
+    <li><strong>Signer / gateway</strong> — <span class="tag t-good">not implicated</span><br>
+      <span class="muted">No added latency observed; prod is on the stable Daydream lv2v path.</span></li>
+    <li><strong>ffmpeg (local/remote finishing)</strong> — <span class="tag t-good">not a bottleneck</span><br>
+      <span class="muted">3&nbsp;s per mux. Any perceived slowness is inherited from slow i2v inputs upstream, not ffmpeg compute.</span></li>
+  </ol>
+
+  <h2>7 · Worst offenders (ranked)</h2>
+  <table>
+    <thead><tr><th>#</th><th>Capability</th><th>Modality</th><th>Symptom</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>seedance-i2v-fast</code></td><td>i2v</td><td>33% success; 176–181s (advertised 30s); the <code>prefer_fast</code> animate default → users routed straight into it</td></tr>
+      <tr><td>2</td><td><code>seedance-i2v</code> / <code>seedance-mini-i2v</code></td><td>i2v</td><td>p50 238s / 185s — structurally above the 180s ceiling</td></tr>
+      <tr><td>3</td><td><code>veo-i2v</code>, <code>kling-v3-turbo-i2v</code>, <code>hyperframes-render</code></td><td>i2v</td><td>73% / 79% / 43% success — flaky at scale</td></tr>
+      <tr><td>4</td><td><code>gpt-image</code></td><td>image (heavy)</td><td>p50 225s; historical 181s timeout — an image cap behaving like slow video</td></tr>
+      <tr><td>5</td><td><code>ffmpeg-mux</code> (sync)</td><td>finishing</td><td>MCP bug: sync mux mime-decode failure (async works)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>8 · Recommendations</h2>
+  <h3>Quick wins (Storyboard MCP team)</h3>
+  <div class="win"><strong>Re-route the fast animate tier off <code>seedance-i2v-fast</code>.</strong> <code>prefer_fast:true</code> for <code>animate</code> currently routes to the single worst cap. Point it at <code>pixverse-i2v</code> (warm/"live", 100% success, ~48s) instead. Single highest-impact change. <span class="muted">Owner: Storyboard routing.</span></div>
+  <div class="win"><strong>Stop billing aborted i2v jobs.</strong> The two 180s timeouts were still charged $0.378. A timeout/abort should not capture cost. <span class="muted">Owner: Storyboard billing/job lifecycle.</span></div>
+  <div class="win"><strong>Fix the sync <code>mux_audio</code> mime-decode bug</strong> (or transparently fall through to the async path that already works). <span class="muted">Owner: Storyboard ffmpeg finishing.</span></div>
+  <div class="win"><strong>Pre-flight capacity check.</strong> Before dispatching video, check the target cap's "live" flag from <code>list_capabilities</code>; if cold, warn/steer to a warm sibling or raise the ETA up front rather than failing at 180s. <span class="muted">Owner: Storyboard routing.</span></div>
+
+  <h3>Structural (Livepeer network / infra)</h3>
+  <div class="struct"><strong>Warm-orchestrator coverage for the seedance i2v family.</strong> The root cause is no warm GPU capacity for these caps. Either provision warm orchestrators or de-list <code>seedance-i2v-fast</code> from "fast" routing until it has one. <span class="muted">Owner: Livepeer orchestrator/capacity + Daydream infra.</span></div>
+  <div class="struct"><strong>Raise or tier the ~180s SDK /inference abort.</strong> Models with p50/p95 legitimately &gt;180s (seedance, kling-o3, ray) are guaranteed to fail against a 180s ceiling. Match the timeout to the cap's real SLA, or async-hand-off so long renders finish server-side instead of aborting. <span class="muted">Owner: SDK service (simple-infra).</span></div>
+  <div class="struct"><strong>Count client-side aborts in <code>get_perf_report</code>.</strong> Shadow telemetry under-reports the 180s timeouts, hiding the true failure rate from operators. <span class="muted">Owner: Storyboard telemetry.</span></div>
+
+  <h2>9 · Spend</h2>
+  <table>
+    <thead><tr><th>Capability</th><th class="num">Jobs</th><th class="num">Cost</th></tr></thead>
+    <tbody>
+      <tr><td><code>seedance-i2v-fast</code> (2 of 3 failed, still billed)</td><td class="num">3</td><td class="num">$0.6300</td></tr>
+      <tr><td><code>ltx-t2v</code></td><td class="num">2</td><td class="num">$0.4200</td></tr>
+      <tr><td><code>pixverse-t2v</code></td><td class="num">1</td><td class="num">$0.3150</td></tr>
+      <tr><td><code>ltx-i2v</code></td><td class="num">1</td><td class="num">$0.2520</td></tr>
+      <tr><td><code>ffmpeg-mux</code></td><td class="num">1</td><td class="num">$0.0025</td></tr>
+      <tr><td><code>flux-schnell</code> (control image)</td><td class="num">1</td><td class="num">$0.0032</td></tr>
+      <tr><td><code>chatterbox-tts</code> (control audio)</td><td class="num">1</td><td class="num">$0.0018</td></tr>
+      <tr><td style="font-weight:650">Total</td><td class="num" style="font-weight:650">10</td><td class="num" style="font-weight:650">$1.62</td></tr>
+    </tbody>
+  </table>
+  <p><small>Session-scoped total (video/ffmpeg jobs): $1.6195 — of which $0.378 was spent on the two <em>failed</em> i2v renders. Under the ~$2 budget.</small></p>
+
+  <p class="sub" style="margin-top:34px">Investigation only — no product code changed. Data captured 2026-07-20 15:16–15:21 PDT via Storyboard MCP against production.</p>
+
+</div>
+</body>
+</html>
