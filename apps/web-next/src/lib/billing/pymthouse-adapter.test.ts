@@ -7,7 +7,6 @@ const getUsage = vi.fn();
 const getUserSubscription = vi.fn();
 const listBillingProducts = vi.fn();
 const getSignerRouting = vi.fn();
-const mintUserSignerJwtForExternalUser = vi.fn();
 const createPymthouseApiKey = vi.fn();
 const globalSignerExchangeConfig = vi.fn();
 const exchangeApiKeyForSignerSession = vi.fn();
@@ -21,7 +20,6 @@ vi.mock('@/lib/pymthouse-client', () => ({
     getSignerRouting,
   }),
   globalSignerExchangeConfig: () => globalSignerExchangeConfig(),
-  mintUserSignerJwtForExternalUser: (input: unknown) => mintUserSignerJwtForExternalUser(input),
   exchangeApiKeyForSignerSession: (input: unknown) => exchangeApiKeyForSignerSession(input),
 }));
 
@@ -183,7 +181,6 @@ describe('PymthouseAdapter.resolveSignerEndpoint (per-key remote signer, composi
       url: 'https://signer-dmz.pymthouse.com',
       headers: { Authorization: 'Bearer app_3b386c81a1db1169fd2c3986_pmth_composite_key_secret' },
     });
-    expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
   });
 
   it('uses the per-instance client routing when one is injected', async () => {
@@ -303,7 +300,6 @@ describe('PymthouseAdapter.resolveSignerEndpoint (NEW api-key signer-session exc
       url: 'https://signer-dmz.pymthouse.com',
       headers: { Authorization: 'Bearer eyJhbGciOiJSUzI1NiJ9.signer.sig' },
     });
-    expect(mintUserSignerJwtForExternalUser).not.toHaveBeenCalled();
   });
 
   it('bare pmth_ key does NOT require signer routing (regression: exchange supplies its own url)', async () => {

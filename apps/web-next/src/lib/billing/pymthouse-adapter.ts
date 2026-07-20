@@ -264,25 +264,31 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   }
 
   /**
-   * Per-key remote signer (endpoint form). Resolve the app's remote signer DMZ
-   * via the Builder API `GET /api/v1/apps/{clientId}/signer/routing`
-   * (`getSignerRouting()`), then return the {@link SignerSessionEndpoint} form:
-   * the DMZ `url` + an `Authorization: Bearer <jwt>` header carrying a freshly
-   * minted Builder USER-TOKEN JWT (via {@link mintUserSignerJwtForExternalUser}).
+   * Per-key remote signer (endpoint form). Returns the {@link SignerSessionEndpoint}
+   * form: the DMZ `url` + an `Authorization: Bearer …` header carrying a credential
+   * the remote signer DMZ identity webhook actually accepts.
    *
-   * Per the pymthouse "User-scoped JWTs" doc ("Passing the token to downstream
-   * services") and the signer-routing `directDmz` pattern, the token the remote
-   * signer DMZ validates is the Builder user-token (`/users/{id}/token`,
-   * `sign:job`) — NOT the token-exchange "Option A" `sign:mint_user_token`
-   * clearinghouse mint, which currently `500`s upstream. The DMZ identity
-   * webhook is OIDC/JWT-only: it verifies the bearer as a JWT (JWKS, `aud` =
-   * issuer, `client_id`/`azp`, `scope` ⊇ `sign:job`, `sub` = app-user) — an
-   * opaque `pmth_…` session is rejected with `Invalid JWT` (502). So we forward
-   * the user-token JWT here, NOT the opaque `session.accessToken`.
-   * `mintSignerSession` (the flag-OFF default/Daydream path) still mints the
-   * opaque bundle byte-for-byte; the JWT is produced ONLY inside this
-   * already-flag-gated method (front-door `PER_KEY_REMOTE_SIGNER_FLAG`,
-   * fail-safe on error).
+   * The DMZ identity webhook is JWT / composite-key only: it verifies the bearer
+   * as either a signer JWT (JWKS, `aud` = issuer, `client_id`/`azp`,
+   * `scope` ⊇ `sign:job`, `sub` = app-user) OR a composite
+   * `app_<24hex>_pmth_<secret>` API key (which the clearinghouse exchanges). A
+   * bare opaque `pmth_…` session is REJECTED with `Invalid JWT` on the billed
+   * `/generate-live-payment` webhook (the looser `/sign-orchestrator-info`
+   * endpoint accepts it, which historically masked the asymmetry). So this method
+   * NEVER forwards the opaque `session.accessToken`; `mintSignerSession` (the
+   * flag-OFF default / Daydream path) still mints that opaque bundle byte-for-byte
+   * for callers that use `/sign-orchestrator-info`, but the endpoint form emitted
+   * here is produced ONLY inside this already-flag-gated method (front-door
+   * `PER_KEY_REMOTE_SIGNER_FLAG`, fail-safe on error).
+   *
+   * Credential resolution (in preference order):
+   *  1. API-key config (`apiKeyExchange` or the global `PYMTHOUSE_API_KEY`):
+   *     a composite key is forwarded verbatim as the Bearer (identity webhook
+   *     exchanges it); a bare `pmth_…` key is exchanged via
+   *     `exchangeApiKeyForSignerSession` for a signer JWT + `signerUrl`.
+   *  2. Legacy fallback (no API-key config): mint a fresh composite
+   *     `app_<24hex>_pmth_<secret>` key via `createPymthouseApiKey` and forward
+   *     it as the Bearer.
    *
    * The DMZ URL is the direct-DMZ signer API (`patterns.directDmz.signerApiUrl`),
    * falling back to `routing.remoteDmzUrl`/`routing.signerApiUrl`, validated by
