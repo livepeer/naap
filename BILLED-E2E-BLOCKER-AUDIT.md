@@ -1407,3 +1407,67 @@ signer meters.
 **Net:** to meter correctly per unit, the fix must (a) emit `unit_kind` + true unit quantity from the
 signer event, (b) pass them through the collector, and (c) add an OpenMeter meter that sums the quantity
 grouped by `unit_kind` (or price by unit). Today none of the three hops carry it.
+
+---
+
+## byoc-staging-1 orch — EXACT branch / commit / image (resolved 2026-07-20)
+
+Resolves the prior ambiguity ("deploy branch `fix/byoc-e2e-v1-and-type-byoc` @ `8ddd08ea`" vs pinned
+image tag `feat-remote-signer-byoc-v2"). **The two are different lines — `8ddd08ea` is NOT what the
+pinned image contains.**
+
+### Definitive answer (the intended/pinned build)
+| Field | Value | Confidence |
+|---|---|---|
+| **Container image (pinned)** | `livepeer/go-livepeer:feat-remote-signer-byoc-v2` | HIGH — `environments/staging/byoc.values.yaml:34` (prod pins the same tag: `environments/production/byoc.values.yaml:27`) |
+| **Git branch** | `feat/remote-signer-byoc-v2` (origin = `github.com/livepeer/go-livepeer`) | HIGH — branch exists; Docker tag = branch name with `/`→`-` |
+| **Commit SHA** | `be5a669e1f13d03b1489be75a4305fd7d81da331` (`be5a669e`, 2026-05-13) | HIGH |
+| **Manifest digest** | `sha256:9f1abba6c239040ccacdc630ad6a3a2e695db929e11d6362777ea62d03550eb3` (amd64 layer `sha256:3af810ab871599ee3f89158ebe717ad8f28b5df67abe1d309ac7bcb0d387aa94`) | HIGH — Docker Hub public API |
+
+### Build mapping (branch/commit → image tag)
+- go-livepeer CI `docker.yaml:48-58` uses `docker/metadata-action@v5` with `type=ref,event=branch`,
+  which sanitizes branch `feat/remote-signer-byoc-v2` → tag `feat-remote-signer-byoc-v2`, pushing to
+  `livepeer/go-livepeer` (`docker.yaml:51`). `GIT_REVISION` is baked in as a build-arg / OCI label
+  (`docker.yaml:85`, `docker/Dockerfile:63`).
+- The v2 branch even has commit `584701d8 "Trigger CI build for Docker image"` — the branch was pushed
+  specifically to produce this image.
+- Docker Hub public API: tag `feat-remote-signer-byoc-v2` `last_pushed = 2026-05-13T23:03:42Z`, i.e. the
+  same day as the branch tip `be5a669e` (2026-05-13 15:52 -0700 = 22:52Z; CI pushed ~11 min later). The
+  tag has **not** been rebuilt since → still `be5a669e`.
+- No `sha-8ddd08ea` / `8ddd08e` tag exists on Docker Hub → the local dev-branch tip `8ddd08ea` was
+  **never** built into this image.
+
+### Why `8ddd08ea` ≠ deployed
+`fix/byoc-e2e-v1-and-type-byoc` @ `8ddd08ea` (2026-07-10) is a **newer, divergent** dev line, not the
+image source. Relative to `feat/remote-signer-byoc-v2`: **17 ahead / 119 behind**, merge-base
+`9e68815a` (`git rev-list --left-right --count feat/remote-signer-byoc-v2...fix/byoc-e2e-v1-and-type-byoc`).
+`be5a669e` does contain the core BYOC stack (V1 structured signing, BYOC pricing in orchestrator,
+always-advertise CapabilitiesPrices, `/sign-byoc-job` endpoint), so it is a legitimate BYOC-v2 build —
+just older than the local working tree.
+
+### Residual uncertainty (needs VM access to close)
+The pin is **documentation-only** in the deploy path: `deploy-byoc.sh` never sets `ORCH_IMAGE` and does
+not read `byoc_orch_image` from `byoc.values.yaml`; `docker-compose/byoc-stack.yaml:3` therefore falls
+back to `${ORCH_IMAGE:-livepeer/go-livepeer:ja-serverless}` unless an operator exported `ORCH_IMAGE`
+manually in `/opt/byoc/.env` on the VM (`setup-byoc.sh:38` defaults to `:master`). So the *actual*
+running image can only be confirmed on the box. Live probe of `https://byoc-staging-1.daydream.monster:8935`
+returns `404` behind Caddy (no unauthenticated version endpoint; CLI `:7935/status` is firewalled — ufw
+opens only 22/80/8935/9090). **Command for the user to confirm the live commit:**
+
+```bash
+gcloud compute ssh byoc-staging-1 --zone=us-west1-b --project=livepeer-simple-infra --command="
+  grep -E 'ORCH_IMAGE' /opt/byoc/.env 2>/dev/null;
+  sudo docker inspect byoc-orch --format '{{.Config.Image}}';
+  sudo docker inspect byoc-orch --format '{{json .Config.Labels}}' | tr ',' '\n' | grep -i revision;
+  sudo docker image inspect \$(sudo docker inspect byoc-orch --format '{{.Image}}') --format '{{json .RepoDigests}}'
+"
+```
+Expected if the pin is honored: image `livepeer/go-livepeer:feat-remote-signer-byoc-v2`, OCI label
+`org.opencontainers.image.revision = be5a669e…`, RepoDigest matching `sha256:9f1abba6…`.
+
+### TL;DR
+- **branch** = `feat/remote-signer-byoc-v2`  · **commit** = `be5a669e` · **image** =
+  `livepeer/go-livepeer:feat-remote-signer-byoc-v2` @ `sha256:9f1abba6…` (built 2026-05-13).
+- `8ddd08ea` / `fix/byoc-e2e-v1-and-type-byoc` is the **local dev branch, not the deployed build**.
+- Only open item: confirm the VM actually pulled the pinned tag (deploy script doesn't wire it) via the
+  `gcloud … docker inspect` command above.
