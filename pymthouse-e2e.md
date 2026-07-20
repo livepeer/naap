@@ -119,8 +119,8 @@ workflow prefers, but the scripts consume the right-column names.
 |---|---|---|
 | `PYMTHOUSE_SIGNER_URL` | `BYOC_SIGNER_URL` | Signer base URL, e.g. `https://pymthouse-signer-test-production.up.railway.app` |
 | `PYMTHOUSE_COMPOSITE_BEARER` | `COMPOSITE_BEARER` | `Bearer app_<24hex>_pmth_<secret>` (composite; **not** the opaque `pmth_` session) |
-| `ORCH_URL` | `BYOC_ORCH_URL` | Fully-priced control orch. Default `https://byoc-staging-1.daydream.monster:8935` |
-| `ORCH_URL` (LR) | `LR_ORCH` | LR orch (zero-priced). Default `https://liverunner-staging-1.daydream.monster:8935` |
+| `ORCH_URL` | `BYOC_ORCH_URL` | Target orch for the billed path. Fully-priced control default `https://byoc-staging-1.daydream.monster:8935`; set to the LR host to test LR (see LR scenario) |
+| `ORCH_URL` (LR) | `LR_ORCH` | LR orch (zero-priced, DNS `136.66.21.17`). Default `https://liverunner-staging-1.daydream.monster:8935`. Read by `run55-lr-*` / `run57` |
 | — | `BYOC_CAPABILITY` | Single cap for the submit probe, e.g. `flux-schnell` |
 | — | `CAP_LIST` | Comma list for multi-cap, e.g. `flux-schnell,flux-dev,nano-banana` |
 | — | `GATEWAY_SRC` | Path to gateway `src`, default `../../livepeer-python-gateway/src` (relative to `scripts/`) |
@@ -197,7 +197,8 @@ LR_ORCH="$LR_ORCH" GATEWAY_SRC="$GATEWAY_SRC" \
 
 Expected: `byoc-staging-1` shows non-zero per-cap `PriceInfo` and 136
 `capabilities_prices`; `liverunner-staging-1` shows `0/1` and `0` (the known LR
-blocker).
+blocker). For the full LR walkthrough see
+[Scenario: Test against `liverunner-staging-1`](#scenario-test-against-liverunner-staging-1-lr-orch).
 
 ### 4. Explicit auth-vs-payment stage split (LR path, PR #430)
 
@@ -232,6 +233,87 @@ is **blocked** on our infra (no cap-35 runner attached to a chain-matched orch).
 | generation | `submit_byoc_job` 200 + real `image_url` | 400 `Could not parse payment` / `Could not verify job creds` |
 | metering | OpenMeter row `byoc/<cap>` (+1 req, +µUSD) | `unknown` label; no delta |
 
+## Scenario: Test against `liverunner-staging-1` (LR-orch)
+
+A first-class, repeatable scenario for pointing the **entire** billed path at the
+**LR orchestrator** instead of the priced control. This is the Run 57 setup and
+its outcome is **known and expected today**: PR #430's composite-bearer auth
+**holds**, and the only failure is the LR-orch's zero-pricing config.
+
+### Env config (LR-orch)
+
+Reuse the composite bearer + signer + naap-key vars already documented, and point
+the orch at the LR host:
+
+```bash
+export BYOC_ORCH_URL="https://liverunner-staging-1.daydream.monster:8935"  # LR-orch (DNS 136.66.21.17)
+export LR_ORCH="https://liverunner-staging-1.daydream.monster:8935"        # run55-lr-* / run57 read this
+# already set: BYOC_SIGNER_URL, COMPOSITE_BEARER, NAAP_KEY, NAAP_VALIDATE_URL, GATEWAY_SRC
+```
+
+### Commands (LR path — only real scripts in the repo)
+
+```bash
+# 1. validate front door → composite bearer in endpoint form
+curl -sS -X POST "$NAAP_VALIDATE_URL" -H "Authorization: Bearer $NAAP_KEY" \
+  | jq '.data.signerSession | keys'      # expect ["headers","url"]
+
+# 2. explicit auth-vs-payment stage split on the LR path (the key probe)
+LR_ORCH="$LR_ORCH" GATEWAY_SRC="$GATEWAY_SRC" \
+  "$GWPY" scripts/run57-lr-auth-vs-pay.py
+
+# 3. confirm LR advertises zero price (vs byoc control), per-cap + generic
+LR_ORCH="$LR_ORCH" GATEWAY_SRC="$GATEWAY_SRC" "$GWPY" scripts/run55-lr-orchinfo-diag.py
+LR_ORCH="$LR_ORCH" GATEWAY_SRC="$GATEWAY_SRC" "$GWPY" scripts/run55-lr-generic-diag.py
+
+# 4. billed multi-cap against LR (expect paygen 400 "missing or zero priceInfo")
+CAP_LIST='flux-schnell,flux-dev,gpt-image' BYOC_ORCH_URL="$LR_ORCH" \
+  GATEWAY_SRC="$GATEWAY_SRC" "$GWPY" scripts/run53-multicap-probe.py
+
+# 5. full submit against LR (expect 400 "Could not verify job creds")
+BYOC_CAPABILITY=flux-schnell BYOC_ORCH_URL="$LR_ORCH" \
+  GATEWAY_SRC="$GATEWAY_SRC" "$GWPY" scripts/run50-direct-signer-probe.py
+```
+
+### Expected result per stage (Run 57 reality)
+
+| Stage | Expected on LR-orch | Evidence |
+|---|---|---|
+| 1. NaaP validate | ✅ **PASS** | 200, `valid:true`, `providerSlug:pymthouse`, `signerSession {url,headers}` |
+| 2. Composite bearer (PR #430) | ✅ **PASS** | `headers.Authorization` = `Bearer app_…_pmth_…` (composite, **not** opaque `pmth_`) |
+| 3. Signer auth `/sign-orchestrator-info` | ✅ **PASS** | `get_orch_info(liverunner-staging-1)` signed 200, composite **accepted**, recipient `0x180859c3…`, `ticket_params` present — **NOT** 401 `not a JWT` |
+| 4. Billed `/generate-live-payment` | ❌ **FAIL — LR config** | **HTTP 400 `missing or zero priceInfo`** — LR advertises `PriceInfo 0/1` + empty `capabilities_prices`; composite accepted, price is the blocker |
+| 5. Generation `submit_byoc_job` | ❌ **FAIL — LR config** | **HTTP 400 `Could not verify job creds`** (~0.9 s) — gateway skips payment on `face_value==0`, orch rejects the unpaid job (downstream of stage 4) |
+| 6. Metering | ✅ **$0 (expected)** | LR probes mint no payment → no OpenMeter delta, no `unknown` row created |
+
+### Callout — this is the expected/known outcome
+
+> **The LR failure is expected and is NOT a NaaP/auth bug.** PR #430's
+> composite-bearer path is fully exercised and **PASSES** on the LR-orch (validate
+> emits the composite; the signer accepts it at `/sign-orchestrator-info`; the
+> billed endpoint is reached and returns a **pricing** error, not `401 not a
+> JWT`). The **only** reason billing doesn't complete on `liverunner-staging-1` is
+> its **pre-existing zero-pricing config** — structural orchestrator infra owned
+> by **John / orch-infra**, unrelated to NaaP or PR #430.
+
+### Contrast with the `byoc-staging-1` control
+
+Run the same bearer against the priced control to prove the stack is intact:
+
+```bash
+BYOC_CAPABILITY=flux-schnell BYOC_ORCH_URL="https://byoc-staging-1.daydream.monster:8935" \
+  GATEWAY_SRC="$GATEWAY_SRC" "$GWPY" scripts/run50-direct-signer-probe.py
+```
+
+| Orch | Stage 4 payment | Stage 5 generation | Meaning |
+|---|---|---|---|
+| `liverunner-staging-1` (LR) | ❌ 400 `missing or zero priceInfo` | ❌ 400 `Could not verify job creds` | **Expected** — LR zero-priced (John/orch-infra) |
+| `byoc-staging-1` (control) | ✅ 200, ~281 B `net.Payment` | ✅ 200 + real fal.media image | Proves composite/signer/payment/#3993 stack works |
+
+Same composite bearer, same signer, same code — **only the orch differs**. LR
+failing on price while byoc succeeds is the signature of an LR-orch config gap,
+not a client/auth regression.
+
 ## Interpreting results
 
 - **Composite bearer passes `/generate-live-payment`.** The
@@ -244,11 +326,12 @@ is **blocked** on our infra (no cap-35 runner attached to a chain-matched orch).
 - **`byoc-staging-1` is the fully-priced control.** It advertises 136 per-cap
   prices with the #3993 overhead fix (advertised == bound × 1.01), so payment +
   generation complete and return real images.
-- **LR-orch (`liverunner-staging-1`) zero-pricing is a known config blocker.**
-  It advertises `PriceInfo 0/1` and empty `capabilities_prices` for every cap, so
-  `/generate-live-payment` → 400 `missing or zero priceInfo` and generation never
-  runs. Auth (PR #430) is fine; the gap is orch config. **Owner: John / orch
-  infra.**
+- **LR-orch (`liverunner-staging-1.daydream.monster:8935`, DNS `136.66.21.17`)
+  zero-pricing is a known config blocker.** Its signature: `PriceInfo 0/1` and
+  **empty `capabilities_prices`** for every cap (vs 136 priced caps on
+  `byoc-staging-1`), so `/generate-live-payment` → 400 `missing or zero priceInfo`
+  and generation never runs. Auth (PR #430) is fine; the gap is orch config.
+  **Owner: John / orch infra.** See the dedicated LR-orch scenario above.
 - **Metering fee is a floor on the byoc path.** OpenMeter meters at payment-gen
   (`platform_ingest`) at a ~1 µUSD/req floor; the true per-cap tariff (and the
   ~8.33× flux-dev:flux-schnell ratio) is authoritative on the **wei / on-chain**
