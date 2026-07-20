@@ -1061,3 +1061,34 @@ Detail: `USER-E2E-DEMO-RESULTS.md` Run 54.
 - `USER-E2E-DEMO-RESULTS.md` — Run 45/46 detailed probes
 - `BPP-VALIDATE-V2-NAAP-DISCOVERY.md` — validate/discovery contract
 - `SIGNER-ORCH-DEPLOY-PLAN.md` — signer-side deploy targets
+
+---
+
+# Run 55 (CORRECTED SCOPE) — billed one-shot BYOC path against the LR-orch `liverunner-staging-1` (2026-07-19)
+
+**Goal:** repeat the Runs 50–54 billed BYOC payment path (composite bearer → test-production signer → caps-aware `get_orch_info` → `/generate-live-payment` → `/process/request` → gen) but target the **Live Runner orchestrator** instead of `byoc-staging-1`. (Distinct from the prior wrong-scope Run 55 which tested native `type=lv2v` streaming.)
+
+## LR-orch = `https://liverunner-staging-1.daydream.monster:8935`
+
+- **Not in discovery raw** (that endpoint lists only 29 public streamdiffusion orchs, no `lr` category, no `*-staging-1` hosts). LR-orch comes from the NaaP `lr` discovery category (PR #428, commit `59a68d43`), which is **not in the current branch `feat/opaque-session-signer-endpoint` ancestry**.
+- **Reachable** via gRPC; recipient `0x180859c3…` (same wallet as byoc-staging-1), transcoder = itself, `ticket_params` present. DNS `136.66.21.17` (byoc-staging-1 = `8.229.77.130`).
+
+## Result: billed path **FAILS** on LR-orch — root cause **zero pricing**
+
+| probe | LR-orch | byoc-staging-1 |
+|---|---|---|
+| generic `PriceInfo` | **0/1** | 101/1 |
+| `capabilities_prices` | **0 (empty)** | 136 |
+| caps-aware `PriceInfo` (flux-schnell/dev/gpt-image/kontext) | **all 0/1** | 1060500 / 8837500 / 742350 / 14140000 |
+| `/generate-live-payment` | **400 "missing or zero priceInfo"** | 200 valid `net.Payment` |
+| `submit_byoc_job` | **400 "Could not verify job creds"** (unpaid; gateway skips payment on face_value=0) | **200 + real image** |
+
+- **#3993 overhead fix on LR-orch?** **N/A / indeterminate.** LR-orch advertises no per-cap price at all, so there is no advertised-vs-bound overhead relationship to observe. The #3993 `invalid recipientRand` mismatch does **not** recur; a stricter zero-price blocker halts the path earlier.
+- **Labels/metering (this run):** OpenMeter +1 req/+1 µUSD total = the **control** byoc-staging-1 flux-schnell gen (`byoc/flux-schnell`, label ✅). **LR-orch probes metered $0** (no payment minted; no new/`unknown` rows).
+- **Regression check:** byoc-staging-1 still passes end-to-end (real jpg), so the composite/signer/#3993 stack is intact — the failure is LR-orch-specific.
+
+## Blocker + owner
+
+**P0 — `liverunner-staging-1` is not configured for one-shot BYOC billing.** Zero `PriceInfo`, empty `capabilities_prices`, rejects BYOC job creds for fal caps. **Owner: John / orch infra.** Either (a) deploy it with byoc-staging-1-parity BYOC per-cap pricing + `#3980`/`#3993` image + registered fal-cap workers, or (b) if it is only a native live-video-to-video orch, scope the #428 `lr` discovery category to native LV2V caps rather than dual-homing one-shot fal caps that it can't price/serve. **Spend: ≈ $0.000001** (control image only).
+
+**Scripts:** `scripts/run55-lr-orchinfo-diag.py`, `scripts/run55-lr-generic-diag.py` (+ reused `run53-multicap-probe.py`, `run50-direct-signer-probe.py`).

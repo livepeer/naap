@@ -4753,3 +4753,274 @@ CAP_LIST='ideogram-v4,gpt-image,ltx-i2v,inworld-tts,gemini-text,music' \
 GATEWAY_SRC=../livepeer-python-gateway/src BYOC_CAPABILITY=ideogram-v4 "$GWPY" scripts/run50-direct-signer-probe.py
 ```
 
+---
+
+# Run 55 — 2026-07-19 — LIVE-RUNNER (LV2V) orchestrator path E2E (vs byoc one-shot)
+
+**Goal:** verify the **live-runner** path — native `live-video-to-video` streaming (LV2V) via
+`write_frames.py` / `start_lv2v`, `CapabilityId.LIVE_VIDEO_TO_VIDEO=35`, `streamdiffusion`, recurring
+`PaymentSession(type="lv2v")` — passes the same generation / price / metering-label / metering-unit checks
+the one-shot BYOC path passed in Runs 50–54. Billed composite direct-signer path (unaffected by validate).
+`scripts/run55-lv2v-probe.py`. Orch `byoc-staging-1.daydream.monster:8935` (recipient `0x180859c3…`),
+sender/signer wallet `0x6CAE3C7a…`. Secrets env-only, never committed.
+
+## TL;DR
+
+- **Live-runner path testable? PARTIAL.** The **LV2V payment envelope, price seam, and metering label/fee
+  are fully verifiable and PASS**, but a **billed end-to-end streamed generation is NOT reachable on our
+  infra** — `byoc-staging-1` has **no `streamdiffusion` / cap-35 runner attached** (advertises 136 BYOC
+  `CapabilitiesPrices`, **zero** for `live-video-to-video`). `POST /live-video-to-video` → **HTTP 503
+  `insufficient capacity`**. The public streamdiffusion orchs DO run native LV2V but are **Livepeer
+  mainnet** (different recipients, our test-production signer wallet has no reserve there ⇒ unbillable).
+- **Path envelope differs from byoc, and both work at the signer:** `type=lv2v` + cap-35 capabilities
+  protobuf is **accepted by the same pymthouse webhook/signer** that accepts `type=byoc`; it mints a valid
+  **279 B `net.Payment`** with `ExpectedPrice == orch price_info` and `segCreds` — the recurring
+  `PaymentSession` seam is sound.
+- **Metering label for LV2V is CORRECT when the model is carried** (contradicting the earlier "always
+  unknown" worry): our 3 billed `type=lv2v` payment-gens for model `streamdiffusion` landed **exactly** on
+  `live-video-to-video / streamdiffusion` (**+3 reqs, +945 µUSD**), **not** `unknown`. The `unknown` bucket
+  is populated only by callers that **omit** the model id.
+- **Metering fee/unit:** LV2V meters a **real, model-varying per-request fee** (`streamdiffusion` ≈ 315–368
+  µUSD/req, `streamdiffusion-sdxl` ≈ 4 584 µUSD/req, `streamdiffusion-sdxl-v2v` ≈ 4 941 µUSD/req) —
+  **NOT** the flat 1 µUSD floor the byoc path uses. But it is metered **once per payment cycle**
+  (`platform_ingest`), so it is a coarse per-payment proxy, **not a true per-pixel-second**
+  (width×height×fps×seconds) quantity.
+
+## What the live-runner path is (code, `livepeer-python-gateway`)
+
+| element | where | note |
+|---|---|---|
+| `start_lv2v(...)` | `src/livepeer_gateway/lv2v.py` | selects orch with cap 35, `POST {transcoder}/live-video-to-video`, returns `manifest_id`/`publish_url`/`subscribe_url` |
+| `PaymentSession(type="lv2v")` | `remote_signer.py` | `POST {signer}/generate-live-payment` with `type:"lv2v"` + cap-35 `capabilities` protobuf |
+| recurring payments | `lv2v._payment_sender` | one payment per trickle output segment, throttled to **≥ 5 s** (matches "~every few s" note) |
+| `write_frames.py` | `examples/` | pushes raw frames to `publish_url` via `MediaPublish` after `start_lv2v` |
+| cap id | `capabilities.CapabilityId.LIVE_VIDEO_TO_VIDEO = 35` | `build_capabilities(35, "streamdiffusion")` |
+
+## Probe results (`scripts/run55-lv2v-probe.py`)
+
+### Part 1 — does `byoc-staging-1` advertise LV2V (cap 35)? — **NO**
+
+| item | value |
+|---|---|
+| orch reachable (signed cap-35 `GetOrchestrator`) | ✅ YES, recipient `0x180859c337…a252`, transcoder `byoc-staging-1…:8935` |
+| generic `PriceInfo` | **`101/1`** = base `-pricePerUnit=100` **× 1.01** (auto-adjust overhead applied to the base price_info) |
+| `capabilities_prices` total | **136** (its BYOC image/video/tts/etc caps) |
+| cap-35 / `streamdiffusion` entries in `capabilities_prices` | **0** — orch advertises **no** live-video-to-video model |
+
+### Part 2 — signer `type=lv2v` payment envelope (cap 35) — **PASS**
+
+| item | value |
+|---|---|
+| `POST /generate-live-payment` `type:"lv2v"` | **HTTP 200** |
+| payment | **279 B** valid `net.Payment`, `segCreds` present |
+| sender | `0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260` (our signer wallet) |
+| `ExpectedPrice` | **`101/1`** — **== orch `price_info`** (`match_orch=True`) |
+
+The same composite webhook that gates `type=byoc` **also accepts `type=lv2v`** (envelope diff per c6d312f).
+No `IncompleteRead`, no auth rejection.
+
+### Part 3 — public streamdiffusion orchs (discovery) — native LV2V cap 35 (offchain/mainnet)
+
+Signed cap-35 `GetOrchestrator` (our signer material passes the orch **sig check**):
+
+| orch | disc caps | recipient | LV2V `PriceInfo` (per-pixel) |
+|---|---|---|---|
+| `dexpeer-ai.code4.us:8935` | streamdiffusion-sdxl-v2v | `0x3bbe8402…` | `40000000000000/187056853493` (≈ 213.8 wei/px) |
+| `dd-us2.fastagents.biz:8935` | sdxl, sdxl-v2v | `0x9727b492…` | `63713/250` (≈ 254.9 wei/px) |
+| `ai.organic-node.uk:59165` | sdxl-v2v | `0xc0a758e5…` | `0/1` (offchain/free) |
+| `lp-orch.j1v.co:8936` | sdxl, sdxl-v2v | `0x0c36edc0…` | `0/1` |
+
+Native LV2V is priced **per-pixel** via the single `price_info` (there is **no** `CapabilitiesPrices` entry —
+`capsPrices=0` on every orch). These are **mainnet** recipients ⇒ **not billable by our test-production
+signer** (wrong chain, no reserve, recipient mismatch).
+
+### Part 4 — orch accept (`POST /live-video-to-video`) — **BLOCKED (no runner)**
+
+| orch | result |
+|---|---|
+| `byoc-staging-1` (billed) | **HTTP 503 `insufficient capacity`** — route exists, **0 cap-35 capacity** (no streamdiffusion runner) |
+| public `dd-us2` (mainnet) | **HTTP 503 `insufficient capacity`** — reachable, but no free streamdiffusion slot for our request |
+
+### Metering (OpenMeter, M2M Basic, `groupBy=pipeline_model`) — controlled +3 `type=lv2v` paygen
+
+| pipeline / model | before | after | Δ reqs | Δ µUSD | µUSD/req |
+|---|---|---|---|---|---|
+| **live-video-to-video / streamdiffusion** | 6 / 2366 | 9 / 3311 | **+3** | **+945** | **315** |
+| live-video-to-video / unknown | 122 / 44478 | 122 / 44478 | 0 | 0 | 364.6 |
+| live-video-to-video / streamdiffusion-sdxl | 91 / 417173 | (unchanged) | 0 | 0 | 4584.3 |
+| live-video-to-video / streamdiffusion-sdxl-v2v | 44 / 217396 | (unchanged) | 0 | 0 | 4940.8 |
+| app totals | 356 / 682798 | 359 / 683743 | +3 | +945 | 315 |
+
+- **Label: PASS** — our LV2V gens attributed to `live-video-to-video/streamdiffusion` (model carried), NOT
+  `unknown`. The `unknown` (122) rows are legacy callers that didn't send a model id — a **caller-side**
+  omission, not a metering defect.
+- **Fee/unit: PARTIAL** — LV2V meters a **real per-model fee** (315–4 941 µUSD/req; far above byoc's 1 µUSD
+  floor), so the tariff **is** differentiated. But it fires **once per payment cycle** (`platform_ingest`),
+  so total = `(stream_secs / ~5 s) × per-cycle-fee` — a coarse duration proxy, **not** a true per-pixel-
+  second quantity (our 3 identical no-frame calls each metered the same ~315 µUSD).
+
+## SIMPLE table (same shape as Run 54)
+
+| aspect | result | detail |
+|---|---|---|
+| Live-runner path testable? | ⚠️ **PARTIAL** | envelope + price + label + fee verifiable; **billed streamed gen not reachable** (no runner) |
+| Session / payment-gen | ✅ **PASS** | `type=lv2v` accepted; 279 B `net.Payment`; `segCreds`; `ExpectedPrice==orch` |
+| Generation (frames→output) | ❌ **BLOCKED** | `byoc-staging-1` 503 `insufficient capacity` (0 cap-35 runner); public orchs mainnet/unbillable |
+| Price correct? | ✅ **PASS (envelope)** | `ExpectedPrice 101/1 == orch price_info`; #3993 overhead ×1.01 applied to the base; native LV2V is per-pixel (public orchs) |
+| Label correct? | ✅ **PASS** | `live-video-to-video/streamdiffusion` (not `unknown`) when model carried |
+| Metering unit? | ⚠️ **PARTIAL** | real model-varying fee (not floor), but **per payment-cycle**, not true per-pixel-second |
+
+## vs the byoc one-shot path (Runs 50–54)
+
+| dimension | byoc one-shot (50–54) | live-runner LV2V (Run 55) |
+|---|---|---|
+| capability / type | BYOC=37 / `type:byoc` | LIVE_VIDEO_TO_VIDEO=35 / `type:lv2v` |
+| orch endpoint | `/process/request` (`submit_byoc_job`) | `/live-video-to-video` (`start_lv2v`) + recurring `/payment` |
+| signer auth (composite webhook) | ✅ | ✅ (same webhook accepts both types) |
+| payment-gen | ✅ 281 B | ✅ 279 B, `ExpectedPrice==orch` |
+| price model | per-cap `CapabilitiesPrices` (`#3993` overhead fix) | single `price_info` per-pixel (no `CapabilitiesPrices`; `#3993`'s advertise-vs-bound fix **N/A**, but ×1.01 base overhead still applies) |
+| billed gen on our orch | ✅ real images/videos on `byoc-staging-1` | ❌ **503** — no streamdiffusion runner on `byoc-staging-1` |
+| metering label | `byoc/<cap>` | `live-video-to-video/<model>` (correct when model sent) |
+| metering fee | flat **1 µUSD floor** | **real model-varying** (315–4 941 µUSD/req), per payment-cycle |
+
+**Net:** the live-runner path is **architecturally sound and mostly verifiable** — same signer auth, valid
+`type=lv2v` payment, correct price seam, and **better** metering than byoc (real per-model fee + model
+label, vs byoc's flat floor). The **only** gap vs byoc is that we cannot drive a **billed streamed
+generation** because **no `streamdiffusion` / cap-35 runner is attached to a chain-matched (test-production)
+orchestrator**.
+
+## Blocker + owner
+
+- **P0 (this run) — no billable LV2V runner.** `byoc-staging-1` advertises 0 cap-35 capacity; public
+  streamdiffusion orchs are mainnet (unbillable by our test-production signer). **Owner: John / infra —**
+  attach a `streamdiffusion` (cap-35) runner to a test-production orch whose **recipient shares the chain
+  where the signer wallet `0x6CAE3C7a…` has reserve/deposit** (mirror the byoc-staging-1 wiring), OR fund
+  the composite signer wallet on Livepeer mainnet and point at a public streamdiffusion orch (not
+  recommended — real spend + third-party orchs).
+- **P2 (pre-existing) — LV2V `unknown` label** only when the caller omits `model_id`. Not a metering bug;
+  ensure the live-runner client always sends the cap-35 model constraint (the gateway `build_capabilities`
+  does). **Owner: caller / live-runner client config.**
+- **P3 (pre-existing) — per-pixel-second unit not carried** on OpenMeter; fee is per payment-cycle. Same
+  family as the byoc unit gap. **Owner: John / pymthouse metering.**
+
+## Spend
+
+**≈ $0.003** — LV2V `type=lv2v` payment-gens metered at the per-model fee (`streamdiffusion` ≈ 315 µUSD ea;
+controlled window = **+945 µUSD** across 3 calls; a handful more from the probe/rejection passes). **No
+on-chain image/stream produced** (no runner ⇒ no ticket `ProcessPayment`, no output).
+
+## Reproduce
+
+```bash
+# env-only (never commit): COMPOSITE_BEARER, BYOC_SIGNER_URL, DISCOVERY_URL, PMTH_M2M_ID/SECRET, PMTH_APP
+GWPY=../livepeer-python-gateway/.venv/bin/python
+GATEWAY_SRC=../livepeer-python-gateway/src DISCOVERY_URL="$DISCOVERY_URL" LV2V_MODEL=streamdiffusion \
+  "$GWPY" scripts/run55-lv2v-probe.py           # Parts 1-4: advertise / envelope / public / orch-accept
+# metering label/fee (before → fire 3× type=lv2v paygen → after):
+curl -sS -u "$PMTH_M2M_ID:$PMTH_M2M_SECRET" \
+  "https://pymthouse.com/api/v1/apps/$PMTH_APP/usage?groupBy=pipeline_model"   # look for live-video-to-video/<model>
+```
+
+
+---
+
+# Run 55 (CORRECTED SCOPE) — billed one-shot BYOC payment path against the **LR-orchestrator** (`liverunner-staging-1`) (2026-07-19)
+
+**Scope correction:** the earlier "Run 55" above tested the *native live-video-to-video (cap 35, `type=lv2v`)* streaming path. This corrected Run 55 tests the **same one-shot BYOC billed payment path as Runs 50–54** (composite bearer → test-production signer → caps-aware `get_orch_info` → `/generate-live-payment` → `/process/request` → generation), but points the orchestrator at the **Live Runner orch** instead of `byoc-staging-1`.
+
+## LR-orchestrator identification
+
+Discovery raw (`discovery-service-production-8955…/v1/discovery/raw`) returns a **flat list of 29 public streamdiffusion orchs** with only `{address, score, capabilities}` — **no `lr`/`live-runner` category, and neither `byoc-staging-1` nor any `*-staging-1.daydream.monster` host is present.** The `lr` category lives in the **NaaP storyboard-default discovery plan** (commit `59a68d43`/`9721b059`, PR #428 "add Live Runner (lr) category"), which is **NOT in the current branch (`feat/opaque-session-signer-endpoint`) ancestry**. From that plan's `lr.staticOrchestrators`:
+
+| item | value |
+|---|---|
+| **LR-orch URL** | **`https://liverunner-staging-1.daydream.monster:8935`** |
+| DNS | `136.66.21.17` (distinct host from `byoc-staging-1` = `8.229.77.130`) |
+| gRPC reachable? | ✅ YES — `get_orch_info` returns `OrchestratorInfo` |
+| recipient wallet | `0x180859c337d14edf588c685f3f7ab4472ab6a252` (**same wallet as byoc-staging-1**) |
+| transcoder | `https://liverunner-staging-1.daydream.monster:8935` (itself) |
+| `ticket_params` present | ✅ YES |
+| plan-advertised `lr` caps | flux-dev, flux-schnell, gpt-image, kontext-edit, pixverse-i2v, seedance-mini-i2v, veo-t2v, chatterbox-tts |
+
+## Payment path on LR-orch — ❌ **FAIL (cannot complete)**
+
+The LR-orch advertises **zero pricing across the board**, so the billed payment path cannot mint a ticket and never reaches generation. Verified via `scripts/run55-lr-orchinfo-diag.py` + `run55-lr-generic-diag.py`:
+
+| probe | LR-orch `liverunner-staging-1` | byoc-staging-1 (control) |
+|---|---|---|
+| generic `PriceInfo` (no cap filter) | **`0/1`** | `101/1` (base ×1.01) |
+| `capabilities_prices` count | **0 (empty)** | **136** |
+| caps-aware `PriceInfo` flux-schnell | **`0/1`** | `1060500/1` |
+| caps-aware `PriceInfo` flux-dev | **`0/1`** | `8837500/1` |
+| caps-aware `PriceInfo` gpt-image | **`0/1`** | `742350/1` |
+| caps-aware `PriceInfo` kontext-edit | **`0/1`** | `14140000/1` |
+| native LV2V cap 35 (`streamdiffusion`) `PriceInfo` | **`0/1`**, capsPrices `0` | — |
+
+**Two failure symptoms, one root cause (zero price):**
+
+1. **Direct `/generate-live-payment`** (forces payment-gen) → **HTTP 400 `{"error":{"message":"missing or zero priceInfo"}}`** for flux-schnell, flux-dev, gpt-image, kontext-edit, pixverse-i2v.
+2. **Full `submit_byoc_job`** → the gateway's `_create_byoc_payment` sees `ticket_params.face_value == 0`, **skips payment** (`byoc.py:210-217`), and submits the job unpaid → orch returns **HTTP 400 `Could not verify job creds`** (in ~0.8 s) for flux-schnell and flux-dev.
+
+**No image generated on the LR-orch. Never reached a successful `/process/request`.**
+
+### SIMPLE table
+
+| cap | orch (LR) reachable | gen? | price correct? | label | metering unit |
+|---|---|---|---|---|---|
+| flux-schnell | ✅ | ❌ | ❌ orch advertises `0/1` (no price) | n/a (no meter fired) | n/a |
+| flux-dev | ✅ | ❌ | ❌ `0/1` | n/a | n/a |
+| gpt-image | ✅ | ❌ | ❌ `0/1` | n/a | n/a |
+| kontext-edit | ✅ | ❌ | ❌ `0/1` | n/a | n/a |
+| pixverse-i2v | ✅ | ❌ | ❌ `0/1` | n/a | n/a |
+| **flux-schnell (byoc-staging-1 control)** | ✅ | ✅ **jpg** | ✅ `1060500/1` = 1050000×1.01 | ✅ `byoc/flux-schnell` | ❌ floor 1 µUSD/req |
+
+Control image URL: `https://v3b.fal.media/files/b/0aa2f25d/FWMjkhv6I363gyhx1SQLu.jpg` (HTTP 200, balance debited on `byoc-staging-1`).
+
+## Does LR-orch have the #3993 overhead fix? — **N/A / indeterminate**
+
+#3993 fixes an **advertised-vs-bound price *mismatch*** (advertised `CapabilitiesPrices` lacked the 1% txCost overhead that `PriceInfo`/`RecipientRandHash` carried). The LR-orch advertises **no per-cap price at all** (`PriceInfo 0/1`, `capabilities_prices` empty) — there is **no advertised-vs-bound relationship to compare**, so #3993's presence **cannot be observed** and is **moot**. The #3993 failure mode (`invalid recipientRand` / "Could not parse payment") does **NOT** recur here; a *stricter, earlier* blocker (zero price → "missing or zero priceInfo" / unpaid-job "Could not verify job creds") stops the path before ticket validation.
+
+## Compare: byoc-staging-1 vs LR-orch — **DIFFERENT behavior**
+
+| dimension | byoc-staging-1 | LR-orch `liverunner-staging-1` |
+|---|---|---|
+| gRPC reachable | ✅ | ✅ |
+| recipient wallet | `0x180859c3…` | `0x180859c3…` (same) |
+| `capabilities_prices` | **136** | **0 (empty)** |
+| per-cap `PriceInfo` | correct per-cap (`#3993` applied) | **`0/1` for every cap** incl native LV2V |
+| `/generate-live-payment` | ✅ 200 (valid `net.Payment`) | ❌ 400 "missing or zero priceInfo" |
+| `submit_byoc_job` | ✅ **200 + real image** | ❌ 400 "Could not verify job creds" (unpaid) |
+| billed one-shot BYOC path | ✅ works end-to-end | ❌ cannot run |
+
+**Interpretation:** `liverunner-staging-1` is up and shares the orchestrator wallet, but is **not configured with BYOC per-cap pricing** (no `-pricePerUnit`/`-byocPerCapPricing` populated caps) and **does not verify BYOC job creds** for these fal caps — i.e. it does **not** currently serve the one-shot BYOC inference path. The NaaP `lr` discovery category (#428) dual-homes 8 fal caps onto this orch, but the live orch deployment advertises none of them at a non-zero price, so a gateway that routed a **paid** BYOC job here (by capability filter + leaderboard score) would fail at payment-gen / job-creds.
+
+## Metering + labels (this run)
+
+OpenMeter (`groupBy=pipeline_model`, M2M Basic) totals moved **+1 request / +1 µUSD** (`359/683743 → 360/683744`) — entirely the **control** `byoc-staging-1` flux-schnell gen (`byoc/flux-schnell` row incremented; label ✅ correct). The **LR-orch probes metered ZERO** — no new label rows, **no `unknown` created**, consistent with payment never being minted (rejected pre-mint at "missing or zero priceInfo" / unpaid job). The pre-existing `live-video-to-video/unknown` (122 reqs) and `flux-dev/flux-dev`, `flux-schnell/flux-schnell` 0-fee rows are historical and did **not** change this run.
+
+## Blocker + owner
+
+- **P0 — LR-orch has no BYOC pricing / cannot serve one-shot BYOC.** `liverunner-staging-1` advertises `PriceInfo 0/1` + empty `capabilities_prices` and rejects BYOC job creds. **Owner: John / orch infra.** If `liverunner-staging-1` is meant to serve one-shot BYOC fal caps (as the #428 `lr` category implies), deploy it with the same BYOC per-cap pricing + `#3980`/`#3993` image + registered fal-cap workers as `byoc-staging-1`. If it is **only** a native live-video-to-video streaming orch, the #428 discovery dual-homing of fal caps onto it is misleading and should be scoped to native LV2V caps.
+- **P1 (pre-existing) — metering unit floor** (byoc path meters flat 1 µUSD/req; MP/seconds/chars not carried). Unchanged. **Owner: John / pymthouse metering.**
+
+## Spend
+
+**≈ $0.000001** (+1 µUSD, +1 request) — the single control `byoc-staging-1` flux-schnell image. **LR-orch probes: $0** (zero metering; no payment minted, no image).
+
+## Reproduce
+
+```bash
+# env-only (never commit): COMPOSITE_BEARER, BYOC_SIGNER_URL, PMTH_M2M_ID/SECRET, PMTH_APP
+GWPY=../livepeer-python-gateway/.venv/bin/python
+LR='https://liverunner-staging-1.daydream.monster:8935'
+curl -sS https://sdk.daydream.monster/capabilities -o /tmp/caps.json
+# 1) price/label/decode multi-cap against the LR-orch (expect paygen 400 "missing or zero priceInfo")
+CAP_LIST='flux-schnell,flux-dev,gpt-image,kontext-edit,pixverse-i2v' BYOC_ORCH_URL="$LR" \
+  CAPS_JSON=/tmp/caps.json GATEWAY_SRC=../livepeer-python-gateway/src "$GWPY" scripts/run53-multicap-probe.py
+# 2) LR vs byoc orch-info diff (zero PriceInfo + empty capabilities_prices on LR)
+LR_ORCH="$LR" GATEWAY_SRC=../livepeer-python-gateway/src "$GWPY" scripts/run55-lr-orchinfo-diag.py
+LR_ORCH="$LR" GATEWAY_SRC=../livepeer-python-gateway/src "$GWPY" scripts/run55-lr-generic-diag.py
+# 3) full submit (LR fails "Could not verify job creds"; byoc-staging-1 control still generates)
+BYOC_ORCH_URL="$LR" BYOC_CAPABILITY=flux-schnell GATEWAY_SRC=../livepeer-python-gateway/src "$GWPY" scripts/run50-direct-signer-probe.py
+BYOC_ORCH_URL='https://byoc-staging-1.daydream.monster:8935' BYOC_CAPABILITY=flux-schnell GATEWAY_SRC=../livepeer-python-gateway/src "$GWPY" scripts/run50-direct-signer-probe.py
+```
