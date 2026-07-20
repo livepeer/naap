@@ -1092,3 +1092,95 @@ Detail: `USER-E2E-DEMO-RESULTS.md` Run 54.
 **P0 — `liverunner-staging-1` is not configured for one-shot BYOC billing.** Zero `PriceInfo`, empty `capabilities_prices`, rejects BYOC job creds for fal caps. **Owner: John / orch infra.** Either (a) deploy it with byoc-staging-1-parity BYOC per-cap pricing + `#3980`/`#3993` image + registered fal-cap workers, or (b) if it is only a native live-video-to-video orch, scope the #428 `lr` discovery category to native LV2V caps rather than dual-homing one-shot fal caps that it can't price/serve. **Spend: ≈ $0.000001** (control image only).
 
 **Scripts:** `scripts/run55-lr-orchinfo-diag.py`, `scripts/run55-lr-generic-diag.py` (+ reused `run53-multicap-probe.py`, `run50-direct-signer-probe.py`).
+
+---
+
+# Run 55b — "Is LR-orch reconfig sufficient?" full-path dependency audit (2026-07-19)
+
+**Question:** if we restart/reconfig `liverunner-staging-1` with pricing + caps + workers + the `#3993` image, will the billed one-shot BYOC payment path work end-to-end — or are OTHER changes needed elsewhere?
+
+**Method:** read-only source trace of every hop against the committed configs of the repos that own each surface: `simple-infra` (LR-orch + BYOC deploy), `golivepeer/glp-combine@fix/byoc-e2e-v1-and-type-byoc` (orch/signer go-livepeer — the #3980+#3993+#3966/#3967 billed-fix branch), `livepeer-python-gateway` (SDK/gateway), NaaP (discovery `lr` category, signer wiring). No live probe this run (composite bearer is env-only; Run 55's live probes are the empirical anchor).
+
+## SHORT ANSWER — **NO. Orch reconfig alone is NOT sufficient.**
+
+`liverunner-staging-1` is **not a mis-priced BYOC orchestrator** — it is a **different orchestrator built on a different subsystem** (go-livepeer Live Runner protocol, `-useLiveRunners`) than the working billed path (`byoc-staging-1`, BYOC external-capability + on-chain PM). "Adding pricing + caps + workers + #3993" to the LR box is effectively **rebuilding it as a BYOC orchestrator** — it is not a config tweak. Below is the exact per-hop reason, split into **ON the LR-orch**, **ELSEWHERE**, and **already-OK**.
+
+### THE ROOT ARCHITECTURAL FACT (why zero pricing is not a config typo)
+
+`byoc-staging-1` (works) and `liverunner-staging-1` (fails) are deployed by **two different mechanisms** and register capabilities through **two different, non-overlapping code paths**:
+
+| | `byoc-staging-1` (billed path works) | `liverunner-staging-1` (LR-orch) |
+|---|---|---|
+| Deploy | `simple-infra/scripts/deploy-byoc.sh` + `docker-compose/byoc-stack.yaml` | `simple-infra/live-runner/docker-compose.yml` (PR-1..PR-7, `#89–#100`) |
+| Orch flags | `-network=arbitrum-one-mainnet -ethUrl -ethOrchAddr -pricePerUnit=100 -ticketEV`; keystore mounted | `-useLiveRunners -network=offchain -orchSecret`; **no** eth flags, **no** `-pricePerUnit`, **no** keystore |
+| Workers | `inference-adapter` (byoc-adapter) registers each cap as a **BYOC external capability** with a **per-cap USD price** (`CAPABILITIES_JSON` + `PRICE_CURRENCY=USD`) → `node.ExternalCapabilities` + `GetPriceForJob` | `fal-app`/`ffmpeg-app`/`blender-app`/`hyperframes-app` register via **Live Runner protocol** (`register_runner`, `price=LR_PRICE` default **0**) → `LiveRunnerRegistry`, a **separate** store |
+| Image | `…/go-livepeer:byoc-cap-price-overhead-20260717` (**#3980 + #3993**) | `livepeer/go-livepeer@sha256:3b3b8e55…` (tag `ja-live-runner`) — **no #3980, no #3993** |
+
+**Code proof (glp-combine):** `core/orchestrator.go GetCapabilitiesPrices` builds `OrchestratorInfo.CapabilitiesPrices` **only** from (a) transcoding/AI `modelPrices` and (b) `orch.node.ExternalCapabilities.Capabilities` via `GetPriceForJob` (orchestrator.go:317-341). **Live Runner prices are never added here.** In `ai/runner/live_runner.go`, live-runner prices live in `liveRunner.PriceInfo` and are exposed **only** through the Live Runner `/discovery` endpoint (`LiveRunnerDiscoveryRunner.PriceInfo`) and `PaymentInfo(runnerID)` — the reserve→call→release live-video flow — **not** through `GetCapabilitiesPrices` / `OrchestratorInfo`. And offchain runners return **nil** price (`PaymentInfo`: `if runner.offchain { return nil }`; `discoveryRunner`: price omitted when `offchain`; `normalizeHeartbeat` even *skips* the positive-price requirement when offchain). Hence Run 55's `capabilities_prices = 0 (empty)` and `PriceInfo 0/1` is the **expected, structural** output of a live-runner/offchain orch — not a missing flag.
+
+**Consequence:** even if you set `-pricePerUnit` and pass USD prices to `register_runner`, those prices land in `LiveRunnerRegistry`, **not** in `CapabilitiesPrices`, so the signer (which copies `CapabilitiesPrices → ExpectedPrice`) still sees nothing. To feed the one-shot BYOC billed path you must register the fal caps as **BYOC external capabilities** (the byoc-adapter path), i.e. run the **byoc-stack**, on an **on-chain** orch, on the **#3980/#3993** image.
+
+## Per-hop answers to the 7 checks
+
+### 1. Orch config itself — **config-only? NO. Needs the byoc-stack + specific image.**
+- `-pricePerUnit`/`-pixelsPerUnit` nonzero base: **missing on LR-orch** (byoc-stack sets `-pricePerUnit=100`). Add.
+- `capabilities_prices` populated per cap: **cannot come from live-runner registration** (§ root fact). Requires the **byoc-adapter** (`inference-adapter` container, `CAPABILITIES_JSON` + `PRICE_CURRENCY=USD`) registering BYOC external caps — i.e. `byoc-stack.yaml`, not `live-runner/docker-compose.yml`.
+- `#3980` + `#3993` image: **required** (LR runs `ja-live-runner`, which has neither). Must swap `ORCH_IMAGE` to the byoc-cap-price-overhead image. **This is an image build/pin, not just config.**
+- **Verdict:** to serve billed one-shot BYOC, `liverunner-staging-1` must run the **BYOC orchestrator stack** (on-chain go-livepeer + byoc-adapter + serverless-proxy) on the **#3980/#3993** image. The live-runner subsystem does not participate in this path.
+
+### 2. Cap workers / byoc-adapter — **ELSEWHERE change required (deploy a byoc-adapter for LR-orch).**
+- LR-orch has **no byoc-adapter**. Its fal caps are Live Runner apps. It needs its **own** `inference-adapter` (byoc-adapter) container pointed at the LR-orch's internal `:8936`, with the cap list + `PRICE_CURRENCY=USD`, to register priced BYOC external caps.
+- Restart ordering (confirmed on byoc-staging-1, Run 51): after the orch (re)starts, the **adapter must (re)register** — the adapter re-registers on `REGISTER_INTERVAL` (byoc-stack.yaml `REGISTER_INTERVAL: "10"`), so a bounce settles within ~10s, but expect a re-register window after any orch restart.
+
+### 3. Discovery routing — **depends on how the SDK targets the orch.**
+- **Direct (`BYOC_ORCH_URL`)**: the gateway takes `orch_url` as **highest priority** (`byoc.py` submit path; `orch_info.get_orch_info(orch_url,…)`). Runs 50–55 (and the SDK node's `BYOC_ORCH_URL` in `deploy-byoc.sh`) target the orch **directly, bypassing discovery**. In this mode **discovery needs no change** — you just point `BYOC_ORCH_URL` at the (rebuilt) LR-orch.
+- **Discovery-routed (`DISCOVERY_FROM_VALIDATE=1` / naap→SDK→discovery)**: the NaaP **`lr` discovery category (PR #428, commit `59a68d43`) is NOT in `feat/opaque-session-signer-endpoint`**. For real naap→discovery→LR-orch routing, discovery must (a) return the LR-orch **and** (b) advertise its caps **with the same per-cap prices** the orch advertises. That is a **NaaP discovery-service change**, separate from the orch.
+
+### 4. Signer (test-production) — **already OK, no signer change.**
+- The signer re-fetches `get_orch_info` (caps-aware) **per request** and copies `CapabilitiesPrices → ExpectedPrice` (confirmed Run 50b/51; "signer restart NOT needed"). **If the LR-orch advertises correct per-cap prices, the signer auto-picks them up.** No signer code/config/restart change.
+- Recipient wallet: byoc-staging-1 uses `0x180859c3…`; the canary/LR reuse the same shared orch wallet (`scope-stg-orch-wallet`). Tickets are valid **only if the LR-orch is on-chain with that wallet's keystore mounted** (see #7). An **offchain** orch has `node.Recipient == nil` → `PriceInfo` returns nil and there is no valid ticket recipient at all.
+
+### 5. Sender reserve — **already OK.**
+- App-wallet reserve/deposit is **orch-independent** and **funded on-chain** (`0x6CAE3C7a…`: deposit 0.12335 ETH, reserve 0.28999 ETH — Run 50b). Valid against any recipient. **No change.**
+
+### 6. `#3993` dependency — **CONFIRMED: image MUST include #3993 (and #3980).**
+- If the LR-orch gets pricing but **not** `#3993`, the advertised-vs-bound 1% overhead split recurs → `invalid recipientRand` → the misleading `400 Could not parse payment` (Run 50b root cause). `#3980` is also required for the V1 `sign-byoc-job` creds verify (Run 55's `submit_byoc_job → 400 "Could not verify job creds"` is the unpaid/creds path). **The orch image must be the `byoc-cap-price-overhead` build (b1ea581 + #3993, which is on the #3980 lineage).**
+
+### 7. Anything else — **on-chain registration is the big one.**
+- **`-network` + eth wiring:** committed LR config is **`-network=offchain`** with **no** `-ethUrl`/`-ethOrchAddr`/keystore. On-chain PM (TicketParams, ProcessPayment, ticket redemption) is **impossible** offchain. Billed BYOC requires `-network=arbitrum-one-mainnet` + `-ethUrl` + keystore for the recipient wallet — the byoc-stack config.
+  - ⚠️ **Discrepancy to verify on the VM:** Run 55 observed `ticket_params present` + `recipient 0x180859c3` on the live LR-orch, which is **inconsistent with the committed offchain config** (offchain ⇒ `Recipient==nil` ⇒ no ticket params). Either the deployed VM has **drifted on-chain** (someone added eth flags/keystore post-PR-1) or the observation conflated defaults. **Confirm the live `-network` before planning** — it changes the size of the change (offchain→on-chain conversion vs on-chain box that only lacks pricing+adapter+image).
+- `-ticketEV`: byoc-stack sets `-ticketEV=800000000000`; LR-orch does not. Add.
+- `txCostMultiplier`: the 1% overhead is derived from txCost; it is applied by the orch code once `#3993` is in the image (no separate flag needed beyond what byoc-staging-1 runs).
+- `ServiceURI` on-chain registration / EthController round: an on-chain orch must be **registered/activated on-chain** with its `serviceURI`. byoc-staging-1's wallet `0x180859c3` is already a registered orch; **reusing that same wallet+ServiceURI for a second live host is a conflict** (one ServiceURI per orch address). If LR-orch reuses `0x180859c3`, its ServiceURI must point to `liverunner-staging-1` — which would **move** traffic off byoc-staging-1. Practically this means either (a) a **dedicated wallet** for LR-orch (new on-chain registration + reserve funding by the orch operator) or (b) accept that both share one identity and don't run them as two independent on-chain orchs. **Owner decision (John / orch infra).**
+
+## DELIVERABLE
+
+### Changes ON the LR-orch (`liverunner-staging-1`) — this is a re-deploy, not a reconfig
+| # | Change | Detail | Owner |
+|---|---|---|---|
+| L1 | Run the **BYOC orchestrator stack**, not the live-runner stack | `byoc-stack.yaml` (on-chain orch + `inference-adapter` byoc-adapter + serverless-proxy). Live-runner registration does **not** feed `CapabilitiesPrices`. | John / orch infra |
+| L2 | **On-chain** network | `-network=arbitrum-one-mainnet` + `-ethUrl` + keystore (currently `-network=offchain`) | John / orch infra |
+| L3 | Base price + ticketEV | `-pricePerUnit` nonzero + `-ticketEV` (currently unset) | John / orch infra |
+| L4 | **byoc-adapter** registering priced BYOC external caps | `inference-adapter` w/ `CAPABILITIES_JSON` + `PRICE_CURRENCY=USD`; re-registers ~10s after orch restart | John / orch infra |
+| L5 | **#3980 + #3993 image** | swap `ORCH_IMAGE` to `…/go-livepeer:byoc-cap-price-overhead-20260717` (LR runs `ja-live-runner`, has neither) | John / orch infra |
+| L6 | On-chain **ServiceURI/registration + wallet** | dedicated wallet + on-chain activation for LR host, OR resolve the ServiceURI conflict with byoc-staging-1's shared `0x180859c3` | John / orch infra |
+
+### Changes ELSEWHERE (only for the discovery-routed path; the direct `BYOC_ORCH_URL` path needs none)
+| # | Change | When needed | Owner |
+|---|---|---|---|
+| E1 | **NaaP `lr` discovery category (#428)** onto the working branch/prod | only if naap→SDK→**discovery**→LR-orch routing is the target (not in `feat/opaque-session-signer-endpoint`) | qiang / NaaP |
+| E2 | **Discovery service** advertises LR-orch **with matching per-cap prices** | same — discovery must echo the orch's caps+prices or the gateway won't select/price it | qiang / NaaP + discovery ops |
+| E3 | SDK node `BYOC_ORCH_URL` (or per-key `discovery.url`) pointed at the rebuilt LR-orch | for the direct path, this single env pin is the only "elsewhere" change | infra |
+
+### Already OK — NO change
+| Item | Why |
+|---|---|
+| **Signer (test-production)** | re-fetches orch info per request; copies `CapabilitiesPrices → ExpectedPrice`; auto-adopts correct prices. No code/config/restart. |
+| **Sender reserve / app wallet** | funded on-chain (`0x6CAE3C7a…`), orch-independent, valid vs any recipient. |
+| **Gateway / SDK image** | `byoc.py` dual-path already sends `capabilities` into `get_orch_info` and takes `orch_url` as top priority; nothing LR-specific to change. |
+| **#3993 overhead fix logic** | already correct in the image — just needs to be the image the LR-orch runs (L5). |
+
+### Bottom line
+**"Reconfig LR-orch with pricing + caps + workers + #3993" is NOT sufficient and is not even a reconfig** — `liverunner-staging-1` is a Live-Runner/offchain orchestrator, a different subsystem from the BYOC/on-chain path. To bill one-shot BYOC on that host you must **redeploy it as a BYOC orchestrator** (L1–L6, all owned by John/orch infra). The **signer, sender reserve, and gateway need no change** (already-OK). The **only** "elsewhere" work is on the **discovery-routed** path (E1/E2, NaaP), and it is avoidable for a direct-target test by pinning `BYOC_ORCH_URL` (E3). Recommended, lower-risk alternative (unchanged from Run 55): if `liverunner-staging-1` is meant to be a **native live-video-to-video** orch, scope the `lr` discovery category to native LV2V caps and keep serving one-shot fal caps from the already-working `byoc-staging-1`, rather than dual-homing caps the LR box can't price/serve.
+
+**Sources (read-only):** `simple-infra/live-runner/docker-compose.yml` + `README.md` + `fal-app/app.py` (offchain, `price=0`, live-runner registration); `simple-infra/docker-compose/byoc-stack.yaml` (on-chain + byoc-adapter + `PRICE_CURRENCY`); `golivepeer/glp-combine core/orchestrator.go GetCapabilitiesPrices` (BYOC-external-cap-only price source) + `ai/runner/live_runner.go` (live-runner prices are a separate store, nil offchain); `livepeer-python-gateway/src/livepeer_gateway/byoc.py` (`orch_url` top priority, per-request `get_orch_info` caps); Run 50b/51/55 live evidence above.
