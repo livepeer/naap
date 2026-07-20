@@ -1325,3 +1325,85 @@ The rejection is at the capability-agnostic identity-webhook auth layer (`handle
 | #430 composite-bearer forward | validate emits composite; accepted by signer on LR + byoc | ✅ **VERIFIED on LR path** — ship #430 (do NOT ship the opaque-session branch #427 for billed use, per Run 56) | qiang / NaaP |
 
 **Spend:** ≈ $0.000001 (control image only). Detail: `USER-E2E-DEMO-RESULTS.md` Run 57.
+
+---
+
+## TRACE — `unit_kind` / billing-unit lifecycle (read-only, 2026-07-20)
+
+**Question:** where is `billing_unit_kind` (per-megapixel / per-second / per-1000-chars / per-image /
+per-call) added, so metering meters correctly? **Answer: there is no `billing_unit_kind` field on the
+metering path at all.** The unit dimension is called `unit_kind` and it is **display-only** — it is
+advertised on `/capabilities` and consumed by storyboard/CLI/MCP for human price labels, but it is
+**never sent to the orchestrator, never in the payment, never in the metering event, and never read by
+OpenMeter.** So OpenMeter cannot meter per-unit; it sums the network **fee** (USD micros) only.
+
+### Pipeline map (producer → transport → collector → consumer)
+
+```
+DEFINED / SET (source of truth = adapter cap config, NOT byoc.yaml)
+  simple-infra/tool-host-build/tool-adapter/src/livepeer_tool_adapter/config.py
+    :40-48  "Display-only fields (returned by /capabilities, never sent to orch):
+             unit_kind, pixels_per_unit, display_price_usd, display_unit …"
+    :60     unit_kind: str = "call"        # default
+    :160    unit_kind=str(raw.get("unit_kind","call"))   # from CAPABILITIES_JSON row
+    :193    to_display_dict() emits unit_kind            # display path only
+  AI (fal) caps: simple-infra/environments/*/byoc.yaml rows carry ONLY
+    {name, model_id, capacity, price_per_unit} — NO unit_kind at source.
+    unit_kind for flux/nano-banana/ltx/tts is back-filled by the client
+    (name-prefix heuristics + storyboard static-pricing.json `n`), e.g.
+    storyboard-wg/docs/pricing-v1/pricing-table-deploy.json ("n":"megapixel"|"second"|"image").
+
+ADVERTISED (display only)
+  simple-infra/sdk-service-build/app.py
+    :1028-1039  CapabilityItem(extra="allow") → passes unit_kind through /capabilities verbatim
+    :1255       GET /capabilities  (probe reads unit_kind here: scripts/run53-multicap-probe.py:87)
+
+TRANSPORT / metering event  ← unit_kind DROPPED HERE
+  golivepeer/glp-combine/server/remote_signer.go
+    :691-713  billing basis chosen by req.Type only: byoc→pixels=ceil(billableSecs),
+              lv2v→pixels=H*W*FPS*secs. No unit_kind consulted.
+    :853      resolveUsageLabels → pipeline,model_id  (the ONLY cap labels emitted)
+    :855-877  SendQueueEventAsync("create_signed_ticket", {pipeline, model_id, pixels,
+              computed_fee, billable_secs, cost_per_pixel, auth_id …})  ← NO unit_kind, NO unit qty
+
+COLLECTOR (Kafka → CloudEvent)  ← still no unit_kind
+  pymthouse/deploy/openmeter-collector/collector.yaml
+    :142-143  fee_usd_micros = fee_wei * eth_usd / 1e12  (fee-based)
+    :155-169  egress data = {pipeline, model_id, pixels, fee_wei, network_fee_usd_micros …}
+              ← passes pixels through but NO unit_kind label
+
+CONSUMER (OpenMeter meters)  ← meters fee, grouped by pipeline/model only
+  pymthouse/docker/openmeter/config.yaml  &  src/lib/openmeter/konnect-catalog.ts
+    network_fee_usd_micros: aggregation=SUM, valueProperty=$.network_fee_usd_micros,
+      groupBy = client_id, external_user_id, pipeline, model_id     ← NO unit_kind, NO qty
+    signed_ticket_count:    aggregation=COUNT, same groupBy
+```
+
+### Source of truth for unit selection
+Per-capability, in the **adapter's cap config row** (`CAPABILITIES_JSON` → `ToolCapability.unit_kind`,
+`config.py:160`). For AI/fal caps the source rows omit it (`byoc.yaml` = name/model_id/capacity/
+price_per_unit only), so unit_kind is **client-side back-fill** (heuristics + storyboard
+`static-pricing.json`). Either way it is a **display/pricing-catalog** value, decoupled from what the
+signer meters.
+
+### GAP (this IS the "OpenMeter unit-metering gap")
+1. **unit_kind is display-only by design** — `remote_signer.go` picks the billing basis from `req.Type`
+   (byoc vs lv2v), not from unit_kind; the emitted `create_signed_ticket` event carries `pixels` +
+   `computed_fee` but **no unit_kind and no true unit quantity** (megapixels / seconds / chars).
+   (`remote_signer.go:691-713, 855-877`)
+2. **BYOC quantity is wrong at payment-gen time** — for byoc, `pixels = ceil(billableSecs)` and at
+   payment-gen `billableSecs` preloads to 60 s / floors, so real output size (6.12 s video, N megapixels,
+   K chars) is never measured. (`remote_signer.go:690-700`)
+3. **Collector + OpenMeter only see the fee** — meter = `SUM(network_fee_usd_micros)` grouped by
+   pipeline/model_id. No unit_kind dimension, no raw-quantity value property. Every cap therefore meters
+   at the ~1–2 µUSD fee floor regardless of unit. (`collector.yaml:142-169`, `config.yaml:40-61`,
+   `konnect-catalog.ts:29-58`) — matches the Run 53 table (`metering unit correct? ❌` for all caps).
+
+### Owners
+- **unit_kind definition/advertisement (display):** simple-infra adapter + storyboard pricing catalog — **qiang / infra+storyboard** (working as intended; display only).
+- **Metering-event schema (add unit_kind + real unit qty to `create_signed_ticket`):** go-livepeer `remote_signer.go` — **qiang / go-livepeer signer**.
+- **Collector transform + OpenMeter meter defs (carry unit_kind label + a per-unit-quantity value property so units can be metered):** `pymthouse/deploy/openmeter-collector/collector.yaml` + `docker/openmeter/config.yaml` + `konnect-catalog.ts` — **John / pymthouse metering**.
+
+**Net:** to meter correctly per unit, the fix must (a) emit `unit_kind` + true unit quantity from the
+signer event, (b) pass them through the collector, and (c) add an OpenMeter meter that sums the quantity
+grouped by `unit_kind` (or price by unit). Today none of the three hops carry it.
