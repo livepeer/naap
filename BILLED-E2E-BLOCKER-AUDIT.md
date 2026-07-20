@@ -1228,3 +1228,67 @@ Fix B was **coded, merged to `main`, reached prod behind an enabled flag** — t
 It would require (a) authoring the missing `NAAP-SIGNER-JWT-EXCHANGE-PLAN.md`, and (b) an upstream fix to the clearinghouse `mintUserSignerToken` 500 — neither is warranted while Fix A / api-key exchange work. Rough effort if pursued anyway: ~0.5 day NaaP re-wire + upstream pymthouse fix (out of NaaP's control).
 
 **Sources (read-only):** `apps/web-next/src/lib/pymthouse-client.ts:285-315`, `.../pymthouse-adapter.ts:270-301` (branch) + `origin/main:pymthouse-adapter.ts:294-367`, `.../feature-flags.ts:84,177-181`, `.../keys/validate/route.ts:206-231`, `pymthouse-client.test.ts`, `pymthouse-adapter.test.ts:135-230`, `gh pr list` (#405/#406/#410/#412/#421/#424/#427), `git show 02a87ae1`.
+
+---
+
+## VERDICT — "opaque `pmth_` session → `/generate-live-payment` 'Invalid JWT'" claim (2026-07-19, Run 56)
+
+**Task:** verify/refute the claim that pymthouse `/generate-live-payment` verifies its bearer **as a JWT** and rejects NaaP's opaque `pmth_` session, while the unbilled `/sign-orchestrator-info` accepts it — reconciling with the Run 50–54 composite **success**.
+
+### VERDICT: **TRUE** (core assertion confirmed live today), with two precisions. **This IS a current blocker for the `feat/opaque-session-signer-endpoint` design**, but it is already worked around by the composite / JWT credential (Run 50–54), so it is NOT a blocker for billed E2E *as a whole*.
+
+### The decisive live probe (test-production signer, 2026-07-19, cache-free direct HTTP)
+
+Minted all three credential types for the SAME app/user (`app_98575870…`, ext-user `e2e-audit-opaque-probe`, `$5` balance) against `pymthouse.com` OIDC, then POSTed each to both signer endpoints with an identical valid BYOC orchestrator payload (`flux-schnell`, orch `0x180859c3…`):
+
+| credential | `/sign-orchestrator-info` (unbilled) | `/generate-live-payment` (billed) |
+|---|---|---|
+| user JWT (`sign:job`, RS256) | **HTTP 200** address+signature | **HTTP 200** payment 281B |
+| **opaque `pmth_` session** (token-exchange, no `resource`) | **HTTP 200** address+signature | **HTTP 401 `{"error":{"message":"not a JWT"}}`** |
+| composite `app_…_pmth_…` | **HTTP 200** address+signature | **HTTP 200** payment 281B |
+
+This is the exact asymmetry the claim describes, reproduced **today**: the opaque session is accepted by the unbilled endpoint and **rejected by the billed endpoint**. The `401 "not a JWT"` is semantically the claim's `502 "Invalid JWT"` (status/text differ; meaning identical: the payment webhook falls through to the JWT verifier and rejects the opaque bearer).
+
+### What `/generate-live-payment` actually accepts today
+
+Not "JWT-only." The clearinghouse remote-signer webhook (`pymthouse/src/lib/oidc/remote-signer-webhook-config.ts:222-241`) runs a **first-match chain** (`createFirstMatchEndUserVerifier`, `first-match-verifier.ts`) in this order:
+
+1. `opaqueSessionVerifier` (`opaque-session-verifier.ts`, commit `96b5647`) — accepts `pmth_*` **only if `validateBearerToken()` resolves it in the `sessions` table** with `sign:job` scope + `appId` + `endUserId` + a non-empty `endUsers.externalUserId`.
+2. `compositeAppApiKeyVerifier` (`composite-app-api-key-verifier.ts`, commit `d1927d9`) — accepts `app_<clientId>_pmth_<secret>`.
+3. OIDC/JWKS verifier — accepts self-issued `sign:job` JWTs.
+
+First-match re-throws the **last** error, so any credential that fails all three surfaces the OIDC verifier's `"not a JWT"`. Live: **composite ✓, JWT ✓, opaque ✗**.
+
+### Root cause of the opaque rejection (why verifier #1 does not save it)
+
+The opaque `pmth_` session NaaP forwards is minted by the **token-exchange** grant with **`resource` omitted** (`pymthouse-client.ts:109-203`, `mintOpaqueSignerSessionForExternalUser`). `opaqueSessionVerifier.validateBearerToken` (`pymthouse auth.ts:174-184`) hashes the token and looks it up in the **`sessions`** table. The token-exchange–minted opaque session is **not resolvable via that `sessions` lookup** (different mint/store than an interactive `pmth_` session), so verifier #1 returns `null` → throws → chain falls through to composite (`not a composite`) → OIDC (`not a JWT`). `/sign-orchestrator-info` uses a **separate, looser auth path** (no billing-identity webhook), which is why the same opaque token passes there. That looser path is exactly what "masked the asymmetry."
+
+### Reconciliation with Run 50–54 (does composite success contradict the claim?)
+
+**No.** Runs 50–54 used the **composite** `app_…_pmth_…` bearer (Fix A / #421), not the opaque session. Composite passes `/generate-live-payment` (verifier #2) — reconfirmed live today (200, 281B payment, price-match). The claim is specifically about the **opaque** credential, which genuinely fails. Different credential ⇒ no contradiction. The earlier Run 45–49 `"not a JWT"` failures were the opaque/token-bundle fallback path — consistent with this finding, not with composite.
+
+### RFC 8693 "resource-form exchange fails upstream → falls back to opaque" (claim sub-point)
+
+**Partially true but mischaracterized.**
+- The resource-form / JWT mint is **not inherently broken upstream**: minting a `sign:job` user JWT via `client_credentials` + `external_user_id` + `scope=sign:mint_user_token` (the clearinghouse resource-form) **worked live** and that JWT **passed `/generate-live-payment` (200)**. The 500-ing grant referenced in the "Fix B" verification was the older `mintUserSignerToken` variant; the Builder user-token JWT works.
+- NaaP's opaque path **deliberately omits `resource`** to get an opaque session (`pymthouse-client.ts:113-116`) — it is not "failing to supply a JWT," it is choosing opaque by design.
+- The historical prod fallback-to-opaque (Runs 48b/49) was caused by **NaaP-side Vercel env drift** (dot-format `PYMTHOUSE_API_KEY` / M2M-secret drift → `resolveSignerEndpoint` fail-safe), i.e. a NaaP config problem, not an upstream pymthouse failure. Setting the underscore composite (branch A) sidesteps the exchange entirely.
+
+### "Hits BYOC and LR identically — not LR-specific" (claim sub-point) — **TRUE**
+
+The rejection is at the capability-agnostic identity-webhook auth layer (`handleAuthorize` → first-match chain), before any BYOC/LR-specific logic. The probe above used BYOC; an LR payload would hit the same gate identically. The Run 55 LR issues are orchestrator/LV2V, a separate subsystem.
+
+### Is this a CURRENT blocker?
+
+- **For the `feat/opaque-session-signer-endpoint` branch: YES.** `resolveSignerEndpoint()` forwards `Authorization: Bearer <opaque pmth_ session>` (`pymthouse-adapter.ts:270-279`) and its doc comment (`:259-262`) asserts *"the remote-signer identity webhook on prod already verifies bare opaque `pmth_…` sessions."* **That assertion is FALSE for `/generate-live-payment` on test-production** — it holds only for the unbilled `/sign-orchestrator-info`. Shipping this branch as-is yields orch-info success but **fails billed payment generation**.
+- **For billed E2E overall: NO / already worked around.** The composite bearer (Fix A, #421) and a user `sign:job` JWT both pass `/generate-live-payment` live. Run 54 (`PYMTHOUSE_API_KEY`=underscore composite, branch A) is the working path.
+
+### Remaining action + owner
+
+1. **NaaP (qiang) — do not ship the opaque-session endpoint form for billed use.** Make `resolveSignerEndpoint()` forward the **composite `app_…_pmth_…` bearer** (Fix A, already merged #421) or a **user `sign:job` JWT** (`mintUserSignerJwtForExternalUser`, resource-form) — both pass `/generate-live-payment`. Keep opaque only for `/sign-orchestrator-info`-only flows if any exist. Fix/remove the false doc comment at `pymthouse-adapter.ts:259-262`.
+2. **pymthouse (John) — optional durable fix:** make `opaqueSessionVerifier.validateBearerToken` resolve **token-exchange–minted** opaque `pmth_` sessions (or have the exchange persist them in `sessions`), so `/generate-live-payment` and `/sign-orchestrator-info` accept the same opaque credential. Also confirm which clearinghouse the test-production signer's payment webhook targets and that `96b5647` is effective there.
+
+### Evidence / probes (secrets env-only, never committed)
+- Cache-free direct probe `/tmp/clean_asym_probe.py` (table above); mint+probe `/tmp/mint_opaque_probe.py`; auth-variant `/tmp/auth_variant_probe.py`; single-cap composite reconfirm via `scripts/run53-multicap-probe.py` (200, price-match true).
+- Signer liveness: `/healthz` 200, `/generate-live-payment` GET → 405 (POST-only).
+- Source: `pymthouse` `remote-signer-webhook-config.ts:222-241`, `first-match-verifier.ts`, `opaque-session-verifier.ts`, `composite-app-api-key-verifier.ts`, `auth.ts:13,174-184`, `src/app/webhooks/remote-signer/route.ts`, `@pymthouse/clearinghouse-identity-webhook/protocol.mjs:147-204` (reject rides on HTTP 200 body per go-livepeer contract; the signer service surfaces it as the 401 seen at `/generate-live-payment`); commits `96b5647` (opaque), `d1927d9` (composite) both on `origin/fix/composite-app-api-key-remote-signer-webhook`. NaaP `pymthouse-adapter.ts:231-279`, `pymthouse-client.ts:109-234`.
