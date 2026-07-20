@@ -1184,3 +1184,47 @@ Detail: `USER-E2E-DEMO-RESULTS.md` Run 54.
 **"Reconfig LR-orch with pricing + caps + workers + #3993" is NOT sufficient and is not even a reconfig** — `liverunner-staging-1` is a Live-Runner/offchain orchestrator, a different subsystem from the BYOC/on-chain path. To bill one-shot BYOC on that host you must **redeploy it as a BYOC orchestrator** (L1–L6, all owned by John/orch infra). The **signer, sender reserve, and gateway need no change** (already-OK). The **only** "elsewhere" work is on the **discovery-routed** path (E1/E2, NaaP), and it is avoidable for a direct-target test by pinning `BYOC_ORCH_URL` (E3). Recommended, lower-risk alternative (unchanged from Run 55): if `liverunner-staging-1` is meant to be a **native live-video-to-video** orch, scope the `lr` discovery category to native LV2V caps and keep serving one-shot fal caps from the already-working `byoc-staging-1`, rather than dual-homing caps the LR box can't price/serve.
 
 **Sources (read-only):** `simple-infra/live-runner/docker-compose.yml` + `README.md` + `fal-app/app.py` (offchain, `price=0`, live-runner registration); `simple-infra/docker-compose/byoc-stack.yaml` (on-chain + byoc-adapter + `PRICE_CURRENCY`); `golivepeer/glp-combine core/orchestrator.go GetCapabilitiesPrices` (BYOC-external-cap-only price source) + `ai/runner/live_runner.go` (live-runner prices are a separate store, nil offchain); `livepeer-python-gateway/src/livepeer_gateway/byoc.py` (`orch_url` top priority, per-request `get_orch_info` caps); Run 50b/51/55 live evidence above.
+
+---
+
+## VERIFICATION — "Fix B (durable): NaaP mints a user-scoped signer JWT" (2026-07-19)
+
+**Task:** confirm whether the durable fix "NaaP mints a user-scoped signer-JWT (`mintUserSignerToken`) and forwards it — fully specced in `NAAP-SIGNER-JWT-EXCHANGE-PLAN.md`" is DONE. Verification only; no code changed.
+
+### VERDICT: `MERGED-ENABLED-BUT-SUPERSEDED` (now orphaned/dead code)
+
+Fix B was **coded, merged to `main`, reached prod behind an enabled flag** — then **replaced by two later approaches** and is now **dead code** (no non-test caller on `main` or on `feat/opaque-session-signer-endpoint`). Two premises in the claim are also **false**: the plan file does not exist, and the SDK primitive it names (`mintUserSignerToken`) was abandoned upstream.
+
+### Evidence
+
+**1. Plan file — DOES NOT EXIST.**
+`NAAP-SIGNER-JWT-EXCHANGE-PLAN.md` is absent from the working tree AND from all git history/branches (`git log --all --name-only | rg -i 'SIGNER-JWT-EXCHANGE-PLAN'` → nothing). No `.md` in the repo matches `signer.?jwt`. The "fully specced in NAAP-SIGNER-JWT-EXCHANGE-PLAN.md" premise is unfounded.
+
+**2. Function name mismatch.**
+- `mintUserSignerToken` is a **builder-SDK** primitive, not a NaaP function. NaaP never defines it.
+- The NaaP wrapper is **`mintUserSignerJwtForExternalUser()`** — `apps/web-next/src/lib/pymthouse-client.ts:285-315`. Real implementation (upsert user → `mintUserAccessToken` → return `{ jwt, expiresIn, scope }`), not a stub. Unit-tested in `pymthouse-client.test.ts:36-134`.
+- #406 originally wrapped SDK `mintUserSignerToken` (clearinghouse mint: `client_credentials` + `scope=sign:mint_user_token` + `external_user_id`, `aud`=issuer). That path returned **`500 "Internal error during token mint"`** upstream, so #410 switched the wrapper to `mintUserAccessToken`. The clearinghouse `mintUserSignerToken` grant the claim describes is explicitly abandoned (see doc comment at `pymthouse-client.ts:277-281`).
+
+**3. Merge history (all against `livepeer/naap`).**
+- **#405** `feat/per-key-remote-signer` (P6, MERGED Jun 25) — added `PER_KEY_REMOTE_SIGNER_FLAG = 'per_key_remote_signer'` (`feature-flags.ts:84`, **default OFF** `:177-181`) and the validate front-door endpoint-swap plumbing (`keys/validate/route.ts:206-231`, try/catch fail-safe to token-bundle).
+- **#406** `feat/per-key-signer-jwt-exchange` (P7, MERGED Jun 25, commit `02a87ae1`/`ff31f377`) — added `mintUserSignerJwtForExternalUser` + **wired `resolveSignerEndpoint()` to mint + forward the user JWT**, gated behind `per_key_remote_signer`. **This is Fix B.**
+- **#410** `fix/per-key-signer-builder-user-token` (P7 fix, MERGED Jun 25) — switched the mint off the 500-ing clearinghouse grant to the Builder user-token JWT.
+- **#412** `feat/pymthouse-api-key-signer-session` (MERGED Jun 30) — `exchangeApiKeyForSignerSession()` single-call contract (John's relocated durable exchange).
+- **#421** `feat/composite-signer-bearer-pr210` (MERGED Jul 9) — `resolveSignerEndpoint()` emits composite `app_…_pmth_…` Bearer to the DMZ. **This is "Fix A".**
+- **#424** builder-sdk 0.6.0 + RFC 8693 api-key exchange (merged).
+- **#427** `feat/opaque-session-signer-endpoint` (current branch) — forward opaque `pmth_` session. **PR CLOSED (not merged).**
+
+**4. Wiring TODAY — Fix B is orphaned on every branch.**
+- `origin/main` `resolveSignerEndpoint()` (`pymthouse-adapter.ts`): API-key path first (composite → Bearer to DMZ; bare `pmth_` → `exchangeApiKeyForSignerSession`), else legacy fallback mints a **composite API key** via `createPymthouseApiKey`. It **does not call `mintUserSignerJwtForExternalUser`** (only a stale doc comment references it at ~line 271).
+- current branch `feat/opaque-session-signer-endpoint` `resolveSignerEndpoint()` (`pymthouse-adapter.ts:270-279`): forwards the **opaque `pmth_` session** (`Authorization: Bearer ${session.accessToken}`); test explicitly asserts `mintUserSignerJwtForExternalUser` **not** called (`pymthouse-adapter.test.ts:155`).
+- `rg 'mintUserSignerJwtForExternalUser' apps --glob '!*.test.ts'` → **only the definition**, zero call sites. Confirmed dead in the live path.
+
+**5. Flag state.** `per_key_remote_signer` default **OFF** globally; **ON via per-team override for `livepeer-dev`** in prod Neon (audit Runs 48b/49). So the gate is enabled, but the code it now gates is the opaque/composite path, not the JWT mint.
+
+### Is Fix B still needed given the composite-bearer path (Fix A)?
+**No — it is superseded.** The remote-signer DMZ identity webhook accepts the composite `app_…_pmth_…` Bearer directly (Fix A, #421) and that path reached the orchestrator in Runs 50–54; the durable contract John relocated to is the **api-key signer-session exchange** (`exchangeApiKeyForSignerSession`, #412/#424). The user-scoped JWT mint (#406/#410) was an interim P7 attempt whose underlying clearinghouse grant 500'd; both `main` and the current branch have moved off it. Recommendation: treat `mintUserSignerJwtForExternalUser` as **removable dead code** (plus its stale doc reference in `pymthouse-adapter.ts`), not as pending work.
+
+### If someone still wants Fix B "done" as specced
+It would require (a) authoring the missing `NAAP-SIGNER-JWT-EXCHANGE-PLAN.md`, and (b) an upstream fix to the clearinghouse `mintUserSignerToken` 500 — neither is warranted while Fix A / api-key exchange work. Rough effort if pursued anyway: ~0.5 day NaaP re-wire + upstream pymthouse fix (out of NaaP's control).
+
+**Sources (read-only):** `apps/web-next/src/lib/pymthouse-client.ts:285-315`, `.../pymthouse-adapter.ts:270-301` (branch) + `origin/main:pymthouse-adapter.ts:294-367`, `.../feature-flags.ts:84,177-181`, `.../keys/validate/route.ts:206-231`, `pymthouse-client.test.ts`, `pymthouse-adapter.test.ts:135-230`, `gh pr list` (#405/#406/#410/#412/#421/#424/#427), `git show 02a87ae1`.
