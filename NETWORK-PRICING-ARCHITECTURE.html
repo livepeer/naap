@@ -707,6 +707,156 @@
   <p>New model/tool/pricing approach = a new pricing declaration row + (if needed) one new <code>quantity_source</code> extractor. No new metering code. <span class="gate">Gate: a brand-new cap prices, bills, and reconciles with zero go-livepeer/pymthouse changes.</span></p>
 </div>
 
+<!-- ============================================================= A vs B vs C -->
+<h2 id="abc-fee-locus">7. Where should fee/quantity compute live? (A vs B vs C)</h2>
+<p>
+  A design challenge to Model&nbsp;A: the doc has the <b>signer</b> compute <code>fee = qty &times; per_unit</code>. Two alternatives push that
+  computation elsewhere under the principle <em>"do it close to where it happens"</em>:
+  <b>(A)</b> gateway reports <code>billing_unit_kind</code>+<code>billing_unit_quantity</code>, <b>signer</b> computes the fee and signs (current doc);
+  <b>(B)</b> the <b>gateway</b> computes <em>and reports the fee</em>, the signer "just signs";
+  <b>(C)</b> the <b>runner</b> configs price, meters, computes and reports the fee up through orch&rarr;signer, because the runner is the only place that knows the <em>actual</em> output.
+  The honest answer requires separating three distinct facts and pinning each to <em>where and when</em> it is authoritatively known.
+</p>
+
+<h3>7.1 &nbsp;Three facts, not one &mdash; what each layer KNOWS and WHEN</h3>
+<p>
+  The three facts are: <b>(i) the per-unit PRICE</b> (config), <b>(ii) the QUANTITY</b> of natural units (requested vs actual output),
+  and <b>(iii) the FEE = qty &times; price</b>. Grounding in the code, the decisive constraint is timing:
+  <b>the payment is minted <em>before</em> inference.</b> The gateway builds the payment headers and attaches them to the job request
+  (<span class="mono">byoc.py:210&ndash;253</span> &mdash; <code>_create_byoc_payment</code> calls <code>/generate-live-payment</code>, then sends the job),
+  and the signer's <code>GenerateLivePayment</code> charges on a <em>time/estimate</em> basis
+  (<code>pixels = ceil(billableSecs)</code> for BYOC, or a synthesized pixel count for lv2v; a first call preloads 60&nbsp;s) &mdash;
+  the <em>actual</em> output size does not exist yet (<span class="mono">remote_signer.go:684&ndash;731</span>).
+</p>
+<table>
+  <thead><tr><th>Layer</th><th>(i) PRICE (per-unit config)</th><th>(ii) QUANTITY</th><th>(iii) FEE</th><th>When / authority</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Runner</b></td>
+      <td><span class="tag t-yes">Authoritative source</span> &mdash; ships <code>offering.price</code> in its <code>/discovery</code> descriptor (close to the model)</td>
+      <td><span class="tag t-yes">Actual output</span> &mdash; the ONLY place that knows true MP/seconds/tokens produced</td>
+      <td><span class="tag t-no">Not a payment authority</span> &mdash; no eth key, runs behind the orch</td>
+      <td><b>Post-inference.</b> Knows truth only <em>after</em> the payment was already minted.</td>
+    </tr>
+    <tr>
+      <td><b>Gateway</b></td>
+      <td><span class="tag t-part">Echoes</span> the orch's advertised <code>OrchestratorInfo</code> price (reads, doesn't own)</td>
+      <td><span class="tag t-yes">Requested/estimable</span> &mdash; has the full request payload (resolution, frames, char count, N images) per <code>quantity_source</code></td>
+      <td><span class="tag t-part">Could</span> multiply, but is the least-trusted, most-exposed layer</td>
+      <td><b>Pre-inference,</b> at request build time. Knows <em>requested</em>, not <em>actual</em>.</td>
+    </tr>
+    <tr>
+      <td><b>Orch</b></td>
+      <td><span class="tag t-yes">Authoritative advertiser + re-deriver</span> &mdash; <code>GetCapabilitiesPrices</code> + <code>priceInfo</code>/overhead; sets the <em>fixed price per session</em> from the payment (<span class="mono">orchestrator.go:266&ndash;343, 139&ndash;161, 391&ndash;464</span>)</td>
+      <td><span class="tag t-part">Requested pre-, actual post-</span> &mdash; sees the request pre-inference; debits <em>actual</em> pixels post-inference via <code>DebitFees</code> (<span class="mono">orchestrator.go:480&ndash;488</span>)</td>
+      <td><span class="tag t-yes">Independent re-derivation</span> &mdash; <code>DebitFees = price &times; pixels</code> is the trust anchor the ticket must reconcile to</td>
+      <td><b>Both</b> &mdash; validates at payment time, meters actuals at completion.</td>
+    </tr>
+    <tr>
+      <td><b>Signer</b></td>
+      <td><span class="tag t-yes">Resolves + pins</span> the advertised per-cap price into <code>oInfo.PriceInfo</code> &amp; <code>ExpectedPrice</code> (<span class="mono">remote_signer.go:466&ndash;557</span>)</td>
+      <td><span class="tag t-part">Given</span> the quantity basis (<code>InPixels</code>/type today) by the gateway</td>
+      <td><span class="tag t-yes">Computes today</span> &mdash; <code>calculateFee(pixels, initialPrice)</code>; holds the eth key; sizes tickets; enforces max-price + price-doubling guards (<span class="mono">remote_signer.go:720&ndash;782</span>)</td>
+      <td><b>Pre-inference,</b> at mint time. The on-chain payment authority.</td>
+    </tr>
+  </tbody>
+</table>
+<div class="note">
+  <b>Key code fact:</b> the fee is <em>already computed twice</em> and must agree &mdash; the <b>signer</b> mints tickets sized to <code>fee = pixels &times; price</code>,
+  and the <b>orch</b> independently debits <code>price &times; pixels</code> and pins the session price from the payment's <code>ExpectedPrice</code>.
+  Both sides read the <em>same</em> orch-advertised price row; that is the consistency contract, not a free choice of "who computes."
+</div>
+
+<h3>7.2 &nbsp;The trust / consistency constraint (the decider)</h3>
+<p>
+  A signed ticket only clears if its <code>ExpectedPrice</code> matches what the orch re-derives; a mismatch pins a wrong fixed session price and
+  surfaces as <code>invalid recipientRand</code> / "Could not parse payment" (the class of failure #3993 fixed for a 1% overhead skew).
+  The orch is the price authority: it <b>advertises</b> the per-cap price (<code>GetCapabilitiesPrices</code>) and <b>re-derives</b> it
+  (<code>priceInfo</code>+overhead, <code>DebitFees</code>). Whoever computes the fee must do it from <em>that</em> price, and the orch's independent check must still hold.
+</p>
+<table>
+  <thead><tr><th>Model</th><th>Who asserts the fee</th><th>Does the orch's re-derivation still hold?</th><th>Trust verdict</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>A</b> &mdash; signer computes</td>
+      <td>Signer, from the orch-advertised price &times; gateway-supplied qty</td>
+      <td><span class="tag t-yes">Yes</span> &mdash; identical to today's proven path; only the <em>quantity basis</em> changes (natural units instead of synthesized pixels). <code>ExpectedPrice</code> stays cap-consistent.</td>
+      <td class="risk-lo">SAFE &mdash; keeps the signer's max-price + doubling guards; the eth-key holder owns the on-chain value.</td>
+    </tr>
+    <tr>
+      <td><b>B</b> &mdash; gateway computes fee</td>
+      <td>Gateway (untrusted client) hands a finished fee; signer signs it blind</td>
+      <td><span class="tag t-no">Weakened</span> &mdash; the signer can no longer independently re-derive/guard the price; a gateway-asserted fee that diverges from the advertised price re-creates the exact <code>recipientRand</code>/parse failure class.</td>
+      <td class="risk-hi">WORSE &mdash; moves the fee authority to the <em>least</em>-trusted layer and drops a safety check for zero benefit. "Just sign" is a mischaracterization: fee-sizing IS ticket-sizing (nonce, balance, ticket count).</td>
+    </tr>
+    <tr>
+      <td><b>C</b> &mdash; runner computes fee</td>
+      <td>Runner (no eth key, downstream of the mint) reports a fee up through orch&rarr;signer</td>
+      <td><span class="tag t-no">Timing-broken</span> &mdash; the payment is already minted before the runner runs, so a runner fee cannot feed the pre-payment; it forces a <em>post-inference settlement</em> (top-up/refund) and makes the runner a new trusted payment source.</td>
+      <td class="risk-md">RIGHT FACT, WRONG LOCUS &mdash; correct that the runner owns PRICE config and true QUANTITY, but promoting it to on-chain <em>fee authority</em> expands the trust boundary and adds a reconciliation subsystem the pre-paid interval model deliberately avoids.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>7.3 &nbsp;Pre- vs post-inference metering</h3>
+<p>
+  Because payment is minted pre-inference, the fee at sign time can only be built from the <b>requested/estimated</b> quantity the gateway
+  extracts from the payload (A/B), not the <b>actual</b> output only the runner knows (C). Full C therefore <em>forces</em> a settlement step.
+  The important observation: the architecture <b>already</b> reconciles true usage without a runner&rarr;signer fee channel &mdash;
+  the orch's <code>DebitFees</code> runs down the pre-paid session balance against <em>actual</em> pixels post-inference
+  (<span class="mono">orchestrator.go:480&ndash;488</span>). So "meter close to where it happens" for <em>actual</em> output is satisfied at the orch,
+  not by making the runner a payment signer. For most caps the requested quantity equals the actual (N images requested &rarr; N produced;
+  a requested resolution/duration is honored); divergence is bounded and matters mainly for open-ended outputs (LLM tokens, variable-length video) &mdash;
+  handled by the existing <em>optional completion-time reconcile</em> for those two modalities (§5 caveat), not a general second channel.
+</p>
+
+<h3>7.4 &nbsp;"Close to where it happens" &times; single-source-of-truth &mdash; the clean split</h3>
+<p>
+  The principle and the descriptor-as-single-source-of-truth decision reconcile once you stop treating "fee" as one atomic thing that lives in one place:
+</p>
+<table>
+  <thead><tr><th>Fact</th><th>Lives closest to&hellip;</th><th>Flows / validated by</th></tr></thead>
+  <tbody>
+    <tr><td><b>PRICE</b> (per-unit config)</td><td><b>Runner descriptor</b> <code>offering.price</code> &mdash; closest to the model (adopts C's real insight)</td><td>Runner &rarr; orch aggregates into <code>GetCapabilitiesPrices</code> (G1/PR3) &rarr; advertised in <code>OrchestratorInfo</code> &rarr; signer pins as <code>ExpectedPrice</code>. Orch re-derives &mdash; the trust anchor.</td></tr>
+    <tr><td><b>QUANTITY</b> (billable at mint)</td><td><b>Gateway</b>, from the request payload per <code>quantity_source</code> &mdash; the layer that knows the request at pre-payment time</td><td>Sent as <code>billing_unit_quantity</code> (PR4). True/actual quantity, where it diverges, is metered at the <b>orch</b> post-inference (<code>DebitFees</code>) &mdash; close to where the output happens.</td></tr>
+    <tr><td><b>FEE</b> (qty &times; price)</td><td><b>Signer</b> &mdash; already computes it, holds the key, sizes tickets, enforces price guards</td><td>Signer derives from pinned price &times; qty (PR8); <b>orch independently re-derives</b> and must agree (the #3993 invariant). Neither gateway nor runner is a sole fee authority.</td></tr>
+  </tbody>
+</table>
+<p class="note">
+  This is exactly "do it close to where it happens" applied <em>per fact</em>: PRICE at the runner, QUANTITY at the request/output boundary, FEE
+  where the trust and key already live &mdash; each re-validated by the orch, the one component that both advertises and settles.
+</p>
+
+<h3>7.5 &nbsp;Verdict</h3>
+<div class="verdict yes">
+  <b>Recommendation: a hybrid = A for fee/quantity + the PRICE-config half of C.</b><br>
+  Adopt <b>C's genuine insight</b> &mdash; the <b>runner owns per-unit PRICE</b> in its descriptor and it flows up via orch advertisement (this is already the plan: descriptor-as-SoT + G1/PR3).
+  Keep <b>A</b> for the on-chain value: the <b>gateway reports QUANTITY</b> (requested, from the payload) and the <b>signer derives + signs the FEE</b> from the orch-advertised price, with the <b>orch re-validating</b>.
+  <b>Reject B</b> outright: handing a finished fee from the untrusted gateway to a "dumb" signer destroys the signer's independent price guard and re-opens the <code>recipientRand</code>/parse failure class for no benefit &mdash; and "just sign" is false, because sizing the fee <em>is</em> sizing the tickets/nonce/balance.
+  <b>Reject full C for the FEE:</b> the runner is not a payment authority and runs <em>after</em> the pre-inference mint, so a runner-computed on-chain fee forces a settlement subsystem the pre-paid interval model avoids &mdash; while true-usage divergence, where it matters, is already captured by the orch's post-inference <code>DebitFees</code>. So the runner <b>should NOT compute+report the on-chain fee</b>; it should own price config and (for its own actuals) feed the orch's existing metering.
+</div>
+<table>
+  <thead><tr><th>Criterion</th><th>A (signer fee)</th><th>B (gateway fee)</th><th>C (runner fee)</th></tr></thead>
+  <tbody>
+    <tr><td>Correctness (pre-inference mint)</td><td class="risk-lo">Good (requested qty)</td><td class="risk-lo">Good</td><td class="risk-md">Needs post-hoc settle</td></tr>
+    <tr><td>Trust / on-chain consistency</td><td class="risk-lo">Preserved</td><td class="risk-hi">Broken</td><td class="risk-md">Expands trust boundary</td></tr>
+    <tr><td>Complexity</td><td class="risk-lo">Low (evolves today's calc)</td><td class="risk-md">Med (blind-sign risk)</td><td class="risk-hi">High (settlement engine)</td></tr>
+    <tr><td>Latency</td><td class="risk-lo">None added</td><td class="risk-lo">None</td><td class="risk-hi">Adds a completion round-trip</td></tr>
+    <tr><td>Extensibility</td><td class="risk-lo">Config-only (new descriptor)</td><td class="risk-md">Client re-impls fee</td><td class="risk-md">Runner+settle per cap</td></tr>
+    <tr><td>Over-engineering</td><td class="risk-lo">No</td><td class="risk-lo">No</td><td class="risk-hi">Yes for most caps</td></tr>
+  </tbody>
+</table>
+
+<h3>7.6 &nbsp;Impact on the execution plan (PR4 / PR5)</h3>
+<div class="note">
+  <b>Both PRs stand unchanged &mdash; this analysis reinforces them.</b>
+  <ul class="clean">
+    <li><b>PR4 (gateway):</b> unchanged. The gateway computes and sends <b><code>billing_unit_quantity</code> (requested), NOT the fee</b> &mdash; this <em>is</em> the recommended locus for quantity. Refinement: let <code>quantity_source</code> flag caps whose <em>actual</em> output can diverge (LLM/video); those defer their true-usage delta to the orch's post-inference <code>DebitFees</code> + the optional completion reconcile, rather than to a gateway number.</li>
+    <li><b>PR5 (signer):</b> unchanged. The signer remains the fee-deriver (stamp unit/qty in PR5, <code>fee = per_unit &times; qty</code> in PR8), which matches today's <code>calculateFee</code> ownership, the eth-key/ticket-sizing responsibility, and the max-price + doubling guards. <b>No new "runner-reports-fee" path and no gateway-asserted fee are introduced</b>, so no settlement PR is added.</li>
+    <li><b>New guard (both):</b> assert <code>signer ExpectedPrice == orch advertised price</code> (the #3993 invariant) and cross-check <code>gateway-qty</code> against the orch's request-derived qty, so the fee stays reconcilable by construction.</li>
+  </ul>
+</div>
+
 <h2 id="review-execplan">Design review findings + execution plan</h2>
 <div class="card">
   <p><b>Companion doc.</b> The streamlined PR-cycle execution plan lives in <a href="PRICING-EXECUTION-PLAN.html"><span class="mono">PRICING-EXECUTION-PLAN.html</span></a> &mdash; 10 self-contained, flag-gated (default OFF), observe&rarr;enforce PRs with per-PR test / production-validation / rollback / owner, a gap-closure matrix, and an end-to-end prod validation.</p>
