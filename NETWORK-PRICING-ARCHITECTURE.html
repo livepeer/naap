@@ -105,6 +105,7 @@
 
 <div class="toc">
   <a href="#tldr">0. Direct answers (the crux)</a>
+  <a href="#sot-descriptor">0.5 &mdash; Single source of truth (descriptor price segment)</a>
   <a href="#p1">Part 1 &mdash; Agent-level pricing (user-facing)</a>
   <a href="#p2">Part 2 &mdash; byoc-staging-1 signer pricing</a>
   <a href="#p3">Part 3 &mdash; Live-runner orch pricing</a>
@@ -142,39 +143,160 @@
   (3) There is <b>no per-cap "how am I priced" declaration</b> that flows runner&nbsp;&rarr;&nbsp;orch&nbsp;&rarr;&nbsp;signer&nbsp;&rarr;&nbsp;meter; unit+quantity are dropped at every hop, so adding a new cap/pricing model is code, not config.
 </div>
 
+<!-- ============================================================= SOT -->
+<h4 class="part">Part 0.5 &mdash; consolidation</h4>
+<h2 id="sot-descriptor">Single source of truth &mdash; the capability descriptor <code>price</code> segment</h2>
+
+<div class="verdict yes">
+  <b>Verdict &mdash; the capability descriptor's <code>offering.price</code> segment is the ONE source of truth for per-cap price + unit. The separate <code>price.json</code> / <code>pricing-table-deploy.json</code> is DEMOTED to a build-time <em>generated artifact</em>, not a parallel truth.</b><br><br>
+  The descriptor already carries the on-chain wire price, the pixel mapping, and the human USD/unit &mdash; the exact fields the orch advertises and the agent quotes. The discovery&rarr;registry sync <em>already</em> reads price straight from the descriptor (<span class="mono">storyboard-a3/lib/capabilities/discovery-sync.ts:108-110</span>). Maintaining a second hand-edited <code>price.json</code> that restates the same numbers is the classic two-sources-of-truth trap: they drift, and "which one is right?" becomes a support ticket. Under the one-orch&rarr;many-runner model each runner ships its own cap descriptor (incl. <code>offering.price</code>); the orch aggregates, the signer stamps, pymthouse meters &mdash; all from that <b>one</b> object. A new cap/tool is <b>a new descriptor</b>, never a <code>price.json</code> edit.
+</div>
+
+<h3>0.5.1 &nbsp;The authoritative schema (quote)</h3>
+<p>The descriptor is the FROZEN provider&harr;platform contract, defined as zod in <span class="mono">storyboard-a3/lib/capabilities/descriptor.ts</span> and served machine-readably at <code>GET /api/capabilities/standard</code> (<span class="mono">app/api/capabilities/standard/route.ts</span>). The price lives in <code>capability.offering.price</code>:</p>
+<pre class="code"><span class="c">// descriptor.ts — PriceSchema (the price segment)  [descriptor.ts:104-114]</span>
+<span class="k">PriceSchema</span> = z.object({
+  <span class="k">price_per_unit</span>:  z.number().int().positive(),   <span class="c">// WEI, on-chain wire price</span>
+  <span class="k">pixels_per_unit</span>: z.number().int().positive().default(1), <span class="c">// natural-unit → pixel-equiv</span>
+  <span class="k">unit</span>:            z.enum([<span class="s">"WEI"</span>, <span class="s">"USD"</span>]),
+  <span class="k">display_usd</span>:     z.number().nonnegative().optional(), <span class="c">// human USD (== display_price_usd)</span>
+  <span class="k">display_unit</span>:    z.string().min(1).optional(),      <span class="c">// e.g. "second","megapixel","image"</span>
+}).strict();
+
+<span class="c">// nested in OfferingSchema  [descriptor.ts:116-133]</span>
+<span class="k">OfferingSchema</span> = z.object({
+  <span class="k">app</span>, <span class="k">version?</span>, <span class="k">mode</span>: <span class="s">"single-shot"</span>|<span class="s">"persistent"</span>, <span class="k">capacity</span>,
+  <span class="k">price</span>: PriceSchema,   <span class="c">// ← the SoT price segment</span>
+  <span class="k">sla?</span>: { class?: <span class="s">"workstation"</span>|<span class="s">"datacenter"</span>, note? },
+}).strict();
+</pre>
+<p>Concrete instance from the EMRAN VLM onboarding guide (<span class="mono">storyboard-a3/EMRAN-VLM-CAP-ONBOARDING-GUIDE.html</span>, step 1) &mdash; a live-runner shipping its own price in its <code>/discovery</code> descriptor:</p>
+<pre class="code"><span class="k">"offering"</span>: {
+  <span class="k">"app"</span>: <span class="s">"emran/screen-agent"</span>, <span class="k">"version"</span>: <span class="s">"1.0.0"</span>,
+  <span class="k">"mode"</span>: <span class="s">"single-shot"</span>, <span class="k">"capacity"</span>: <span class="n">1</span>,
+  <span class="k">"price"</span>: { <span class="k">"price_per_unit"</span>: <span class="n">100</span>, <span class="k">"pixels_per_unit"</span>: <span class="n">1</span>, <span class="k">"unit"</span>: <span class="s">"WEI"</span>,
+             <span class="k">"display_usd"</span>: <span class="n">0.000139</span>, <span class="k">"display_unit"</span>: <span class="s">"second"</span> },
+  <span class="k">"sla"</span>: { <span class="k">"class"</span>: <span class="s">"workstation"</span> }
+}
+</pre>
+
+<h3>0.5.2 &nbsp;Descriptor price segment vs <code>price.json</code> &mdash; field-by-field</h3>
+<p><code>pricing-table-deploy.json</code> per-cap rows (<span class="mono">storyboard-a3/docs/pricing-v1/pricing-table-deploy.json:46-64</span>) are a superset, but most extra fields are either <em>generator inputs</em> (used by <span class="mono">convert.py</span> to derive <code>price_per_unit</code>) or <em>global constants</em>, not per-cap truth the network needs at runtime.</p>
+<table>
+  <thead><tr><th>Field</th><th>Descriptor <code>offering.price</code></th><th><code>price.json</code> row</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">price_per_unit (WEI)</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-keep">same number</span> &mdash; keep on descriptor</td></tr>
+    <tr><td class="mono">pixels_per_unit</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-keep">same</span></td></tr>
+    <tr><td class="mono">display_usd / display_price_usd</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-keep">same</span></td></tr>
+    <tr><td class="mono">display_unit</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-keep">same</span></td></tr>
+    <tr><td class="mono">unit_kind (billing dimension)</td><td><span class="tag t-no">Missing</span> &mdash; sync fakes it from <code>display_unit</code></td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-new">GAP &mdash; add to PriceSchema</span></td></tr>
+    <tr><td class="mono">price_scaling</td><td><span class="tag t-no">Missing</span> (relies on global <code>1000000</code>)</td><td><span class="tag t-yes">Yes (+ global wire_protocol)</span></td><td><span class="tag t-part">add per-price OR standardize the constant</span></td></tr>
+    <tr><td class="mono">quantity_source</td><td><span class="tag t-no">Missing</span></td><td><span class="tag t-no">Missing</span></td><td><span class="tag t-new">GAP &mdash; add to PriceSchema (per-unit metering)</span></td></tr>
+    <tr><td class="mono">upstream_cost_usd, margin_pct, tier, eth_usd_spot</td><td><span class="tag t-no">No</span></td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-keep">generator INPUTS &mdash; stay in build-time source, not runtime truth</span></td></tr>
+  </tbody>
+</table>
+<div class="note warn">
+  <b>The one lossy shortcut today.</b> <code>discovery-sync.ts</code> sets <code>unit_kind: cap.offering.price.display_unit</code> because the descriptor has no dedicated <code>unit_kind</code>. That is fine when they coincide (image/second) but wrong where they differ (TTS bills per <code>characters</code> yet may <em>display</em> per <code>1000_characters</code>). <b>Adding <code>unit_kind</code> to <code>PriceSchema</code> is the single field that makes the descriptor a lossless replacement for <code>price.json</code>.</b>
+</div>
+
+<h3>0.5.3 &nbsp;Who consumes price today, and can they read the descriptor?</h3>
+<table>
+  <thead><tr><th>Consumer</th><th>Reads today</th><th>Reads descriptor?</th><th>To converge</th></tr></thead>
+  <tbody>
+    <tr><td><b>Agent</b> <code>get_pricing</code>/<code>estimateCost</code></td><td>Live <code>/capabilities</code> + <code>static-pricing.json</code> fallback (display_price_usd, unit_kind)</td><td><span class="tag t-part">Indirect</span> &mdash; <code>/capabilities</code> is fed from the same rows</td><td>Generate <code>static-pricing.json</code> from descriptors (already generated from the pricing table)</td></tr>
+    <tr><td><b>Orch</b> <code>GetCapabilitiesPrices</code></td><td><code>CAPABILITIES_JSON</code> env (price_per_unit, price_scaling) pasted from <code>convert.py</code></td><td><span class="tag t-no">No</span> for LR caps &mdash; runner descriptor price sits on <code>/discovery</code>, never aggregated (G1)</td><td>Aggregate each runner descriptor's <code>offering.price</code> into <code>CapabilitiesPrices</code> (G1)</td></tr>
+    <tr><td><b>Signer</b> <code>billing_unit_kind</code></td><td>Design-stage; would read unit from the cap price row</td><td><span class="tag t-part">Design</span></td><td>Source <code>billing_unit_kind</code> from descriptor <code>price.unit_kind</code></td></tr>
+    <tr><td><b>pymthouse</b> per-unit cost</td><td>Design-stage; <code>per_unit_usd</code> from catalog / <code>CapabilitiesPrices</code></td><td><span class="tag t-part">Design</span></td><td><code>per_unit_usd = price.display_usd</code> from the same descriptor</td></tr>
+    <tr><td><b>registry</b> (agent describe/list)</td><td><code>descriptorToEntry()</code> maps price fields</td><td><span class="tag t-yes">Yes, already</span></td><td>Nothing &mdash; already descriptor-sourced</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Is <code>price.json</code> necessary? No &mdash; it is replaceable, but not simply deletable today.</b> Everything <code>price.json</code> advertises at runtime (wire price, pixel map, display USD/unit) is already in the descriptor, and the registry sync already reads it there. Retain <code>pricing-table.json</code> + <code>convert.py</code> ONLY as a <b>build-time generator</b> that (a) derives <code>price_per_unit</code> from <code>display_usd &times; eth_usd</code> on spot rotation and (b) <b>writes that number back into the descriptor's price segment</b> &mdash; and, transitionally, still emits the legacy <code>CAPABILITIES_JSON</code> paste as a <em>generated</em> artifact. The derived <code>price_per_unit</code> is a generated field <em>within the one descriptor</em>, not a competing config. Once <code>unit_kind</code> is on <code>PriceSchema</code> and the orch aggregates LR descriptor prices (G1), <code>pricing-table-deploy.json</code> as a separately-advertised config is <b>removed</b>.
+</div>
+
+<h3>0.5.4 &nbsp;Consolidated flow &mdash; one descriptor, four derivations</h3>
+<pre class="diagram">
+  ┌─ CAPABILITY DESCRIPTOR (per runner, on /discovery) ─── SINGLE SOURCE OF TRUTH ─┐
+  │  offering.price = {                                                            │
+  │     price_per_unit(WEI), pixels_per_unit, unit,                                │
+  │     display_usd, display_unit,                                                 │
+  │     unit_kind,          ← ADD (billing dimension, lossless vs display_unit)    │
+  │     quantity_source     ← ADD (gateway extractor for billing_unit_quantity)   │
+  │  }                                                                             │
+  └───────┬───────────────┬────────────────┬────────────────────┬────────────────┘
+          │               │                │                    │
+          ▼ (1) AGENT      ▼ (2) ORCH        ▼ (3) SIGNER          ▼ (4) PYMTHOUSE
+   get_pricing quote   GetCapabilities-   billing_unit_kind =    per_unit_usd =
+   estimateCost =      Prices advertises   price.unit_kind;       price.display_usd;
+   display_usd ×       price_per_unit /    stamps unit+quantity   cost = quantity ×
+   estimateUnits       price_scaling       on create_signed_      per_unit_usd
+   (UX estimate only)  (aggregated per     ticket (fee =          (reconciles vs
+                       runner descriptor,  qty × per-unit)         on-chain fee)
+                       fixes G1)
+  ─────────────────────────────────────────────────────────────────────────────
+   BUILD-TIME (not a parallel truth):  pricing-table.json + convert.py  →
+   derive price_per_unit from display_usd × eth_usd  →  WRITE BACK into the
+   descriptor's price segment (and emit legacy CAPABILITIES_JSON as an artifact).
+</pre>
+
+<div class="do-dont">
+  <div class="do">
+    <h3>DO</h3>
+    <ul class="clean">
+      <li>Treat the descriptor <code>offering.price</code> as the <b>only</b> per-cap price/unit truth; ship it per runner on <code>/discovery</code>.</li>
+      <li>Add <b><code>unit_kind</code></b> (and <code>quantity_source</code>) to <code>PriceSchema</code> so it losslessly replaces <code>price.json</code>.</li>
+      <li>Keep <code>convert.py</code> as a <b>generator that writes <code>price_per_unit</code> back into the descriptor</b> on ETH-spot rotation.</li>
+      <li>Derive the agent's <code>static-pricing.json</code> fallback FROM descriptors, not a hand-kept table.</li>
+      <li>Aggregate each runner descriptor's price into <code>GetCapabilitiesPrices</code> (G1) so the billed path sees it.</li>
+    </ul>
+  </div>
+  <div class="dont">
+    <h3>DON'T</h3>
+    <ul class="clean">
+      <li>Don't hand-edit <code>pricing-table-deploy.json</code> as a second advertised source &mdash; it drifts from the descriptor.</li>
+      <li>Don't fake <code>unit_kind</code> from <code>display_unit</code> long-term (lossy for TTS/1K-char caps).</li>
+      <li>Don't push generator inputs (<code>upstream_cost_usd</code>, <code>margin_pct</code>, <code>eth_usd_spot</code>) onto the runtime descriptor.</li>
+      <li>Don't require a code/config change beyond the descriptor to onboard a new cap.</li>
+    </ul>
+  </div>
+</div>
+
 <!-- ============================================================= PART 1 -->
 <h4 class="part">Part 1</h4>
 <h2 id="p1">Agent-level pricing (user-facing) &mdash; TODAY</h2>
 <p>The agent layer is the Storyboard MCP server (<span class="ev">canonical: storyboard-wave-c</span> &mdash; <span class="mono">storyboard-a3</span> mirrors the same tools; the <span class="mono">plugins/storyboard</span> trees are packaging-only). Everything the user sees is USD in an industry-standard unit, and every USD figure derives from one field: <code>display_price_usd</code>.</p>
 
 <h3>1.1 &nbsp;The agent pricing flow (diagram)</h3>
+<p class="note">Consolidated to the single source of truth (Part 0.5): the <b>capability descriptor <code>offering.price</code></b> is authoritative. <code>pricing-table.json</code> + <code>convert.py</code> are a <b>build-time generator</b> that derives <code>price_per_unit</code> and writes it back into the descriptor (and, transitionally, still emits the legacy <code>CAPABILITIES_JSON</code> paste + <code>static-pricing.json</code> as <em>generated</em> artifacts).</p>
 <pre class="diagram">
-  DEPLOY SOURCE OF TRUTH                              AGENT / MCP RUNTIME
+  SINGLE SOURCE OF TRUTH                              AGENT / MCP RUNTIME
   ┌──────────────────────────────┐
-  │ pricing-table-deploy.json     │   convert.py      ┌──────────────────────────────┐
-  │  name, unit_kind,             │──── paste ───────▶│ CAPABILITIES_JSON on each      │
-  │  pixels_per_unit,             │                   │ BYOC / tool adapter            │
-  │  display_price_usd,           │                   └──────────────┬─────────────────┘
-  │  display_unit,                │                                  │ aggregated
-  │  price_per_unit, price_scaling│                                  ▼
+  │ CAPABILITY DESCRIPTOR         │   generated       ┌──────────────────────────────┐
+  │  offering.price {             │──── artifacts ───▶│ CAPABILITIES_JSON on each      │
+  │   price_per_unit, unit,       │  (CAPABILITIES_   │ BYOC / tool adapter (paste)    │
+  │   pixels_per_unit,            │   JSON.array)     └──────────────┬─────────────────┘
+  │   display_usd, display_unit,  │                                  │ aggregated
+  │   unit_kind* }                │                                  ▼
   └──────────────────────────────┘                   ┌──────────────────────────────┐
-             │ generated                              │ Orchestrator  GET /capabilities│
-             ▼ (static fallback)                      │  (display + wire fields)       │
+             │ generated (static fallback)            │ Orchestrator  GET /capabilities│
+             ▼                                         │  (display + wire fields)       │
   ┌──────────────────────────────┐                   └──────────────┬─────────────────┘
   │ static-pricing.json           │                                  │ SDK  (cached 60s)
   │ (capabilityStaticPrice)        │◀── overlay if display_price_usd  │
   └──────────────────────────────┘        missing                    ▼
-                                            ┌──────────────────────────────────────────┐
-                                            │ get_pricing  →  rate card (USD/unit)       │
-                                            │ estimateCost →  display_price_usd × units  │
-                                            │   ├─ max_cost_usd  (pre-flight reject)     │
-                                            │   ├─ spend_cap     (24h, default $50)      │
-                                            │   └─ job.cost_usd_estimated (persisted)    │
-                                            │ get_cost_report → Σ cost_usd_estimated     │
-                                            └────────────────────────────────────────────┘
+   ▲ convert.py writes price_per_unit      ┌──────────────────────────────────────────┐
+   │ back into the descriptor on ETH        │ get_pricing  →  rate card (USD/unit)       │
+   │ spot rotation (NOT a parallel truth)   │ estimateCost →  display_usd × units        │
+   ┌──────────────────────────────┐        │   ├─ max_cost_usd  (pre-flight reject)     │
+   │ pricing-table.json + convert.py│       │   ├─ spend_cap     (24h, default $50)      │
+   │  upstream_cost_usd, margin_pct │       │   └─ job.cost_usd_estimated (persisted)    │
+   │  eth_usd_spot  (GEN INPUTS)    │       │ get_cost_report → Σ cost_usd_estimated     │
+   └──────────────────────────────┘        └────────────────────────────────────────────┘
    NOTE: the agent NEVER sees wei. It quotes/tallies in USD. The wire (price_per_unit,
-   pixels_per_unit, price_scaling → wei/pixel) is a SEPARATE, parallel surface used only
-   by the orchestrator to bill on-chain (Part 2).
+   pixels_per_unit, price_scaling → wei/pixel) is the SAME descriptor price segment the
+   orchestrator bills on-chain from (Part 2) — one object, four derivations (Part 0.5.4).
+   * unit_kind is the one field PriceSchema must add to fully replace price.json.
 </pre>
 
 <h3>1.2 &nbsp;Where each thing lives (file:line evidence)</h3>
@@ -343,8 +465,8 @@
 
 <pre class="diagram">
   ┌─ RUNNER (one per model) ────────────────────────────────────────────────┐
-  │ declares pricing.json (per cap):                                          │
-  │   { unit_kind, per_unit_usd, quantity_source, min_units, ... }            │
+  │ ships its capability descriptor on /discovery (the SoT, Part 0.5):        │
+  │   offering.price { price_per_unit, display_usd, unit_kind, quantity_source }│
   │ heartbeat → orch  (adds unit_kind + quantity_source to LiveRunnerPriceInfo)│
   └───────────────────────────────┬───────────────────────────────────────────┘
                                    ▼  AGGREGATE
@@ -371,17 +493,24 @@
   └────────────────────────────────────────────────────────────────────────────┘
 </pre>
 
-<h4>Config schema example &mdash; a cap's pricing declaration (owned by the runner)</h4>
-<p>One object per cap. Adding a new cap or a new pricing approach is <b>a new row/file</b>, not new code. The <code>quantity_source</code> is a small, closed enum of extractors the gateway already knows how to evaluate against the request payload.</p>
-<pre class="code"><span class="c">// runner pricing.json — one entry per capability the runner serves</span>
+<h4>Config schema &mdash; the cap's pricing declaration IS the descriptor <code>offering.price</code></h4>
+<p>There is <b>no separate <code>pricing.json</code></b>: the per-cap price declaration is the descriptor's <code>offering.price</code> segment (Part 0.5), extended additively with <code>unit_kind</code> + <code>quantity_source</code>. Adding a new cap or a new pricing approach is <b>a new descriptor</b>, not new code. <code>quantity_source</code> is a small, closed enum of extractors the gateway already knows how to evaluate against the request payload.</p>
+<pre class="code"><span class="c">// capability descriptor — offering.price (SINGLE SOURCE OF TRUTH; extended)</span>
 {
-  <span class="k">"capability"</span>: <span class="s">"flux-schnell"</span>,
-  <span class="k">"pricing"</span>: {
-    <span class="k">"unit_kind"</span>:       <span class="s">"megapixel"</span>,        <span class="c">// megapixel|image|second|characters|tokens|call</span>
-    <span class="k">"per_unit_usd"</span>:    <span class="n">0.00315</span>,            <span class="c">// canonical price — same number the agent quotes</span>
-    <span class="k">"quantity_source"</span>: <span class="s">"image_megapixels"</span>, <span class="c">// closed enum → gateway extractor</span>
-    <span class="k">"min_units"</span>:       <span class="n">0.25</span>,               <span class="c">// optional floor (protects against dust)</span>
-    <span class="k">"reconcile"</span>:       <span class="s">"none"</span>              <span class="c">// none|on_completion (video/LLM only)</span>
+  <span class="k">"capability"</span>: {
+    <span class="k">"name"</span>: <span class="s">"flux-schnell"</span>, <span class="k">"kind"</span>: <span class="s">"live-runner"</span>, <span class="c">/* …identity, io… */</span>
+    <span class="k">"offering"</span>: {
+      <span class="k">"app"</span>: <span class="s">"…"</span>, <span class="k">"mode"</span>: <span class="s">"single-shot"</span>, <span class="k">"capacity"</span>: <span class="n">1</span>,
+      <span class="k">"price"</span>: {
+        <span class="k">"price_per_unit"</span>:  <span class="n">1284088677165</span>,     <span class="c">// WEI (generated by convert.py from display_usd × eth_usd)</span>
+        <span class="k">"pixels_per_unit"</span>: <span class="n">1048576</span>,           <span class="c">// natural unit → pixel-equivalent</span>
+        <span class="k">"unit"</span>:            <span class="s">"WEI"</span>,
+        <span class="k">"display_usd"</span>:     <span class="n">0.00315</span>,           <span class="c">// canonical USD — the number the agent quotes</span>
+        <span class="k">"display_unit"</span>:    <span class="s">"megapixel"</span>,
+        <span class="k">"unit_kind"</span>:       <span class="s">"megapixel"</span>,       <span class="c">// ADD: billing dimension (lossless vs display_unit)</span>
+        <span class="k">"quantity_source"</span>: <span class="s">"image_megapixels"</span> <span class="c">// ADD: closed enum → gateway extractor</span>
+      }
+    }
   }
 }
 
@@ -395,7 +524,7 @@
 </pre>
 <div class="note">
   <b>Why this is consistent + extensible without over-engineering.</b>
-  &bull; <b>One canonical price</b> (<code>per_unit_usd</code>) is the single number the agent quotes AND the orch/signer bill from &mdash; kills the two-model divergence (G5).
+  &bull; <b>One canonical price</b> (<code>offering.price.display_usd</code> in the descriptor) is the single number the agent quotes AND the orch/signer bill from &mdash; kills the two-model divergence (G5) and the two-config divergence (price.json vs descriptor, Part 0.5).
   &bull; <b>One meter</b> (<code>usage_units</code>) grouped by <code>unit_kind</code> serves every modality &mdash; no meter-per-cap explosion.
   &bull; <b>Closed enums</b> for <code>unit_kind</code> and <code>quantity_source</code> keep the extractor set small and reviewable; a new pricing approach that fits an existing extractor is pure config.
   &bull; <b>Additive & flag-gated</b>: absent fields = today's behavior, so rollout is a dual-write, not a rewrite.
@@ -445,7 +574,7 @@
     <ul class="clean">
       <li>Make the <b>on-chain signer event the single source of truth</b>; bridge wei&rarr;USD with the existing <code>eth_usd</code>.</li>
       <li>Add <b><code>billing_unit_kind</code> + <code>billing_unit_quantity</code></b> to the event; compute the fee from <code>quantity &times; per_unit_usd</code>.</li>
-      <li>Declare pricing <b>per cap in config</b> (<code>unit_kind</code>, <code>per_unit_usd</code>, <code>quantity_source</code>) owned by the runner.</li>
+      <li>Declare pricing <b>per cap in the descriptor</b> (<code>offering.price</code>: + <code>unit_kind</code>, <code>quantity_source</code>) owned by the runner &mdash; no separate <code>price.json</code> (Part 0.5).</li>
       <li><b>Aggregate runner prices into the orch's advertised price surface</b> so the billed path stops returning zero (G1).</li>
       <li>Use <b>one meter grouped by <code>unit_kind</code></b>; keep the fee meter forever as the reconciliation floor.</li>
       <li>Keep one <b>canonical <code>per_unit_usd</code></b> shared by agent quote and on-chain fee.</li>
