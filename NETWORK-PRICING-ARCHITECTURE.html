@@ -105,6 +105,7 @@
 
 <div class="toc">
   <a href="#tldr">0. Direct answers (the crux)</a>
+  <a href="#review">0.1 &mdash; Design review findings + resolutions (v2)</a>
   <a href="#sot-descriptor">0.5 &mdash; Single source of truth (descriptor price segment)</a>
   <a href="#p1">Part 1 &mdash; Agent-level pricing (user-facing)</a>
   <a href="#p2">Part 2 &mdash; byoc-staging-1 signer pricing</a>
@@ -142,6 +143,83 @@
   (2) Live-runner prices live on <code>GET /discovery</code> only and <b>never enter <code>GetCapabilitiesPrices</code></b>; offchain staging suppresses them entirely &rarr; <code>400 missing or zero priceInfo</code> &mdash; there is no per-cap price surface for a one-orch&rarr;many-runners model to aggregate.
   (3) There is <b>no per-cap "how am I priced" declaration</b> that flows runner&nbsp;&rarr;&nbsp;orch&nbsp;&rarr;&nbsp;signer&nbsp;&rarr;&nbsp;meter; unit+quantity are dropped at every hop, so adding a new cap/pricing model is code, not config.
 </div>
+
+<!-- ============================================================= REVIEW -->
+<h4 class="part">Part 0.1 &mdash; systematic review</h4>
+<h2 id="review">Design review findings + resolutions (v2)</h2>
+<p>This section is the output of a rigor pass over the design against five MUST criteria: (1) no duplication / remove dead code, (2) exactly one source of truth for capability + price, (3) agent USD estimate reconciles to the on-chain settled USD by construction, (4) consistency + simplicity + no over-engineering, (5) no regression &mdash; every change additive, optional and flag-gated. Each finding was grounded against the actual code (file:line). Resolutions marked <span class="tag t-new">PR&nbsp;n</span> map to <span class="mono">PRICING-EXECUTION-PLAN.html</span>.</p>
+
+<table>
+  <thead><tr><th>#</th><th>Finding (grounded)</th><th>MUST</th><th>Resolution (delivered by)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>F1</b></td>
+      <td><b>Pricing is advertised from more than one place.</b> The descriptor <code>offering.price</code> is authoritative, but three <em>parallel</em> restatements of the same numbers exist: (a) the hand-editable <code>docs/pricing-v1/pricing-table-deploy.json</code>; (b) the pasted <code>CAPABILITIES_JSON.array.json</code> env blob the orch reads (<span class="mono">convert.py:158-180</span> emits it); (c) the agent's hand-kept <code>lib/mcp-server/pricing/static-pricing.json</code> fallback. Any of them can drift from the descriptor.</td>
+      <td>1, 2</td>
+      <td>Demote all three to <b>build-time generated artifacts</b> derived from the descriptor; none is a runtime truth. <code>convert.py</code> writes <code>price_per_unit</code> <b>back into the descriptor</b> and regenerates <code>static-pricing.json</code> + <code>CAPABILITIES_JSON</code> as outputs. Once the orch aggregates runner descriptor prices (G1), <code>pricing-table-deploy.json</code> is <b>removed</b> as a separately-advertised config. <span class="tag t-new">PR2</span> <span class="tag t-new">PR3</span> <span class="tag t-new">PR11</span></td>
+    </tr>
+    <tr>
+      <td><b>F2</b></td>
+      <td><b>Orphaned dead code: Fix B.</b> <code>mintUserSignerJwtForExternalUser</code> is superseded (Model A composite-bearer / api-key exchange won) and has no non-test caller. It is <b>already removed from the deploy branch</b> <span class="mono">fix/signer-composite-bearer-forward</span> (grep: 0 hits in <code>*.ts</code>), but the audit records a stale export + doc reference still on <code>origin/main</code> (<span class="mono">BILLED-E2E-BLOCKER-AUDIT.md:1194-1225</span>).</td>
+      <td>1</td>
+      <td>Explicit dead-code removal task on <code>main</code>: delete the exported <code>mintUserSignerJwtForExternalUser</code> and the stale doc comment in <code>pymthouse-adapter.ts</code> (and any now-unused import). No behavior change (flag <code>per_key_remote_signer</code> already routes elsewhere). <span class="tag t-new">PR12</span></td>
+    </tr>
+    <tr>
+      <td><b>F3</b></td>
+      <td><b>The descriptor is not yet a <em>lossless</em> replacement for <code>price.json</code>.</b> <code>PriceSchema</code> (<span class="mono">descriptor.ts:105-113</span>) has no <code>unit_kind</code> and no <code>quantity_source</code>; <code>discovery-sync.ts:108</code> fakes <code>unit_kind</code> from <code>display_unit</code> (lossy for TTS: bills per <code>characters</code>, may display per <code>1000_characters</code>). <code>price_scaling</code> is not on the price segment (relies on the global <code>1_000_000</code>).</td>
+      <td>2, 3</td>
+      <td>Add <code>unit_kind</code> + <code>quantity_source</code> to <code>PriceSchema</code> (additive, optional). Stop faking: <code>discovery-sync</code> reads <code>price.unit_kind</code> and falls back to <code>display_unit</code> only when absent. <b>Decision (anti-over-engineering):</b> keep <code>price_scaling</code> as the single global wire constant (<code>1_000_000</code>), do <b>not</b> add a per-price field &mdash; a per-price scaling is speculative generality with no cap needing it. <span class="tag t-new">PR1</span> <span class="tag t-new">PR2</span></td>
+    </tr>
+    <tr>
+      <td><b>F4</b></td>
+      <td><b>Agent quote vs on-chain settled could drift silently.</b> The design intends both to derive from the same number, but the invariant was implicit and had no verification, so a future edit to either derivation could diverge undetected.</td>
+      <td>3</td>
+      <td>Make the invariant explicit (see the boxed <b>Reconciliation invariant</b> below) and add two checks: a <b>CI parity test</b> asserting <code>agentQuoteUsd(cap, qty) == pymthouseUnitCostUsd(cap, qty)</code> for one cap per unit_kind, and a <b>production delta metric</b> <code>|unitCostUsd &minus; feeUsd|</code> per cap that alerts on drift. <span class="tag t-new">PR8</span> <span class="tag t-new">PR9</span> <span class="tag t-new">PR10</span></td>
+    </tr>
+    <tr>
+      <td><b>F5</b></td>
+      <td><b>Over-engineering guardrails.</b> Tempting-but-wrong elaborations: a per-cap/per-modality meter, a general rules engine for quantity, a second (agent→pymthouse) reporting channel (Model B), per-price <code>price_scaling</code>.</td>
+      <td>4</td>
+      <td><b>One</b> meter (<code>usage_units</code>, SUM) grouped by <code>unit_kind</code> serves every modality. <code>unit_kind</code> and <code>quantity_source</code> are <b>closed enums</b> mapping to a small, reviewable extractor set &mdash; no rules engine. Model A only (on-chain event is the single truth); agent quote stays a pre-flight estimate. All four elaborations are explicitly rejected in DO/DON'T. <span class="tag t-keep">design</span></td>
+    </tr>
+    <tr>
+      <td><b>F6</b></td>
+      <td><b>No-regression was asserted but not enumerated per layer.</b></td>
+      <td>5</td>
+      <td>Every PR is additive + flag-gated (default OFF) with a documented fallback to today's behavior. The per-layer regression table below names the guard that makes each change a no-op until its flag flips. <span class="tag t-new">all PRs</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="verdict yes">
+  <b>Reconciliation invariant (made explicit).</b> For every billed request:<br>
+  <span class="mono">agentQuoteUsd = descriptor.offering.price.display_usd &times; quantity</span><br>
+  <span class="mono">onchainSettledUsd = bridge( fee_wei ) where fee_wei = (price_per_unit / price_scaling) &times; (quantity &times; pixels_per_unit) &times; eth_usd&#8315;&sup1;-implied</span><br>
+  <span class="mono">pymthouseMeteredUsd = quantity &times; per_unit_usd, per_unit_usd = descriptor.offering.price.display_usd</span><br>
+  Because <code>price_per_unit</code> is <em>generated</em> from <code>display_usd</code> (<span class="mono">convert.py:56-67</span>) and <b>the same <code>quantity</code></b> (from one <code>quantity_source</code> extractor) is used by the gateway (for the fee) and by the meter (for cost), the three quantities are equal up to <code>eth_usd</code> timing and integer rounding &mdash; <b>reconciliation by construction</b>, not by a matching engine. The transition floor <code>billedUsd = max(unitCostUsd, feeUsd)</code> guarantees we never under-bill the real on-chain fee while parity is being proven.</div>
+
+<h3>0.1.1 &nbsp;Per-layer no-regression guards (MUST 5)</h3>
+<table>
+  <thead><tr><th>Layer</th><th>Change</th><th>Flag (default OFF)</th><th>Guard &mdash; why absent flag = today's behavior</th></tr></thead>
+  <tbody>
+    <tr><td>descriptor / storyboard-a3</td><td>Add <code>unit_kind</code>, <code>quantity_source</code> to <code>PriceSchema</code></td><td class="mono">n/a (optional fields)</td><td><code>.optional()</code> zod fields; every existing descriptor + golden fixture parses unchanged; <code>discovery-sync</code> falls back to <code>display_unit</code> when <code>unit_kind</code> absent.</td></tr>
+    <tr><td>orch / go-livepeer</td><td>Aggregate runner descriptor prices into <code>GetCapabilitiesPrices</code></td><td class="mono">-aggregateRunnerPrices</td><td>New code path only runs when the flag is on; OFF &rArr; <code>GetCapabilitiesPrices</code> returns exactly today's set (default/gateway/BYOC).</td></tr>
+    <tr><td>gateway / python</td><td>Compute + send <code>billing_unit_kind/quantity</code></td><td class="mono">SEND_UNIT_METERING</td><td>OFF &rArr; body is byte-identical to today (no new keys); signer ignores absent fields.</td></tr>
+    <tr><td>signer / go-livepeer</td><td>Stamp fields (Phase A) then fee-from-quantity (Phase B)</td><td class="mono">-unitMetering (observe|enforce)</td><td>absent/zero quantity &rArr; the existing lv2v/seconds fee path runs unchanged; stamping is additive event labels.</td></tr>
+    <tr><td>collector + OpenMeter / John</td><td>Passthrough + new <code>usage_units</code> meter</td><td class="mono">additive meter</td><td><code>network_fee_usd_micros</code> + <code>signed_ticket_count</code> untouched; new meter reads 0 until producers emit; existing entitlements keep burning the fee meter.</td></tr>
+    <tr><td>pymthouse / John</td><td>cost = quantity &times; per_unit_usd</td><td class="mono">UNIT_COST (observe|enforce)</td><td>observe = logged-only; enforce settles <code>max(unitCostUsd, feeUsd)</code>; <code>unit_quantity</code> absent/zero &rArr; falls back to <code>feeUsd</code> (identical to today).</td></tr>
+    <tr><td>agent / Storyboard</td><td>Generate <code>static-pricing.json</code> from descriptors; USD-only surface</td><td class="mono">n/a (generated artifact)</td><td>Same numbers, new source; agent still quotes <code>display_usd</code> &times; units and never sees wei; live <code>/capabilities</code> remains the primary source with static as fallback.</td></tr>
+  </tbody>
+</table>
+
+<h3>0.1.2 &nbsp;Concrete removal / demotion tasks (MUST 1 &mdash; kill duplication + dead code)</h3>
+<ul class="clean">
+  <li><b>Remove</b> the orphaned <code>mintUserSignerJwtForExternalUser</code> export + its stale doc comment in <code>apps/web-next/src/lib/billing/pymthouse-adapter.ts</code> on <code>main</code> (already gone on the deploy branch). <span class="tag t-new">PR12</span></li>
+  <li><b>Demote</b> <code>docs/pricing-v1/pricing-table-deploy.json</code> from an advertised source to a generator <em>input/output</em>; stop hand-editing it as a second price truth. <span class="tag t-new">PR2</span></li>
+  <li><b>Generate</b> the agent's <code>lib/mcp-server/pricing/static-pricing.json</code> from the descriptor set instead of hand-keeping it. <span class="tag t-new">PR2</span></li>
+  <li><b>Remove</b> <code>pricing-table-deploy.json</code> / the pasted <code>CAPABILITIES_JSON</code> env as a <em>separately-advertised</em> config once the orch aggregates runner descriptor prices (G1) &mdash; the descriptor + generated artifact are the only inputs thereafter. <span class="tag t-new">PR11</span></li>
+  <li><b>Retire</b> the legacy <code>pixels-as-quantity</code> display for cost once <code>unit_quantity</code> is fully populated (keep the fee meter forever as the on-chain floor). <span class="tag t-new">PR10</span></li>
+</ul>
 
 <!-- ============================================================= SOT -->
 <h4 class="part">Part 0.5 &mdash; consolidation</h4>
@@ -629,8 +707,15 @@
   <p>New model/tool/pricing approach = a new pricing declaration row + (if needed) one new <code>quantity_source</code> extractor. No new metering code. <span class="gate">Gate: a brand-new cap prices, bills, and reconciles with zero go-livepeer/pymthouse changes.</span></p>
 </div>
 
+<h2 id="review-execplan">Design review findings + execution plan</h2>
+<div class="card">
+  <p><b>Companion doc.</b> The streamlined PR-cycle execution plan lives in <a href="PRICING-EXECUTION-PLAN.html"><span class="mono">PRICING-EXECUTION-PLAN.html</span></a> &mdash; 10 self-contained, flag-gated (default OFF), observe&rarr;enforce PRs with per-PR test / production-validation / rollback / owner, a gap-closure matrix, and an end-to-end prod validation.</p>
+  <p><b>The invariant (reconcile by construction).</b> The agent USD quote and the on-chain settled USD derive from the <em>same</em> descriptor price row and the <em>same</em> <code>quantity</code> (one <code>quantity_source</code> extractor used by both the gateway fee and the meter): <span class="mono">agentQuoteUsd = pymthouseUnitCostUsd = per_unit_usd &times; qty</span>, and <span class="mono">onchainSettledUsd = bridge(per_unit_price/price_scaling &times; qty)</span> &mdash; equal up to <code>eth_usd</code> timing + rounding. Checks: a CI parity test (<code>agentQuoteUsd == pymthouseUnitCostUsd</code>, one cap per <code>unit_kind</code>) and a production delta alert on <code>|unitCostUsd &minus; feeUsd|</code>; transition floor <code>billedUsd = max(unitCostUsd, feeUsd)</code>.</p>
+  <p><b>Dead-code / no-duplication removal tasks.</b> (1) Demote <code>price.json</code> / <code>pricing-table-deploy.json</code> / pasted <code>CAPABILITIES_JSON</code> to build-time <em>generated</em> artifacts; <code>convert.py</code> writes <code>price_per_unit</code> back into the descriptor, which becomes the sole runtime truth (<span class="tag t-new">plan PR9</span>). (2) Remove <code>pricing-table-deploy.json</code> as a separately-advertised config once the orch aggregates runner descriptor prices, G1 (<span class="tag t-new">plan PR3</span>). (3) Delete the orphaned <code>mintUserSignerJwtForExternalUser</code> (<span class="tag t-new">plan PR9</span>).</p>
+</div>
+
 <div class="foot">
-  Network Pricing / Metering / Billing Architecture &middot; read-only investigation, no product code changed.
+  Network Pricing / Metering / Billing Architecture &middot; <b>v2</b> (adds Part 0.1 &mdash; systematic design-review findings + resolutions, per-layer no-regression guards, explicit reconciliation invariant, concrete removal tasks). Companion execution plan: <span class="mono">PRICING-EXECUTION-PLAN.html</span>. Read-only investigation, no product code changed.
   Builds on and reconciles: <span class="mono">PYMTHOUSE-PER-UNIT-METERING-DESIGN.html</span>, <span class="mono">BYOC-TO-LIVERUNNER-MIGRATION.html</span>, <span class="mono">STORYBOARD-SIGNER-ROUTING.md</span>, <span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span> / <span class="mono">USER-E2E-DEMO-RESULTS.md</span> (Runs 50&ndash;57).
   Evidence: <span class="mono">storyboard-wave-c/lib/mcp-server/*</span>, <span class="mono">docs/pricing-v1/pricing-table-deploy.json</span>, <span class="mono">tool-adapter/config.py</span> + <span class="mono">registrar.py</span>,
   <span class="mono">glp-combine/server/remote_signer.go</span>, <span class="mono">server/ai_http.go</span>, <span class="mono">ai/runner/live_runner.go</span>, <span class="mono">server/live_payment.go</span>, <span class="mono">core/orchestrator.go</span>, <span class="mono">cmd/livepeer/starter/*</span>,

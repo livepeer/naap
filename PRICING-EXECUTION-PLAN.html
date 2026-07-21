@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Pricing — PR-Cycle Execution Plan</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--fg:#e6edf3;--muted:#8b949e;
+    --accent:#58a6ff;--good:#3fb950;--warn:#d29922;--bad:#f85149;--new:#a371f7;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 22px 80px}
+  header.hero{background:linear-gradient(135deg,#161b22,#1f2937);border:1px solid var(--border);
+    border-radius:14px;padding:26px 28px;margin-bottom:22px}
+  header.hero h1{margin:0 0 8px;font-size:26px}
+  header.hero p{margin:4px 0;color:var(--muted)}
+  .meta{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+  .pill{background:#21262d;border:1px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--muted)}
+  h2{margin:34px 0 12px;font-size:20px;border-bottom:1px solid var(--border);padding-bottom:6px}
+  h3{margin:22px 0 8px;font-size:16px;color:var(--accent)}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+  code{background:#21262d;border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+  th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#1c2128;color:var(--fg);font-weight:600}
+  tr:nth-child(even) td{background:#12171e}
+  .tag{display:inline-block;border-radius:5px;padding:1px 7px;font-size:11px;font-weight:600;white-space:nowrap}
+  .t-new{background:rgba(163,113,247,.16);color:var(--new);border:1px solid var(--new)}
+  .t-good{background:rgba(63,185,80,.14);color:var(--good);border:1px solid var(--good)}
+  .t-warn{background:rgba(210,153,34,.14);color:var(--warn);border:1px solid var(--warn)}
+  .t-off{background:rgba(139,148,158,.14);color:var(--muted);border:1px solid var(--muted)}
+  .box{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin:16px 0}
+  .invariant{border-left:4px solid var(--accent);background:#111a24}
+  .toc{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 22px;columns:2;column-gap:34px}
+  .toc a{color:var(--accent);text-decoration:none;display:block;padding:3px 0;font-size:13px}
+  pre{background:#0b0f14;border:1px solid var(--border);border-radius:10px;padding:14px;overflow:auto;font-size:12.5px}
+  .pr{border:1px solid var(--border);border-radius:12px;margin:14px 0;overflow:hidden}
+  .pr>.h{background:#1c2128;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pr>.h .num{background:var(--new);color:#fff;border-radius:6px;padding:2px 9px;font-weight:700;font-size:13px}
+  .pr>.h .repo{color:var(--muted);font-size:12px}
+  .pr table{margin:0}
+  .pr table th{width:150px;background:#12171e}
+  ul.clean{margin:6px 0;padding-left:20px}
+  ul.clean li{margin:3px 0}
+  .note{color:var(--muted);font-size:13px}
+  .legend span{margin-right:14px;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Network Pricing — PR-Cycle Execution Plan</h1>
+  <p><b>Goal:</b> Make the capability descriptor <code>offering.price</code> the single source of truth and give the on-chain signer event the two fields it lacks (<code>billing_unit_kind</code>, <code>billing_unit_quantity</code>) so the agent USD quote, the on-chain settled fee, and pymthouse per-unit metering reconcile <b>by construction</b>.</p>
+  <p><b>Architecture:</b> Additive, flag-gated, observe&rarr;enforce. One descriptor per runner &rarr; orch aggregates &rarr; gateway computes quantity &rarr; signer stamps unit+qty and (later) derives fee from them &rarr; one OpenMeter <code>usage_units</code> meter &rarr; pymthouse cost = quantity &times; per-unit USD. Model A: the on-chain signer event is the only billing truth; the agent quote stays a pre-flight estimate.</p>
+  <p><b>Tech stack:</b> storyboard-a3 (TS/zod), go-livepeer (<code>remote_signer.go</code>, <code>core/orchestrator.go</code>), livepeer-python-gateway, pymthouse + Benthos/OpenMeter, NaaP.</p>
+  <div class="meta">
+    <span class="pill">10 self-contained PRs</span>
+    <span class="pill">All flags default OFF</span>
+    <span class="pill">Observe &rarr; Enforce</span>
+    <span class="pill">Zero-regression additive path</span>
+  </div>
+</header>
+
+<p class="note"><b>For agentic workers:</b> each PR below is the smallest unit that carries its own test cycle and a fresh reviewer's gate. Ship in order; each is independently revertible behind a default-OFF flag.</p>
+
+<div class="toc">
+  <a href="#findings">1. Design-review findings &amp; resolutions</a>
+  <a href="#invariant">2. The reconciliation invariant</a>
+  <a href="#constraints">Global constraints</a>
+  <a href="#prs">3. Ordered sequence of PRs (PR1–PR10)</a>
+  <a href="#matrix">4. Gap-closure matrix</a>
+  <a href="#rollout">5. Phased rollout &amp; E2E prod validation</a>
+  <a href="#dod">6. Definition of done</a>
+</div>
+
+<!-- ============ 1. FINDINGS ============ -->
+<h2 id="findings">1. Design-review findings &amp; resolutions</h2>
+<table>
+  <thead><tr><th>#</th><th>Review lens</th><th>Finding</th><th>Resolution</th><th>Enforced by</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>F1</td><td>No duplication / dead-code removal</td>
+      <td><code>price.json</code> / <code>pricing-table-deploy.json</code> / pasted <code>CAPABILITIES_JSON</code> restate numbers the descriptor already carries &mdash; a two-sources-of-truth drift trap. Orphaned <code>mintUserSignerJwtForExternalUser</code> is unreferenced.</td>
+      <td>Demote pricing files to <b>build-time generated artifacts</b> derived from the descriptor; <code>convert.py</code> writes <code>price_per_unit</code> back into the descriptor. Remove <code>pricing-table-deploy.json</code> as separately-advertised config once orch aggregates runner prices. Delete the orphaned mint helper.</td>
+      <td><span class="tag t-new">PR9</span></td>
+    </tr>
+    <tr>
+      <td>F2</td><td>One source of truth</td>
+      <td>The descriptor is not yet a <em>lossless</em> replacement for <code>price.json</code>: <code>PriceSchema</code> lacks <code>unit_kind</code> + <code>quantity_source</code>; <code>discovery-sync.ts:108</code> fakes <code>unit_kind</code> from <code>display_unit</code> (lossy for TTS — bills per <code>characters</code>, may display per <code>1000_characters</code>).</td>
+      <td>Add optional <code>unit_kind</code> + <code>quantity_source</code> to <code>PriceSchema</code> (additive). Stop faking: read <code>price.unit_kind</code>, fall back to <code>display_unit</code> only when absent.</td>
+      <td><span class="tag t-new">PR1</span> <span class="tag t-new">PR2</span></td>
+    </tr>
+    <tr>
+      <td>F3</td><td>Agent &harr; on-chain no-drift invariant</td>
+      <td>Agent quote and on-chain fee are computed on different paths with no shared quantity or reconciliation, so they can silently diverge.</td>
+      <td>Make both derive from the <b>same descriptor price row</b> and the <b>same <code>quantity</code></b> (one <code>quantity_source</code> extractor). Add a CI parity test + a production delta metric <code>|unitCostUsd &minus; feeUsd|</code>. See §2.</td>
+      <td><span class="tag t-new">PR4</span> <span class="tag t-new">PR7</span> <span class="tag t-new">PR8</span></td>
+    </tr>
+    <tr>
+      <td>F4</td><td>Simplicity / no over-engineering</td>
+      <td>Tempting-but-wrong elaborations: per-cap/per-modality meters, a general quantity rules engine, a second agent&rarr;pymthouse reporting channel (Model B), per-price <code>price_scaling</code>.</td>
+      <td><b>One</b> meter (<code>usage_units</code>, SUM) grouped by <code>unit_kind</code>. <code>unit_kind</code>/<code>quantity_source</code> are <b>closed enums</b> &rarr; small reviewable extractor set, no rules engine. Model A only. Keep <code>price_scaling</code> as the single global wire constant (<code>1_000_000</code>) — reject the per-price field as speculative.</td>
+      <td><span class="tag t-good">design</span> <span class="tag t-new">PR6</span></td>
+    </tr>
+    <tr>
+      <td>F5</td><td>No-regression guards</td>
+      <td>Every new field/path can perturb today's billed flow if not gated.</td>
+      <td>All new fields <b>additive &amp; optional</b>; all new paths <b>flag-gated default OFF</b>; when absent the signer/gateway/collector behave byte-identically. Backward-compat test: no-unit event &rarr; <code>usage_units</code>=0, billing falls back to fee. Transition floor <code>billedUsd = max(unitCostUsd, feeUsd)</code>.</td>
+      <td><span class="tag t-off">all PRs</span></td>
+    </tr>
+    <tr>
+      <td>F6</td><td>Billed-path gap (G1)</td>
+      <td>Orch <code>GetCapabilitiesPrices</code> does not aggregate Live-Runner runner descriptor prices; LR prices live only on <code>GET /discovery</code> &rarr; LR advertises zero &rarr; <code>400 "missing or zero priceInfo"</code>. No per-cap price surface for one-orch&rarr;many-runners.</td>
+      <td>Aggregate each runner descriptor's <code>offering.price</code> into <code>CapabilitiesPrices</code> behind <code>-aggregateRunnerPrices</code>. Apply the same 1% txCost overhead the requested-cap path already applies, so <code>ExpectedPrice == RecipientRandHash</code> price (fixes the <code>invalid recipientRand</code> class).</td>
+      <td><span class="tag t-new">PR3</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============ 2. INVARIANT ============ -->
+<h2 id="invariant">2. The reconciliation invariant</h2>
+<div class="box invariant">
+  <p style="margin-top:0"><b>Invariant.</b> The agent's USD quote and the on-chain settled USD are two views of the <em>same</em> arithmetic:</p>
+  <pre>agentQuoteUsd(cap, qty)      = per_unit_usd(cap)      &times; qty          // pre-flight estimate (descriptor.display_usd)
+onchainSettledUsd(cap, qty)  = bridge(fee_wei)        where
+    fee_wei                  = (price_per_unit / price_scaling) &times; qty   // signer, fee-from-quantity
+pymthouseUnitCostUsd(cap,qty)= per_unit_usd(cap)      &times; qty          // meter: usage_units SUM
+
+where  per_unit_usd  and  price_per_unit  are the SAME descriptor price row
+       (price_per_unit is GENERATED from display_usd via convert.py),
+and    qty           is produced by ONE quantity_source extractor,
+       used identically by the gateway (fee) and the meter (cost).</pre>
+  <p style="margin-bottom:0">&rArr; the three numbers are equal up to <code>eth_usd</code> timing and integer rounding — <b>reconciliation by construction</b>, not by a matching engine.</p>
+</div>
+<h3>Reconciliation checks</h3>
+<ul class="clean">
+  <li><b>CI parity test:</b> assert <code>agentQuoteUsd(cap, qty) == pymthouseUnitCostUsd(cap, qty)</code> for one cap per <code>unit_kind</code> (megapixel, image, second, characters, call).</li>
+  <li><b>Production delta metric:</b> alert on <code>|unitCostUsd &minus; feeUsd|</code> per cap; catches unit or price drift live.</li>
+  <li><b>Transition floor:</b> <code>billedUsd = max(unitCostUsd, feeUsd)</code> guarantees we never under-bill the real on-chain fee while parity is being proven.</li>
+</ul>
+
+<!-- ============ GLOBAL CONSTRAINTS ============ -->
+<h2 id="constraints">Global constraints</h2>
+<ul class="clean">
+  <li>New descriptor fields are <code>.optional()</code> zod; every existing descriptor + golden fixture must parse unchanged.</li>
+  <li><code>price_scaling</code> stays the single global wire constant <code>1_000_000</code>; do <b>not</b> add a per-price field.</li>
+  <li><code>unit_kind</code> &isin; {<code>megapixel, image, second, characters, call</code>}; <code>quantity_source</code> &isin; a closed enum of extractors. No open-ended rules engine.</li>
+  <li>Model A only — no agent&rarr;pymthouse usage reporting channel.</li>
+  <li>Every flag defaults OFF; absent fields &rArr; byte-identical to today's behavior.</li>
+  <li>One meter: <code>usage_units</code> (SUM) grouped by <code>unit_kind</code>/capability/model. Keep the <code>network_fee_usd_micros</code> fee meter forever (on-chain truth).</li>
+  <li>Sanitize <code>billing_unit_kind</code> like <code>sanitizeUsageLabel</code> (trim + 128-rune cap); clamp <code>billing_unit_quantity</code> to a sane positive range.</li>
+</ul>
+
+<!-- ============ 3. PRs ============ -->
+<h2 id="prs">3. Ordered sequence of self-contained PRs</h2>
+<p class="note"><b>Order rationale:</b> schema first (PR1) so downstream can read real fields; discovery (PR2) makes the descriptor lossless before anything consumes it; orch aggregation (PR3) unblocks the billed path (G1) and is independently valuable; then the signer/gateway/meter data path is built <b>observe-first</b> (PR4&ndash;PR7) so nothing bills on the new number until proven; enforcement flags flip last (PR7 ENFORCE, PR8); cleanup (PR9) only after the descriptor is authoritative everywhere; agent polish (PR10) is UX and can land any time after PR2.</p>
+
+<!-- PR1 -->
+<div class="pr">
+  <div class="h"><span class="num">PR1</span> <b>Descriptor schema: add <code>unit_kind</code> + <code>quantity_source</code>, reconcile <code>price_scaling</code></b> <span class="repo">storyboard-a3</span></div>
+  <table>
+    <tr><th>Scope</th><td>Make <code>PriceSchema</code> a lossless superset of <code>price.json</code> (additive, optional). No behavior change.</td></tr>
+    <tr><th>Key files</th><td><code>lib/capabilities/descriptor.ts</code> (<code>PriceSchema</code> ~105&ndash;113); golden descriptor fixtures.</td></tr>
+    <tr><th>Change</th><td>Add <code>unit_kind: z.enum([...]).optional()</code> and <code>quantity_source: z.enum([...]).optional()</code>. Document that <code>price_scaling</code> stays the global <code>1_000_000</code> constant (no per-price field).</td></tr>
+    <tr><th>Flag</th><td>none (schema is additive/optional) <span class="tag t-off">n/a</span></td></tr>
+    <tr><th>Depends on</th><td>—</td></tr>
+    <tr><th>Test plan</th><td>Unit: every existing descriptor + golden fixture parses unchanged; a descriptor with the new fields round-trips. Type: exported <code>Price</code> type includes optional fields.</td></tr>
+    <tr><th>Prod validation</th><td>Publish one staging descriptor carrying <code>unit_kind</code>; confirm it appears on that runner's <code>/discovery</code> and existing caps are unaffected on <code>/capabilities</code>.</td></tr>
+    <tr><th>Rollback</th><td>Revert PR; optional fields disappear, no consumer required them.</td></tr>
+    <tr><th>Owner</th><td>qiang (storyboard-a3)</td></tr>
+  </table>
+</div>
+
+<!-- PR2 -->
+<div class="pr">
+  <div class="h"><span class="num">PR2</span> <b>Discovery/registry: stop faking <code>unit_kind</code>, read from descriptor</b> <span class="repo">storyboard-a3</span></div>
+  <table>
+    <tr><th>Scope</th><td>Consume the real <code>price.unit_kind</code> instead of aliasing <code>display_unit</code>.</td></tr>
+    <tr><th>Key files</th><td><code>lib/capabilities/discovery-sync.ts</code> (~108&ndash;110).</td></tr>
+    <tr><th>Change</th><td><code>unit_kind = price.unit_kind ?? price.display_unit</code> (fallback only when absent). Same for <code>quantity_source</code> passthrough into the registry row.</td></tr>
+    <tr><th>Flag</th><td>none (pure fallback, safe) <span class="tag t-off">n/a</span></td></tr>
+    <tr><th>Depends on</th><td>PR1</td></tr>
+    <tr><th>Test plan</th><td>Unit: descriptor with <code>unit_kind=characters</code>, <code>display_unit=1000_characters</code> &rarr; registry row bills <code>characters</code>. Descriptor without <code>unit_kind</code> &rarr; falls back to <code>display_unit</code> (today's behavior).</td></tr>
+    <tr><th>Prod validation</th><td>On staging, a TTS cap's registry/<code>/capabilities</code> row shows <code>unit_kind=characters</code> while display stays per-1K; image/video caps unchanged.</td></tr>
+    <tr><th>Rollback</th><td>Revert; sync returns to <code>display_unit</code> alias.</td></tr>
+    <tr><th>Owner</th><td>qiang (storyboard-a3)</td></tr>
+  </table>
+</div>
+
+<!-- PR3 -->
+<div class="pr">
+  <div class="h"><span class="num">PR3</span> <b>Orch: aggregate runner descriptor prices &rarr; <code>GetCapabilitiesPrices</code> (closes G1)</b> <span class="repo">go-livepeer / qiang</span></div>
+  <table>
+    <tr><th>Scope</th><td>Surface Live-Runner per-cap prices to the billed path; fix the overhead split that yields <code>invalid recipientRand</code> / <code>400 Could not parse payment</code>.</td></tr>
+    <tr><th>Key files</th><td><code>core/orchestrator.go</code> (<code>GetCapabilitiesPrices</code>; overhead math ~444&ndash;459).</td></tr>
+    <tr><th>Change</th><td>When <code>-aggregateRunnerPrices</code> is on, read each runner descriptor's <code>offering.price</code> from <code>/discovery</code> and merge into <code>CapabilitiesPrices[]</code>. Apply the <b>same</b> <code>overhead = 1 + 1/txCostMultiplier</code> that <code>PriceInfoForCaps</code> applies, so <code>ExpectedPrice == RecipientRandHash</code> price.</td></tr>
+    <tr><th>Flag</th><td><code>-aggregateRunnerPrices</code> <span class="tag t-off">default OFF</span></td></tr>
+    <tr><th>Depends on</th><td>PR1 (descriptor carries the price fields); logically independent of the metering path.</td></tr>
+    <tr><th>Test plan</th><td>Table-driven Go unit (hermetic, no CGO): OFF &rArr; <code>CapabilitiesPrices</code> byte-identical to today (default/gateway/BYOC only). ON &rArr; LR caps present with overhead-adjusted price; assert <code>CapabilitiesPrices[cap] == PriceInfoForCaps[cap]</code>.</td></tr>
+    <tr><th>Prod validation</th><td>On staging orch with flag ON: LR cap returns non-zero <code>priceInfo</code> (no more <code>400 missing or zero priceInfo</code>); a billed LR generation completes; orch <code>PriceInfo == signer ExpectedPrice</code> for that cap.</td></tr>
+    <tr><th>Rollback</th><td>Flip flag OFF &rarr; today's aggregation; revert PR if needed.</td></tr>
+    <tr><th>Owner</th><td>qiang (go-livepeer orch)</td></tr>
+  </table>
+</div>
+
+<!-- PR4 -->
+<div class="pr">
+  <div class="h"><span class="num">PR4</span> <b>Gateway: compute <code>billing_unit_quantity</code> from payload, send unit+qty</b> <span class="repo">livepeer-python-gateway</span></div>
+  <table>
+    <tr><th>Scope</th><td>Derive the natural-unit quantity from the job request and forward it (with unit) to the signer. No fee change.</td></tr>
+    <tr><th>Key files</th><td>gateway payment-request builder / <code>byoc.py</code> (<code>get_orch_info</code> / <code>generate-live-payment</code> call).</td></tr>
+    <tr><th>Change</th><td>One pure extractor per <code>quantity_source</code>: image megapixel <code>= w&times;h&times;num_images / 2^20</code>; per-image <code>= num_images</code>; video <code>= requested_seconds</code>; TTS <code>= len(text)</code>; tool <code>= 1</code>. Attach <code>{billing_unit_kind, billing_unit_quantity}</code> to <code>/generate-live-payment</code>.</td></tr>
+    <tr><th>Flag</th><td><code>SEND_UNIT_METERING</code> <span class="tag t-off">default OFF</span> (OFF &rArr; body byte-identical, no new keys)</td></tr>
+    <tr><th>Depends on</th><td>PR2 (unit available on the cap row).</td></tr>
+    <tr><th>Test plan</th><td>Unit: table-driven quantity extractors per unit_kind (1024&times;1024&times;1 &rarr; ~1.0 MP; 2 images &rarr; 2; 2000-char &rarr; 2000; tool &rarr; 1). OFF &rArr; request body has no new keys.</td></tr>
+    <tr><th>Prod validation</th><td>On staging with flag ON, capture the <code>/generate-live-payment</code> body for image/video/TTS/tool; assert correct <code>billing_unit_kind</code> + quantity; fee/behavior unchanged (signer still ignores for fee at this stage).</td></tr>
+    <tr><th>Rollback</th><td>Flip flag OFF &rarr; no new keys emitted.</td></tr>
+    <tr><th>Owner</th><td>gateway (livepeer-python-gateway)</td></tr>
+  </table>
+</div>
+
+<!-- PR5 -->
+<div class="pr">
+  <div class="h"><span class="num">PR5</span> <b>Signer: accept + stamp <code>billing_unit_kind/quantity</code> on <code>create_signed_ticket</code> (dual-write OBSERVE, fee unchanged)</b> <span class="repo">go-livepeer / qiang</span></div>
+  <table>
+    <tr><th>Scope</th><td>Extend the request struct + telemetry event with the two fields; keep today's fee math.</td></tr>
+    <tr><th>Key files</th><td><code>server/remote_signer.go</code>: <code>RemotePaymentRequest</code>; <code>GenerateLivePayment</code>; <code>SendQueueEventAsync("create_signed_ticket", …)</code> (~848&ndash;878); <code>sanitizeUsageLabel</code> (~385&ndash;391).</td></tr>
+    <tr><th>Change</th><td>Add <code>BillingUnitKind string</code> + <code>BillingUnitQuantity float64</code> (<code>omitempty</code>). Sanitize kind (trim+128-rune), clamp qty. Stamp both on the event. <b>Fee math untouched</b>; when fields absent, byte-identical to today.</td></tr>
+    <tr><th>Flag</th><td>gated by presence of fields (only when gateway sends them). Observe-only.</td></tr>
+    <tr><th>Depends on</th><td>PR4.</td></tr>
+    <tr><th>Test plan</th><td>Go unit (hermetic): event with fields &rarr; carries kind+qty; event without &rarr; identical to current serialization; sanitize/clamp bounds tested.</td></tr>
+    <tr><th>Prod validation</th><td>On staging: emitted <code>create_signed_ticket</code> for a billed gen carries correct <code>billing_unit_kind</code>/<code>billing_unit_quantity</code>; <code>computed_fee</code>/<code>pixels</code> unchanged vs pre-PR baseline.</td></tr>
+    <tr><th>Rollback</th><td>Revert; or gateway flag OFF &rarr; signer emits no new fields.</td></tr>
+    <tr><th>Owner</th><td>qiang (go-livepeer signer)</td></tr>
+  </table>
+</div>
+
+<!-- PR6 -->
+<div class="pr">
+  <div class="h"><span class="num">PR6</span> <b>Collector + OpenMeter: passthrough + <code>usage_units</code> meter</b> <span class="repo">pymthouse / John</span></div>
+  <table>
+    <tr><th>Scope</th><td>Carry the two fields through the collector and add ONE new meter. No billing change.</td></tr>
+    <tr><th>Key files</th><td>Benthos/Redpanda-Connect collector mapping; <code>config.yaml</code> (meter defs ~40&ndash;61); <code>konnect-catalog.ts</code>; <code>entitlements.ts</code>; internal OpenMeter schema + forbidden-field list.</td></tr>
+    <tr><th>Change</th><td>Map <code>unit_kind = billing_unit_kind ?: "unknown"</code>, <code>unit_quantity = billing_unit_quantity | 0</code>. Add meter <code>usage_units: SUM($.unit_quantity)</code> grouped by <code>unit_kind</code>/capability/model. Add both fields to the schema forbidden-field list (BPP hygiene). Keep <code>network_fee_usd_micros</code> + <code>signed_ticket_count</code> untouched.</td></tr>
+    <tr><th>Flag</th><td>meter is additive; reads 0 until producers emit. <span class="tag t-off">safe</span></td></tr>
+    <tr><th>Depends on</th><td>PR5 (fields on the event) — but can deploy first (Phase 0) reading 0.</td></tr>
+    <tr><th>Test plan</th><td>Collector test: synthetic <code>create_signed_ticket</code> with new fields &rarr; CloudEvent carries <code>unit_kind</code>/<code>unit_quantity</code> AND still <code>network_fee_usd_micros</code>. OpenMeter integration: ingest &rarr; query <code>usage_units</code> grouped by unit_kind. Backward-compat: no-field event &rarr; <code>usage_units</code>=0.</td></tr>
+    <tr><th>Prod validation</th><td>On staging: <code>usage_units</code> provisions; existing fee meter unchanged; ingest a real signed ticket &rarr; per-unit SUM appears grouped by unit_kind for image/video/TTS/tool.</td></tr>
+    <tr><th>Rollback</th><td>Remove meter; passthrough fields are inert.</td></tr>
+    <tr><th>Owner</th><td>John (pymthouse + collector)</td></tr>
+  </table>
+</div>
+
+<!-- PR7 -->
+<div class="pr">
+  <div class="h"><span class="num">PR7</span> <b>pymthouse cost: quantity &times; per_unit_usd, OBSERVE &rarr; ENFORCE, reconcile vs fee</b> <span class="repo">pymthouse / John</span></div>
+  <table>
+    <tr><th>Scope</th><td>Compute per-unit cost, first logged-only, then billed via the safety floor; wire the reconciliation metric.</td></tr>
+    <tr><th>Key files</th><td>pymthouse cost/settlement module; per-unit dashboards; reconciliation alert.</td></tr>
+    <tr><th>Change</th><td><b>Observe:</b> <code>unitCostUsd = quantity &times; per_unit_usd</code> logged for comparison only. <b>Enforce:</b> <code>billedUsd = max(unitCostUsd, feeUsd)</code>. Emit delta metric <code>|unitCostUsd &minus; feeUsd|</code> per cap.</td></tr>
+    <tr><th>Flag</th><td><code>UNIT_COST_ENFORCE</code> <span class="tag t-off">default OFF (observe)</span></td></tr>
+    <tr><th>Depends on</th><td>PR6.</td></tr>
+    <tr><th>Test plan</th><td>Unit: <code>unitCostUsd</code> per unit_kind matches <code>display_price_usd &times; qty</code> (see §5 table). CI parity: <code>agentQuoteUsd == pymthouseUnitCostUsd</code> per unit_kind. Backward-compat: missing qty &rarr; falls back to fee.</td></tr>
+    <tr><th>Prod validation</th><td>Observe phase in prod: dashboards show <code>unitCostUsd</code> tracking <code>feeUsd</code> within tolerance for &ge;1 cap per unit_kind before flipping <code>UNIT_COST_ENFORCE</code>; after enforce, invoices reconcile to advertised prices.</td></tr>
+    <tr><th>Rollback</th><td>Flip <code>UNIT_COST_ENFORCE</code> OFF &rarr; bill on fee (today).</td></tr>
+    <tr><th>Owner</th><td>John (pymthouse)</td></tr>
+  </table>
+</div>
+
+<!-- PR8 -->
+<div class="pr">
+  <div class="h"><span class="num">PR8</span> <b>Signer: fee-from-quantity ENFORCE (flag flip)</b> <span class="repo">go-livepeer / qiang</span></div>
+  <table>
+    <tr><th>Scope</th><td>Make the on-chain fee itself derive from <code>quantity &times; per_unit_price</code> for non-lv2v caps, so on-chain settled USD converges to the quote.</td></tr>
+    <tr><th>Key files</th><td><code>server/remote_signer.go</code> <code>GenerateLivePayment</code> (fee basis ~684&ndash;718).</td></tr>
+    <tr><th>Change</th><td>When <code>UNIT_FEE_ENFORCE</code> on and fields present: <code>fee = per_unit_price &times; billing_unit_quantity</code>. lv2v seconds path <b>untouched</b>. Falls back to today's <code>req.Type</code> basis when off/absent.</td></tr>
+    <tr><th>Flag</th><td><code>UNIT_FEE_ENFORCE</code> <span class="tag t-off">default OFF</span></td></tr>
+    <tr><th>Depends on</th><td>PR5, and PR7 observe proving the delta is ~0.</td></tr>
+    <tr><th>Test plan</th><td>Go unit (hermetic fee math): fee for image/image-flat/video/TTS/tool == <code>per_unit &times; qty</code>; lv2v regression: 30s stream fee unchanged; flag OFF &rArr; identical to today.</td></tr>
+    <tr><th>Prod validation</th><td>Staging then prod canary: after flip, on-chain fee tracks advertised per-unit price; <code>max(unitCost,fee)</code> delta &rarr; ~0; lv2v streams unaffected.</td></tr>
+    <tr><th>Rollback</th><td>Flip <code>UNIT_FEE_ENFORCE</code> OFF &rarr; time-derived fee basis (today).</td></tr>
+    <tr><th>Owner</th><td>qiang (go-livepeer signer)</td></tr>
+  </table>
+</div>
+
+<!-- PR9 -->
+<div class="pr">
+  <div class="h"><span class="num">PR9</span> <b>Remove redundancy: demote/remove <code>price.json</code>; delete orphaned <code>mintUserSignerJwtForExternalUser</code></b> <span class="repo">storyboard-a3 / NaaP</span></div>
+  <table>
+    <tr><th>Scope</th><td>Collapse to one source of truth and drop dead code — only after the descriptor is authoritative everywhere (PR2) and the orch aggregates runner prices (PR3).</td></tr>
+    <tr><th>Key files</th><td><code>convert.py</code> (write <code>price_per_unit</code> back into descriptor; emit <code>static-pricing.json</code>/<code>CAPABILITIES_JSON</code> as <em>generated</em> artifacts); remove <code>pricing-table-deploy.json</code> as separately-advertised config; delete <code>mintUserSignerJwtForExternalUser</code> + call sites (none).</td></tr>
+    <tr><th>Change</th><td>Retain <code>pricing-table.json</code> + <code>convert.py</code> as a build-time generator only. Remove the redundant runtime <code>price.json</code> read path. Delete the orphaned mint helper.</td></tr>
+    <tr><th>Flag</th><td>none (removal) — guarded by the fact all readers now use the descriptor. <span class="tag t-warn">gated by PR2+PR3 in prod</span></td></tr>
+    <tr><th>Depends on</th><td>PR2, PR3.</td></tr>
+    <tr><th>Test plan</th><td>Build: <code>convert.py</code> regenerates artifacts identical to prior committed values (golden diff). Grep proves zero references to the removed <code>price.json</code> runtime path and to <code>mintUserSignerJwtForExternalUser</code>. Full type-check/build green.</td></tr>
+    <tr><th>Prod validation</th><td>Deploy with descriptor-only pricing; confirm <code>/capabilities</code>, orch prices, and agent quotes match pre-removal values for a full cap sweep; no 404/undefined from removed paths.</td></tr>
+    <tr><th>Rollback</th><td>Revert PR; regenerator + files restored.</td></tr>
+    <tr><th>Owner</th><td>qiang (storyboard-a3 / NaaP)</td></tr>
+  </table>
+</div>
+
+<!-- PR10 -->
+<div class="pr">
+  <div class="h"><span class="num">PR10</span> <b>Agent USD-only surface polish</b> <span class="repo">Storyboard / NaaP</span></div>
+  <table>
+    <tr><th>Scope</th><td>Ensure the agent surfaces USD estimates only and never reports usage to pymthouse (Model A discipline).</td></tr>
+    <tr><th>Key files</th><td><code>lib/mcp-server/tools/get-pricing.ts</code>; <code>estimateCost</code>; per-gen tally (<code>create-media.ts</code>, <code>storage.ts</code>).</td></tr>
+    <tr><th>Change</th><td><code>get_pricing</code>/<code>estimateCost</code> return <code>display_price_usd</code>/<code>unit_kind</code> and an estimate = <code>per_unit_usd &times; estimateUnits(payload)</code> using the same extractor family as PR4. Label estimates clearly as pre-flight. Remove any lingering agent&rarr;pymthouse usage write.</td></tr>
+    <tr><th>Flag</th><td>none (UX; no billing effect) <span class="tag t-off">n/a</span></td></tr>
+    <tr><th>Depends on</th><td>PR2 (unit_kind on the cap row); can land any time after.</td></tr>
+    <tr><th>Test plan</th><td>Unit: quote for image/video/TTS/tool equals <code>display_price_usd &times; qty</code>; snapshot rate-card. Assert no agent code path posts usage to pymthouse.</td></tr>
+    <tr><th>Prod validation</th><td>Live agent quote for one cap per unit_kind matches the eventual settled amount within tolerance (see §5 E2E).</td></tr>
+    <tr><th>Rollback</th><td>Revert PR (UX only).</td></tr>
+    <tr><th>Owner</th><td>qiang (Storyboard / NaaP)</td></tr>
+  </table>
+</div>
+
+<!-- ============ 4. MATRIX ============ -->
+<h2 id="matrix">4. Gap-closure matrix</h2>
+<p class="note">Rows = end-state requirements. Every requirement maps to a delivering PR at a specific layer — proving no gaps remain.</p>
+<table>
+  <thead><tr><th>End-state requirement</th><th>Layer</th><th>Delivering PR(s)</th><th>Status after plan</th></tr></thead>
+  <tbody>
+    <tr><td>One orch &rarr; many runners, each with its own cap descriptor</td><td>Descriptor / discovery</td><td>PR1, PR2</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Each runner configures pricing via descriptor <code>offering.price</code> (unit + qty source + price)</td><td>Descriptor</td><td>PR1</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Agent discovers &amp; selects caps; sees USD only</td><td>Agent / MCP</td><td>PR2, PR10</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Inference &rarr; tickets sent (billed path sees per-cap price; LR non-zero)</td><td>Orch</td><td>PR3 (G1)</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Gateway computes natural-unit quantity from payload</td><td>Gateway</td><td>PR4</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Signer signs ticket + stamps unit_kind/quantity; fee from quantity</td><td>Signer</td><td>PR5 (stamp), PR8 (fee)</td><td class="tag t-good">closed</td></tr>
+    <tr><td>pymthouse meters per-unit (one <code>usage_units</code> meter)</td><td>Collector / OpenMeter</td><td>PR6</td><td class="tag t-good">closed</td></tr>
+    <tr><td>pymthouse cost = quantity &times; per_unit_usd; reconciles vs fee</td><td>pymthouse</td><td>PR7</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Reporting: per-unit usage &amp; USD per customer/cap/model</td><td>OpenMeter / dashboards</td><td>PR6, PR7</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Single source of truth; no duplicate pricing config; no dead code</td><td>Config / build</td><td>PR9</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Agent quote == on-chain settled == pymthouse metered (no drift)</td><td>Cross-layer invariant</td><td>PR4+PR7+PR8 + CI parity + delta metric</td><td class="tag t-good">closed</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 5. ROLLOUT ============ -->
+<h2 id="rollout">5. Phased rollout (observe &rarr; enforce) &amp; E2E prod validation</h2>
+<table>
+  <thead><tr><th>Phase</th><th>PRs live</th><th>Behavior</th><th>Gate to advance</th></tr></thead>
+  <tbody>
+    <tr><td>0 — Schema + passthrough</td><td>PR1, PR2, PR6</td><td>Fields exist; meter reads 0; no billing change</td><td>Meter provisions; fee meter unchanged; conformance suite green</td></tr>
+    <tr><td>1 — Producer dual-write (observe)</td><td>PR3 (ON staging), PR4 (ON), PR5, PR7 (observe)</td><td>Both meters populate; pymthouse logs <code>unitCostUsd</code> for comparison only</td><td><code>unit_quantity</code> non-zero &amp; correct for image/TTS/video/tool/call in staging; delta vs fee within tolerance</td></tr>
+    <tr><td>2 — Fee from quantity (enforce)</td><td>PR8 flip</td><td>On-chain fee = per_unit &times; quantity (non-lv2v); lv2v untouched</td><td>On-chain fee tracks advertised price; <code>max(unitCost,fee)</code> delta &rarr; ~0</td></tr>
+    <tr><td>3 — Bill on unit cost</td><td>PR7 enforce</td><td><code>billedUsd = max(unitCostUsd, feeUsd)</code>; per-unit dashboards live</td><td>Invoices reconcile to advertised prices; delta metric flat</td></tr>
+    <tr><td>4 — Cleanup</td><td>PR9, PR10</td><td>Descriptor sole source; dead code gone; retire pixels-as-quantity display</td><td>No consumers of legacy <code>price.json</code>/<code>pixels</code> for cost; full cap sweep matches</td></tr>
+  </tbody>
+</table>
+
+<h3>End-to-end prod validation (agent-quote == on-chain-settled == pymthouse-metered)</h3>
+<table>
+  <thead><tr><th>Unit</th><th>Cap</th><th>Stimulus</th><th>Agent quote</th><th>OpenMeter <code>usage_units</code></th><th>pymthouse cost</th><th>Pass criterion</th></tr></thead>
+  <tbody>
+    <tr><td>megapixel</td><td class="mono">flux-schnell</td><td>1024&times;1024 &times;1</td><td><code>display_price_usd &times; 1.0</code></td><td><code>megapixel</code>, qty &asymp; 1.0</td><td>&asymp; <code>display_price_usd &times; 1.0</code></td><td>3-way match &plusmn; rounding</td></tr>
+    <tr><td>image</td><td class="mono">nano-banana</td><td>2 images</td><td><code>display_price_usd &times; 2</code></td><td><code>image</code>, qty = 2</td><td><code>display_price_usd &times; 2</code></td><td>exact 3-way match</td></tr>
+    <tr><td>second</td><td class="mono">ltx-i2v</td><td>6 s i2v</td><td><code>0.042 &times; 6</code></td><td><code>second</code>, qty &asymp; 6 (reconcile to 6.12)</td><td>&asymp; <code>0.042 &times; 6</code></td><td>3-way within reconciliation tolerance</td></tr>
+    <tr><td>characters</td><td class="mono">chatterbox-tts</td><td>2000-char input</td><td><code>0.02625 &times; 2</code> (per-1K)</td><td><code>characters</code>, qty = 2000</td><td><code>0.02625 &times; 2</code></td><td>exact 3-way match</td></tr>
+    <tr><td>call</td><td class="mono">ffmpeg-concat</td><td>1 tool call</td><td>flat call price</td><td><code>call</code>, qty = 1</td><td>flat call price</td><td>exact 3-way match</td></tr>
+    <tr><td>second (lv2v)</td><td class="mono">longlive</td><td>30 s stream (regression)</td><td>streaming per-sec</td><td><code>second</code>, qty &asymp; 30</td><td>streaming per-sec</td><td><b>unchanged from today</b></td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 6. DoD ============ -->
+<h2 id="dod">6. Definition of done — pricing is a solved problem</h2>
+<div class="box">
+  <p style="margin-top:0">Pricing is <b>solved</b> when a single value flows losslessly and consistently across the entire chain:</p>
+  <ol>
+    <li><b>App config / published:</b> a new cap/tool is a new <b>descriptor</b> (with <code>offering.price</code> incl. <code>unit_kind</code> + <code>quantity_source</code>) — never a <code>price.json</code> edit. <span class="tag t-new">PR1, PR9</span></li>
+    <li><b>Runtime metering:</b> gateway derives the natural-unit quantity; orch advertises the per-cap price for every runner incl. LR (G1 closed). <span class="tag t-new">PR3, PR4</span></li>
+    <li><b>Agent estimation:</b> the agent quotes <code>per_unit_usd &times; qty</code> in USD only — a pre-flight estimate, no direct usage reporting. <span class="tag t-new">PR10</span></li>
+    <li><b>On-chain settlement:</b> the signer stamps <code>unit_kind</code>/<code>quantity</code> and derives the fee from <code>per_unit_price &times; quantity</code>. <span class="tag t-new">PR5, PR8</span></li>
+    <li><b>pymthouse metering:</b> one <code>usage_units</code> meter (SUM by <code>unit_kind</code>); cost = <code>quantity &times; per_unit_usd</code>. <span class="tag t-new">PR6, PR7</span></li>
+    <li><b>Reporting &amp; reconciliation:</b> per-unit dashboards live; <b>agent-quote == on-chain-settled == pymthouse-metered</b> for image (megapixel), video (second), TTS (characters), and tool (call), verified by the CI parity test and the production delta metric — <b>consistent by construction</b>. <span class="tag t-new">invariant</span></li>
+  </ol>
+  <p style="margin-bottom:0"><b>And:</b> exactly one source of truth (the descriptor), no duplicate pricing config, no dead code (<code>price.json</code> demoted, <code>mintUserSignerJwtForExternalUser</code> removed), and lv2v streaming billing is byte-identical to today.</p>
+</div>
+
+<p class="legend" style="margin-top:26px">
+  <span><span class="tag t-good">closed</span> requirement met</span>
+  <span><span class="tag t-new">PRn</span> delivering PR</span>
+  <span><span class="tag t-off">default OFF</span> flag-gated</span>
+</p>
+
+</div>
+</body>
+</html>
