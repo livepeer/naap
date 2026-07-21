@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pricing / Billing / Perf — Delivery Summary</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1c2029; --line:#2a2f3a;
+    --text:#e6e9ef; --muted:#9aa4b2; --accent:#5aa2ff;
+    --green:#2ec16b; --amber:#e0a83a; --blue:#4f8cff; --red:#e5484d; --violet:#a06bff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px;}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:-.3px}
+  .sub{color:var(--muted);margin:0 0 28px;font-size:13.5px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--accent)}
+  p{margin:10px 0}
+  .bottomline{background:linear-gradient(180deg,#1a2230,#151a22);border:1px solid #2c3a52;
+    border-radius:12px;padding:18px 20px;margin:22px 0 10px}
+  .bottomline b{color:#cfe0ff}
+  table{width:100%;border-collapse:collapse;margin:12px 0 6px;font-size:13.5px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--panel2);color:var(--muted);font-weight:600;font-size:12px;
+    text-transform:uppercase;letter-spacing:.4px}
+  tr:last-child td{border-bottom:none}
+  td code,p code{background:#0c0e12;border:1px solid var(--line);border-radius:5px;
+    padding:1px 5px;font-size:12px;color:#cbd3e1}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.3px;
+    padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .merged{background:rgba(46,193,107,.15);color:var(--green);border:1px solid rgba(46,193,107,.4)}
+  .open{background:rgba(224,168,58,.15);color:var(--amber);border:1px solid rgba(224,168,58,.4)}
+  .built{background:rgba(79,140,255,.15);color:var(--blue);border:1px solid rgba(79,140,255,.4)}
+  .pending{background:rgba(160,107,255,.15);color:var(--violet);border:1px solid rgba(160,107,255,.4)}
+  ul{margin:8px 0;padding-left:22px}
+  li{margin:6px 0}
+  .owner{font-weight:700;color:#cfe0ff}
+  .why{color:var(--muted)}
+  .dep{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 18px;margin:14px 0;font-size:13px;color:var(--muted)}
+  .dep b{color:var(--text)}
+  .note{font-size:12.5px;color:var(--muted);margin-top:6px}
+  .kpi{color:#cfe0ff;font-weight:600}
+  .foot{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Pricing / Billing / Perf — Delivery Summary</h1>
+  <p class="sub">Verified against live <code>gh</code> PR/issue state on 2026-07-21 · repos: <code>livepeer/naap</code>, <code>livepeer/storyboard</code>, <code>livepeer/simple-infra</code>. Status reflects the real repo state, not intent.</p>
+
+  <div class="bottomline">
+    <b>Bottom line — is pricing solved yet?</b>
+    Not end-to-end, but the foundation is in and the full plan is approved. The Storyboard-side descriptor work (the lossless <code>unit_kind</code> + <code>quantity_source</code> source of truth) and the perf/reliability fix are done, and the complete upstream execution plan is written and agreed. True per-unit billing — where the agent's USD quote equals the on-chain settled fee equals the pymthouse metered amount — still depends on the upstream owners' PRs (Josh in go-livepeer, Rick in python-gateway, John in pymthouse) plus the two simple-infra infra gates. So: <b>Storyboard foundation shipped + plan locked; end-to-end per-unit billing pending upstream.</b>
+  </div>
+
+  <!-- ============================ SECTION 1 ============================ -->
+  <h2>1 · Implemented / verified / (deploy state)</h2>
+  <table>
+    <thead>
+      <tr><th>Item</th><th>Repo</th><th>PR / Issue</th><th>Status</th><th>Verification evidence</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Signer composite-bearer fix</b><br><span class="note">remove dead user-JWT signer mint + correct opaque-session doc</span></td>
+        <td>livepeer/naap</td>
+        <td><a href="https://github.com/livepeer/naap/pull/430">#430</a></td>
+        <td><span class="pill open">OPEN PR</span></td>
+        <td>gh: <code>state OPEN</code>, <code>mergedAt null</code>, base <code>main</code>, head <code>fix/signer-composite-bearer-forward</code>. Built and pushed; <b>not yet merged</b> (task brief assumed merged — corrected here).</td>
+      </tr>
+      <tr>
+        <td><b>Seedance i2v re-route</b><br><span class="note">de-list <code>seedance-i2v-fast</code>; route fast animate → <code>pixverse-i2v</code></span></td>
+        <td>livepeer/storyboard</td>
+        <td><a href="https://github.com/livepeer/storyboard/pull/685">#685</a></td>
+        <td><span class="pill merged">MERGED</span> <span class="pill pending">PROD DEPLOY TO CONFIRM</span></td>
+        <td>gh: <code>MERGED 2026-07-20</code> → <code>main</code>. Live perf result: i2v success <span class="kpi">~33% → ~100%</span>, p50 latency <span class="kpi">~180s → ~48s</span> (seedance had no warm orch; 2/3 live runs aborted at the ~180s <code>/inference</code> ceiling). Merged to main; the specific prefer_fast reroute path was pending redeploy — prod deploy to confirm.</td>
+      </tr>
+      <tr>
+        <td><b><code>storyboard-perf-mode</code> skill</b><br><span class="note">two modes (prefer-quality default / prefer-fast), remembered pref, routes around broken i2v cap</span></td>
+        <td>NaaP (workspace)</td>
+        <td>—</td>
+        <td><span class="pill built">BUILT / PRESENT</span></td>
+        <td>Present at <code>skills/storyboard-perf-mode/</code> (<code>SKILL.md</code>, <code>reference.md</code>, <code>scripts/perf_pref.py</code>). Encodes the Phase-0 route-around + Phase-1 two-mode UX.</td>
+      </tr>
+      <tr>
+        <td><b>Storyboard pricing PR1</b><br><span class="note">add optional <code>unit_kind</code> + <code>quantity_source</code> to <code>PriceSchema</code> (lossless descriptor)</span></td>
+        <td>livepeer/storyboard</td>
+        <td><a href="https://github.com/livepeer/storyboard/pull/687">#687</a></td>
+        <td><span class="pill open">OPEN PR</span></td>
+        <td>gh: <code>state OPEN</code>, base <code>main</code>. No-regression evidence: fields <code>.optional()</code>, schema stays <code>.strict()</code>, existing descriptors + golden fixtures validate byte-unchanged; <span class="kpi">3213 tests passed</span> (3 skipped); <span class="kpi">0 new typecheck errors</span> vs pristine main.</td>
+      </tr>
+      <tr>
+        <td><b>Storyboard pricing PR2</b><br><span class="note">read real <code>unit_kind</code> from descriptor; reconcile both registry paths (M2)</span></td>
+        <td>livepeer/storyboard</td>
+        <td><a href="https://github.com/livepeer/storyboard/pull/688">#688</a></td>
+        <td><span class="pill open">OPEN PR (stacked)</span></td>
+        <td>gh: <code>state OPEN</code>, base <code>feat/pricing-descriptor-unitkind</code> — <b>stacked on #687</b> (retargets to main once PR1 merges). Evidence: golden set unchanged, M2 parity test passes (<code>chatterbox-tts→characters</code>, <code>gemini-text→tokens</code>); <span class="kpi">3213 tests passed</span>; <span class="kpi">0 new typecheck errors</span>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Analysis / design artifacts produced</h3>
+  <p class="note">Self-contained HTML + Markdown docs written during this effort (in the NaaP workspace root):</p>
+  <ul>
+    <li><code>PRICING-EXECUTION-PLAN.html</code> — the approved end-to-end PR series &amp; milestones.</li>
+    <li><code>NETWORK-PRICING-ARCHITECTURE.html</code> — the descriptor-as-source-of-truth architecture.</li>
+    <li><code>PYMTHOUSE-PER-UNIT-METERING-DESIGN.html</code> — collector passthrough + <code>usage_units</code> meter design.</li>
+    <li><code>BYOC-TO-LIVERUNNER-MIGRATION.html</code> — orch-fronts-many-runners pricing migration.</li>
+    <li><code>STORYBOARD-MCP-PERF-INVESTIGATION.html</code> + <code>STORYBOARD-PERF-POSTFIX-E2E.html</code> — the i2v perf root-cause (live-flag ↔ success) and post-fix E2E.</li>
+    <li><code>STORYBOARD-PERF-SKILL-PROPOSAL.html</code> — the skill proposal behind <code>storyboard-perf-mode</code>.</li>
+    <li><code>PRICING-UPSTREAM-SCOPE-FOR-OWNERS.md</code>, <code>BILLED-E2E-BLOCKER-AUDIT.md</code>, <code>USER-E2E-DEMO-RESULTS.md</code>, <code>STORYBOARD-SIGNER-ROUTING.md</code>, <code>pymthouse-e2e.md</code> — the recon &amp; owner-scope detail.</li>
+  </ul>
+
+  <!-- ============================ SECTION 2 ============================ -->
+  <h2>2 · Expected value from each shipped item</h2>
+  <table>
+    <thead><tr><th>Shipped item</th><th>Concrete payoff</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>Seedance re-route (#685)</b></td>
+        <td>i2v fast-path <b>reliability + latency + cost</b> all improve at once: success <span class="kpi">~33% → ~100%</span>, latency <span class="kpi">~180s → ~48s</span> (~3.75× faster), and it stops <b>billing aborted jobs</b> — the seedance path was hitting the ~180s <code>/inference</code> ceiling and aborting (2/3 runs) while still metering. Users get a working animate default instead of a slow, mostly-failing one.</td>
+      </tr>
+      <tr>
+        <td><b>Signer composite-bearer fix (#430)</b></td>
+        <td><b>Billed-path auth correctness</b>: removes the dead user-JWT signer mint so the composite bearer holds on both BYOC and Live-Runner billed paths, and the opaque-session doc matches reality. Prevents auth-shaped failures on the path that actually moves money.</td>
+      </tr>
+      <tr>
+        <td><b>Descriptor <code>unit_kind</code> + <code>quantity_source</code> (#687)</b></td>
+        <td>Makes <code>offering.price</code> a <b>lossless single source of truth</b> — every natural unit (<code>megapixel, image, second, characters, call, tokens</code>) is now expressible on the descriptor, incl. LLM <b>tokens</b>. This is the row all three downstream numbers (agent quote, on-chain fee, pymthouse meter) will derive from, guaranteeing they're equal by construction.</td>
+      </tr>
+      <tr>
+        <td><b>Discovery/registry parity (#688)</b></td>
+        <td>Both registry paths (descriptor-synced and generated-from-static) emit the <b>same</b> <code>unit_kind</code> for shared caps — no drift between how a cap is priced at discovery vs static lookup. Removes the "faked from <code>display_unit</code>" guesswork.</td>
+      </tr>
+      <tr>
+        <td><b>Agent USD estimate alignment</b></td>
+        <td>The agent's pre-generation USD quote now uses the <b>same shared quantity extractor</b> the downstream signer/meter will consume — the groundwork so the number the user sees before generating aligns with what settles, once the upstream PRs land.</td>
+      </tr>
+      <tr>
+        <td><b><code>storyboard-perf-mode</code> skill</b></td>
+        <td><b>Faster-iteration UX</b>: a remembered prefer-fast / prefer-quality choice that routes fast animate around the broken cap to warm caps, streams previews, renders keyframes first, and fans out in parallel — so "draft mode" is actually fast and reliable rather than routing into the worst capability.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================ SECTION 3 ============================ -->
+  <h2>3 · Left for other owners</h2>
+  <p class="note">Full detail &amp; acceptance criteria in <code>PRICING-UPSTREAM-SCOPE-FOR-OWNERS.md</code>. Every PR is additive, flag-gated, default OFF; observe → enforce.</p>
+
+  <h3>Upstream PRs</h3>
+  <table>
+    <thead><tr><th>Owner</th><th>PR</th><th>Why (one line)</th></tr></thead>
+    <tbody>
+      <tr><td class="owner">Josh · go-livepeer</td><td>PR3</td><td class="why">Aggregate each runner's descriptor price into <code>GetCapabilitiesPrices</code> so LR caps advertise a real price — fixes the <code>400 "missing or zero priceInfo"</code>.</td></tr>
+      <tr><td class="owner">Josh · go-livepeer</td><td>PR5</td><td class="why">Stamp <code>billing_unit_kind</code> / <code>billing_unit_quantity</code> on <code>create_signed_ticket</code> (observe only, fee unchanged) so image vs video vs TTS are distinguishable on-chain.</td></tr>
+      <tr><td class="owner">Josh · go-livepeer</td><td>PR8</td><td class="why">Derive <code>fee = per_unit × quantity</code> behind <code>UNIT_FEE_ENFORCE</code> — the flag flip where on-chain settlement finally equals the agent quote.</td></tr>
+      <tr><td class="owner">Rick · python-gateway</td><td>PR4</td><td class="why">Compute <code>billing_unit_quantity</code> from the payload and send unit+qty on <code>/generate-live-payment</code> — the gateway is the only place that sees the payload.</td></tr>
+      <tr><td class="owner">John · pymthouse</td><td>PR6</td><td class="why">Collector passthrough of unit+qty + one <code>usage_units</code> SUM meter — can deploy first, reads 0 until producers emit.</td></tr>
+      <tr><td class="owner">John · pymthouse</td><td>PR7</td><td class="why"><code>cost = quantity × per_unit_usd</code>, observe → enforce, reconcile vs on-chain fee — closes the invariant on the metering side. Includes per-unit metering enforcement (<code>UNIT_COST_ENFORCE</code>).</td></tr>
+    </tbody>
+  </table>
+
+  <div class="dep">
+    <b>Dependency ordering</b> (from the scope doc):
+    <ul>
+      <li><b>PR3 before PR8</b> — the signer's fee-from-qty enforce needs the orch advertising the correct per-cap price to pin against.</li>
+      <li><b>PR4 pairs with PR5</b> — gateway computes+sends the quantity; the signer stamps it (PR5 depends on PR4).</li>
+      <li><b>PR6 before PR7</b> — the meter must exist before cost is computed from it (PR6 can ship first, reading 0).</li>
+      <li><b>PR8 last</b>, only after <b>PR7 observe</b> proves the <code>|unitCostUsd − feeUsd|</code> delta is ~0.</li>
+      <li>Storyboard PR1/PR2 are the unblocking foundation — nothing upstream waits on Storyboard.</li>
+      <li><b>Shared artifact all three must agree on:</b> the quantity extractor SPEC + committed golden vectors (M1), asserted in Rick's Python CI, Josh's Go signer CI, and the TS agent CI — guarantees no cross-language drift.</li>
+    </ul>
+  </div>
+
+  <h3>Infra gates (simple-infra)</h3>
+  <table>
+    <thead><tr><th>Issue</th><th>Status</th><th>Why it matters</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><a href="https://github.com/livepeer/simple-infra/issues/106">#106</a> — SDK <code>/inference</code> per-model SLA timeout tiering + async hand-off; STOP billing aborted/failed jobs</td>
+        <td><span class="pill open">OPEN</span></td>
+        <td class="why">The ~180s ceiling that aborted seedance runs while still billing. Fixing the timeout tiering + not billing aborts is required for reliable long-running caps.</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/simple-infra/issues/107">#107</a> — provision warm ("live") orchestrators for the seedance i2v family</td>
+        <td><span class="pill open">OPEN</span></td>
+        <td class="why"><b>The seedance re-enable gate.</b> The perf fix proved live-flag ↔ success; seedance can only be re-routed back once it has a warm orch clearing well under the ceiling.</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/issues/686">#686</a> — tracking: re-enable <code>seedance-i2v-fast</code> fast animate once warm orch exists</td>
+        <td><span class="pill open">OPEN</span></td>
+        <td class="why">Reverts the #685 temporary de-list. Blocked on simple-infra #107.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note"><b>Plus:</b> pymthouse per-unit metering <em>enforcement</em> (PR7's <code>UNIT_COST_ENFORCE</code> flip) — flip only after the observe phase shows the reconciliation delta is ~0.</p>
+
+  <div class="foot">
+    Generated 2026-07-21 · statuses verified live via <code>gh</code>. Committed on branch <code>fix/signer-composite-bearer-forward</code>.
+  </div>
+
+</div>
+</body>
+</html>

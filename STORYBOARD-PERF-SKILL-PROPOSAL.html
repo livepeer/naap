@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storyboard MCP — Performance-Bias Skill / Adaptive Agent Proposal</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b22; --panel2:#1e242d; --ink:#e7ecf3; --muted:#9aa7b8;
+    --line:#2a323d; --good:#3ecf8e; --warn:#f5b544; --bad:#f2555a; --accent:#5b9dff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  p{margin:10px 0}
+  .sub{color:var(--muted);margin:0 0 18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .verdict{display:flex;gap:16px;flex-wrap:wrap;align-items:stretch;margin:16px 0}
+  .pill{flex:1;min-width:210px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .pill .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .pill .v{font-size:18px;font-weight:650;margin-top:4px}
+  .tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+  .t-bad{background:rgba(242,85,90,.16);color:var(--bad)}
+  .t-warn{background:rgba(245,181,68,.16);color:var(--warn)}
+  .t-good{background:rgba(62,207,142,.16);color:var(--good)}
+  .t-acc{background:rgba(91,157,255,.16);color:var(--accent)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  code{background:#0b0e12;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12.5px}
+  ol.rank{padding-left:0;list-style:none;counter-reset:r}
+  ol.rank li{counter-increment:r;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px 12px 52px;position:relative;margin:10px 0}
+  ol.rank li::before{content:counter(r);position:absolute;left:14px;top:12px;width:26px;height:26px;border-radius:50%;background:var(--accent);color:#08111f;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .muted{color:var(--muted)}
+  .win{border-left:3px solid var(--good);padding-left:12px;margin:10px 0}
+  .struct{border-left:3px solid var(--warn);padding-left:12px;margin:10px 0}
+  .bad{border-left:3px solid var(--bad);padding-left:12px;margin:10px 0}
+  .flow{background:#0b0e12;border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--muted);white-space:pre-wrap;overflow-x:auto}
+  small{color:var(--muted)}
+  ul{margin:10px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Storyboard MCP — Performance-Bias Skill / Adaptive Agent Proposal</h1>
+  <p class="sub"><strong>Proposal for review — no product code or skill has been built.</strong> Approve before implementation. · seanhanca · 2026-07-20 · branch <code>fix/signer-composite-bearer-forward</code> · grounded in <a href="./STORYBOARD-MCP-PERF-INVESTIGATION.html" style="color:var(--accent)">STORYBOARD-MCP-PERF-INVESTIGATION.html</a> + <code>user-storyboard</code> MCP schemas.</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">TL;DR — is it totally doable with just a skill?</h3>
+    <p><strong><span class="tag t-warn">PARTLY</span> — a big, real "partly."</strong> A skill can deliver large wins on <strong>perceived latency</strong> and <strong>reliability</strong>, and moderate wins on <strong>actual latency</strong> and <strong>throughput</strong>, by choosing warm models, streaming previews first, drafting-then-upscaling, and parallelizing. It <strong>cannot</strong> create GPU / warm-orchestrator capacity or raise the ~180&nbsp;s SDK abort ceiling — those are infra fixes.</p>
+    <div class="verdict">
+      <div class="pill"><div class="k">Perceived latency</div><div class="v"><span class="tag t-good">Large win</span> stream / keyframe-first</div></div>
+      <div class="pill"><div class="k">Reliability</div><div class="v"><span class="tag t-good">Large win</span> route to warm caps</div></div>
+      <div class="pill"><div class="k">GPU / upstream capacity</div><div class="v"><span class="tag t-bad">Skill can't</span> infra only</div></div>
+    </div>
+    <p>The decisive finding: slowness / "out of capacity" is <strong>concentrated in i2v</strong> and traces to <strong>Livepeer orchestrator / GPU capacity per capability</strong>; a cap's <code>live</code> (warm-orchestrator) flag predicts success almost perfectly. The cruel irony that drives this proposal: the MCP's current <code>prefer_fast:true</code> for <code>animate</code> routes straight into <strong><code>seedance-i2v-fast</code></strong> — the single worst cap (33% success, 176–181&nbsp;s). But <code>quality:'fast'</code> routes <code>animate</code> to <strong><code>pixverse-i2v</code></strong> (warm, 100%, ~48&nbsp;s). <strong>A skill can exploit exactly this gap</strong> and get most of the win with no server change.</p>
+  </div>
+
+  <h2>1 · What a skill can / cannot move</h2>
+  <table>
+    <thead><tr><th>Dimension</th><th>Skill can move it?</th><th>How</th><th>Ceiling (needs infra)</th></tr></thead>
+    <tbody>
+      <tr><td>Perceived latency (TTFP)</td><td><span class="tag t-good">Large</span></td><td>Stream (<code>subscribe_progress</code>), keyframe-first (<code>generate_project checkpoint:'keyframes'</code>), draft image before video</td><td>—</td></tr>
+      <tr><td>Reliability ("out of capacity")</td><td><span class="tag t-good">Large</span></td><td>Pre-flight <code>live</code>-flag check (<code>list_capabilities</code>); route to warm; avoid <code>seedance-i2v-fast</code></td><td>Cold caps with no warm orch anywhere</td></tr>
+      <tr><td>Actual latency</td><td><span class="tag t-warn">Moderate</span></td><td>Fast tier, lower <code>duration</code>, draft-then-<code>upscale</code>, skip <code>quality_gate</code></td><td>Model floor; 180&nbsp;s abort ceiling</td></tr>
+      <tr><td>Throughput (jobs/min)</td><td><span class="tag t-warn">Moderate</span></td><td>Parallel fan-out (<code>generate_project</code>, <code>create_variations</code>, <code>moodboard_spread</code>), <code>native</code> multi-shot</td><td>GPU concurrency on network</td></tr>
+      <tr><td>GPU / upstream capacity</td><td><span class="tag t-bad">None</span></td><td>—</td><td>Warm-orch provisioning; raise/tier 180&nbsp;s; stop billing aborts</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2 · Option A — explicit two-mode skill</h2>
+  <div class="card">
+    <p><strong>Default = "better quality."</strong> <strong>"prefer faster iteration"</strong> flips the bias. Activation is conversational. <strong>First-use prompt</strong> asks once if no preference is stored, then remembers. No new MCP surface required — every lever maps to a real, cited parameter.</p>
+  </div>
+
+  <h3>Lever matrix — mode → exact MCP tool · param</h3>
+  <table>
+    <thead><tr><th>Lever</th><th>faster-iteration</th><th>better-quality (default)</th><th>Tool · param</th></tr></thead>
+    <tbody>
+      <tr><td>Warm-cap routing <span class="tag t-good">biggest win</span></td><td>Pre-check <code>live</code>; route to warm; never <code>seedance-i2v-fast</code></td><td>Same pre-check; premium warm ok</td><td><code>list_capabilities</code> → <code>create_media.model_override</code></td></tr>
+      <tr><td>Video quality tier</td><td><code>quality:'fast'</code> → <code>pixverse-i2v</code></td><td><code>quality:'hq'</code> → <code>kling-o3-i2v</code></td><td><code>create_media.quality</code></td></tr>
+      <tr><td>Image model</td><td><code>flux-schnell</code> (~1.6&nbsp;s)</td><td><code>flux-dev</code> / <code>gpt-image</code></td><td><code>create_media.model_override</code> / <code>prefer_fast</code> (image only)</td></tr>
+      <tr><td>⚠️ <code>prefer_fast</code> for animate</td><td><strong>Do NOT use</strong> (→ broken <code>seedance-i2v-fast</code>); force <code>quality:'fast'</code></td><td>n/a</td><td><code>create_media.prefer_fast</code></td></tr>
+      <tr><td>Duration / resolution</td><td>shortest acceptable / smaller</td><td>as briefed / full</td><td><code>create_media.duration</code> · <code>aspect_ratio</code></td></tr>
+      <tr><td>Draft-then-upscale</td><td>fast draft → <code>upscale</code> the pick only</td><td>render final directly</td><td><code>create_media action:'generate'</code> → <code>action:'upscale'</code></td></tr>
+      <tr><td>Streaming first feedback</td><td><code>subscribe_progress</code> (2&nbsp;s cadence)</td><td>optional</td><td><code>subscribe_progress.job_id</code></td></tr>
+      <tr><td>Preview-first multi-scene</td><td><code>checkpoint:'keyframes'</code></td><td>single-pass full render</td><td><code>generate_project.checkpoint</code></td></tr>
+      <tr><td>Parallel throughput</td><td>parallel scenes / variations / spread</td><td>same, fewer at once</td><td><code>generate_project</code> · <code>create_variations</code> · <code>moodboard_spread</code></td></tr>
+      <tr><td>Native multi-shot</td><td><code>generation_mode:'native'</code> (≤15&nbsp;s, 2–6 shots)</td><td><code>'scenes'</code> orchestrated</td><td><code>submit_creative_job.generation_mode</code></td></tr>
+      <tr><td>Quality gate</td><td>off (default) — saves seconds</td><td><code>quality_gate:true</code>, retries 1–2</td><td><code>create_media.quality_gate</code></td></tr>
+      <tr><td>Timeout behavior</td><td><code>on_i2v_timeout:'fallback'</code></td><td><code>'wait'</code> (surface + ask)</td><td><code>create_media.on_i2v_timeout</code></td></tr>
+      <tr><td>Wait budget (router)</td><td>low <code>wait_minutes</code> → auto-downgrade</td><td>high → keep premium</td><td><code>generate_project.wait_minutes</code></td></tr>
+      <tr><td>Budget / idempotency / tag</td><td><code>max_cost_usd</code>, <code>idempotency_key</code>, <code>session_id</code></td><td>same</td><td><code>create_media.*</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Expected wins (from the investigation's own numbers)</h3>
+  <div class="win"><strong>TTFP ~1.6&nbsp;s</strong> (<code>flux-schnell</code> draft) or a keyframe still, vs <strong>37–180&nbsp;s</strong> waiting on video — <strong>~10–100× perceived-latency win.</strong></div>
+  <div class="win"><strong>i2v reliability:</strong> route <code>animate</code> to <code>pixverse-i2v</code> (warm, <strong>100%</strong>, ~48&nbsp;s) vs <code>seedance-i2v-fast</code> (<strong>33%</strong>, 176–181&nbsp;s). Success <strong>33% → ~100%</strong>; latency <strong>~180&nbsp;s → ~48&nbsp;s.</strong></div>
+  <div class="win"><strong>Throughput:</strong> parallel fan-out + <code>native</code> multi-shot (≤15&nbsp;s for 2–6 shots) vs N sequential 60–180&nbsp;s renders. <strong>Fast mode is also the cheaper mode.</strong></div>
+
+  <h2>3 · What a skill CANNOT do (honest ceiling)</h2>
+  <div class="bad"><strong>Cannot create warm-orchestrator / GPU capacity.</strong> If every i2v cap is cold, routing can only fall back to stock or a still.</div>
+  <div class="bad"><strong>Cannot raise the ~180&nbsp;s SDK abort ceiling.</strong> Models with real p50 &gt;180&nbsp;s keep coin-flipping. <span class="muted">Owner: SDK service.</span></div>
+  <div class="bad"><strong>Cannot fix server defects:</strong> aborted i2v still billed; sync <code>mux_audio</code> mime-decode bug. <span class="muted">Owner: Storyboard billing / ffmpeg.</span></div>
+  <div class="bad"><strong>Cannot fix the mis-wired <code>prefer_fast</code>→<code>seedance-i2v-fast</code> routing at source</strong> — only route around it. The real one-line fix (fast-animate → <code>pixverse-i2v</code>) is the single highest-impact fix overall. <span class="muted">Skill + infra are complementary, not substitutes.</span></div>
+
+  <h2>4 · Preference capture &amp; memory (Option A)</h2>
+  <div class="card">
+    <p><strong>Recommended: one small local file</strong> — the least-over-engineered cross-environment source of truth (Cursor / Claude Code / Codex all read a home-dir file).</p>
+    <div class="flow">~/.storyboard/perf-preference.json
+{ "bias": "quality" | "fast", "set_at": "&lt;iso8601&gt;", "source": "explicit_prompt" }</div>
+    <ul>
+      <li><strong>Read</strong> at skill start; <strong>write</strong> on first explicit choice / first-use answer.</li>
+      <li><strong>Precedence:</strong> in-message phrasing &gt; stored file &gt; default (quality). In-message override doesn't overwrite the file unless "remember this."</li>
+      <li><strong>Optional mirror</strong> into a Cursor user rule (nice-to-have, not MVP). Claude/Codex: the file <em>is</em> the mechanism.</li>
+    </ul>
+    <p class="muted">Anti-over-engineering: one file, one field. No DB, no service, no migrations.</p>
+  </div>
+
+  <h2>5 · Option B — self-learning adaptive agent</h2>
+  <h3>Signals (observable, privacy-respecting)</h3>
+  <table>
+    <thead><tr><th>Signal</th><th>Implies</th></tr></thead>
+    <tbody>
+      <tr><td>High regenerate / re-run rate</td><td>wants faster drafts</td></tr>
+      <tr><td>Accepts first output</td><td>quality is fine → keep quality</td></tr>
+      <tr><td>Cancels / abandons long jobs</td><td>impatience → faster tier</td></tr>
+      <tr><td>Phrasing "quick / draft / rough"</td><td>fast</td></tr>
+      <tr><td>Phrasing "final / hero / high quality"</td><td>quality</td></tr>
+      <tr><td>Upscales / edits after a draft</td><td>draft-then-refine → fast draft default</td></tr>
+      <tr><td>Explicit thumbs / "love it"</td><td>direct reward</td></tr>
+      <tr><td>Abandons after capacity/timeout error</td><td>route-to-warm matters more than tier</td></tr>
+    </tbody>
+  </table>
+  <p class="muted"><strong>Privacy:</strong> only counts &amp; coarse categories persisted locally; user can inspect and wipe. No server-side profile.</p>
+
+  <h3>How it adapts (interpretable, not a black box)</h3>
+  <div class="card">
+    <p>One scalar <code>impatience</code> ∈ [0,1] as an <strong>EWMA</strong> (α≈0.3). <strong>Threshold, don't gradient-descend:</strong> &gt;0.6 → nudge to faster levers; &lt;0.4 → back to quality; hysteresis band avoids flapping. The nudge pulls <strong>the exact same levers as Option A</strong>. <strong>Transparency mandatory:</strong> announce the flip + one-phrase override. Same local file, tiny counters block — <strong>no ML, no model server</strong> (~20 lines). Cold-start = quality; require ≥K signals (e.g. 5) before first nudge.</p>
+    <div class="flow">{ "bias":"quality", "auto":true,
+  "signals": { "regen":0, "accept_first":0, "cancel_long":0, "n":0 },
+  "impatience":0.0, "last_nudge":null }</div>
+  </div>
+
+  <h3>Feasibility &amp; effort vs A · risks · testability</h3>
+  <p><strong>Materially harder, but only incrementally:</strong> B = A + signal capture + a feedback loop + persisted counters; downstream levers are identical. <strong>MVP for B is a thin heuristic on top of A.</strong> The hard part is testing a non-deterministic loop.</p>
+  <div class="struct"><strong>Risks:</strong> silent quality regressions · non-determinism/surprise · behavioral-tracking privacy · feedback-loop instability · <strong>capacity slowness misread as impatience → masks the real infra problem</strong> (mitigate: treat timeouts as infra events, not preference signals) · harder to test.</div>
+  <div class="win"><strong>Testability:</strong> A/B static-default vs adaptive on the perf harness (<code>session_id</code> + <code>get_perf_report</code> + <code>get_cost_report</code>). Metrics: TTFP, regeneration rate, task-completion, cost/asset, failure-under-load. <strong>Bar:</strong> adaptive must beat static on TTFP + regen rate with no quality-acceptance drop, or it stays off.</div>
+
+  <h2>6 · Option A vs Option B</h2>
+  <table>
+    <thead><tr><th>Criterion</th><th>A — explicit two-mode</th><th>B — self-learning adaptive</th></tr></thead>
+    <tbody>
+      <tr><td>Capability delivered</td><td>Full lever access on demand</td><td>Same levers, auto-selected</td></tr>
+      <tr><td>UX</td><td>Predictable; user in control</td><td>Zero-effort when right; confusing when wrong</td></tr>
+      <tr><td>Determinism</td><td><span class="tag t-good">Deterministic</span></td><td><span class="tag t-bad">Non-deterministic</span></td></tr>
+      <tr><td>Effort to build</td><td><span class="tag t-good">Low</span> skill + 1 file</td><td><span class="tag t-warn">Medium</span> A + telemetry + loop</td></tr>
+      <tr><td>New infra</td><td>None</td><td>Signal capture + counter persistence</td></tr>
+      <tr><td>Risk</td><td><span class="tag t-good">Low</span></td><td><span class="tag t-warn">Higher</span> regressions, surprise, masking</td></tr>
+      <tr><td>Testability</td><td><span class="tag t-good">Easy</span></td><td><span class="tag t-warn">Harder</span> (A/B)</td></tr>
+      <tr><td>Over-engineering risk</td><td>Low</td><td>Medium</td></tr>
+      <tr><td>Time-to-value</td><td>Immediate</td><td>After telemetry + validation</td></tr>
+      <tr><td>Reversibility</td><td>Trivial</td><td>Needs kill-switch / flag</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Narrative:</strong> A is the safe, shippable, fully-testable core that delivers ~all of the <em>reachable</em> wins today. B's upside is only "the user never has to say the mode" — genuine but marginal next to A's wins, and it buys real cost in non-determinism, testing difficulty, and the capacity-masking trap. B is worth doing <strong>only as a thin, interpretable, opt-out nudge on top of A, after telemetry exists</strong> — never as a from-scratch alternative.</p>
+
+  <h2>7 · Recommendation — phased path</h2>
+  <ol class="rank">
+    <li><strong>Phase 0 — route-around + measure (tiny, first).</strong> Always pre-check <code>live</code>; steer <code>animate</code> to <code>pixverse-i2v</code>; never <code>prefer_fast:true</code> for i2v; stamp <code>session_id</code>. Flips i2v success ~33%→~100% on the fast path. File the server asks the skill can't fix.</li>
+    <li><strong>Phase 1 — Option A MVP (ship this).</strong> Two explicit modes, the §2 lever matrix, default=quality, one-file memory, first-use prompt. Deterministic + fully testable.</li>
+    <li><strong>Phase 2 — Option B thin nudge (flag-gated, after telemetry).</strong> Local counters + EWMA; nudge only with transparency + one-phrase override; separate capacity errors from impatience; kill-switch. Validate with A/B before default-on.</li>
+  </ol>
+  <p class="muted"><strong>Why phased:</strong> Phase 1 captures the vast majority of value deterministically; Phase 2 is a low-cost, reversible enhancement that reuses Phase 1's levers and only earns default-on if it beats static in a measurable A/B.</p>
+
+  <h2>8 · Metrics &amp; test plan (reuse the perf harness)</h2>
+  <p class="muted">Instruments already in the MCP: <code>session_id</code> tagging · <code>get_perf_report</code> · <code>get_cost_report</code> · <code>get_recent_failures</code> · <code>list_capabilities</code> (<code>live</code> flag).</p>
+  <table>
+    <thead><tr><th>Metric</th><th>Definition</th><th>Baseline</th><th>Target (fast)</th></tr></thead>
+    <tbody>
+      <tr><td>TTFP</td><td>time to first visible preview/keyframe</td><td>37–180&nbsp;s</td><td><strong>&lt; 10&nbsp;s</strong></td></tr>
+      <tr><td>E2E latency p50/p95</td><td>submit → final asset</td><td>i2v p50 ~180&nbsp;s</td><td>pixverse ~48&nbsp;s</td></tr>
+      <tr><td>i2v success rate</td><td>done / attempts</td><td>33% (<code>seedance-i2v-fast</code>)</td><td><strong>~100%</strong> (warm)</td></tr>
+      <tr><td>Throughput</td><td>assets/min, parallel fan-out</td><td>~sequential</td><td>N× (scene count)</td></tr>
+      <tr><td>Cost/asset</td><td>USD per delivered asset</td><td>incl. billed failures</td><td>lower</td></tr>
+      <tr><td>Regeneration rate (B)</td><td>redos / brief</td><td>—</td><td>↓ vs static</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Test plan:</strong> <em>Unit (A)</em> assert emitted params per mode + preference file read/write/precedence. <em>Integration</em> run the perf-investigation scenario set under each mode with <code>max_cost_usd</code> caps (~$2 budget). <em>A/B (B)</em> static vs adaptive on §8 metrics. <em>Guardrail (B)</em> inject capacity errors; assert they don't drive the impatience score.</p>
+
+  <h2>9 · DO / DON'T / risks</h2>
+  <div class="win"><strong>DO</strong> bias to warm (<code>live</code>) caps first · make faster mode mean preview-first + draft-then-upscale + parallel · keep memory to one small local file, default quality, ask once · always keep a one-phrase override + announce auto-flips (B) · measure with the existing harness and surface infra asks.</div>
+  <div class="bad"><strong>DON'T</strong> use <code>prefer_fast:true</code> for <code>animate</code> (→ broken <code>seedance-i2v-fast</code>) · silently degrade a "final"/"hero" asset · build a DB / ML / telemetry service for the MVP · let B treat capacity/timeout errors as impatience (masks infra) · ship B default-on before it beats static in an A/B.</div>
+  <p class="muted"><strong>Residual risks:</strong> quality regressions if fast is too aggressive (quality-phrasing guard + easy override) · cost surprises (<code>max_cost_usd</code>) · masking real capacity problems (keep infra asks visible + separate capacity signals) · B non-determinism confusion (transparency + flag + kill-switch).</p>
+
+  <p class="sub" style="margin-top:34px">Proposal only — no product code or skill created. Approve to proceed with Phase 0 + Phase 1 (Option A MVP).</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Pricing — PR-Cycle Execution Plan</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--fg:#e6edf3;--muted:#8b949e;
+    --accent:#58a6ff;--good:#3fb950;--warn:#d29922;--bad:#f85149;--new:#a371f7;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 22px 80px}
+  header.hero{background:linear-gradient(135deg,#161b22,#1f2937);border:1px solid var(--border);
+    border-radius:14px;padding:26px 28px;margin-bottom:22px}
+  header.hero h1{margin:0 0 8px;font-size:26px}
+  header.hero p{margin:4px 0;color:var(--muted)}
+  .meta{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+  .pill{background:#21262d;border:1px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--muted)}
+  h2{margin:34px 0 12px;font-size:20px;border-bottom:1px solid var(--border);padding-bottom:6px}
+  h3{margin:22px 0 8px;font-size:16px;color:var(--accent)}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+  code{background:#21262d;border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+  th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#1c2128;color:var(--fg);font-weight:600}
+  tr:nth-child(even) td{background:#12171e}
+  .tag{display:inline-block;border-radius:5px;padding:1px 7px;font-size:11px;font-weight:600;white-space:nowrap}
+  .t-new{background:rgba(163,113,247,.16);color:var(--new);border:1px solid var(--new)}
+  .t-good{background:rgba(63,185,80,.14);color:var(--good);border:1px solid var(--good)}
+  .t-warn{background:rgba(210,153,34,.14);color:var(--warn);border:1px solid var(--warn)}
+  .t-off{background:rgba(139,148,158,.14);color:var(--muted);border:1px solid var(--muted)}
+  .box{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin:16px 0}
+  .invariant{border-left:4px solid var(--accent);background:#111a24}
+  .toc{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px 22px;columns:2;column-gap:34px}
+  .toc a{color:var(--accent);text-decoration:none;display:block;padding:3px 0;font-size:13px}
+  pre{background:#0b0f14;border:1px solid var(--border);border-radius:10px;padding:14px;overflow:auto;font-size:12.5px}
+  .pr{border:1px solid var(--border);border-radius:12px;margin:14px 0;overflow:hidden}
+  .pr>.h{background:#1c2128;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pr>.h .num{background:var(--new);color:#fff;border-radius:6px;padding:2px 9px;font-weight:700;font-size:13px}
+  .pr>.h .repo{color:var(--muted);font-size:12px}
+  .pr table{margin:0}
+  .pr table th{width:150px;background:#12171e}
+  ul.clean{margin:6px 0;padding-left:20px}
+  ul.clean li{margin:3px 0}
+  .note{color:var(--muted);font-size:13px}
+  .legend span{margin-right:14px;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Network Pricing — PR-Cycle Execution Plan</h1>
+  <p><b>Goal:</b> Make the capability descriptor <code>offering.price</code> the single source of truth and give the on-chain signer event the two fields it lacks (<code>billing_unit_kind</code>, <code>billing_unit_quantity</code>) so the agent USD quote, the on-chain settled fee, and pymthouse per-unit metering reconcile <b>by construction</b>.</p>
+  <p><b>Architecture:</b> Additive, flag-gated, observe&rarr;enforce. One descriptor per runner &rarr; orch aggregates &rarr; gateway computes quantity &rarr; signer stamps unit+qty and (later) derives fee from them &rarr; one OpenMeter <code>usage_units</code> meter &rarr; pymthouse cost = quantity &times; per-unit USD. Model A: the on-chain signer event is the only billing truth; the agent quote stays a pre-flight estimate.</p>
+  <p><b>Tech stack:</b> storyboard-a3 (TS/zod), go-livepeer (<code>remote_signer.go</code>, <code>core/orchestrator.go</code>), livepeer-python-gateway, pymthouse + Benthos/OpenMeter, NaaP.</p>
+  <div class="meta">
+    <span class="pill">10 self-contained PRs</span>
+    <span class="pill">All flags default OFF</span>
+    <span class="pill">Observe &rarr; Enforce</span>
+    <span class="pill">Zero-regression additive path</span>
+  </div>
+</header>
+
+<p class="note"><b>For agentic workers:</b> each PR below is the smallest unit that carries its own test cycle and a fresh reviewer's gate. Ship in order; each is independently revertible behind a default-OFF flag.</p>
+
+<div class="toc">
+  <a href="#findings">1. Design-review findings &amp; resolutions</a>
+  <a href="#invariant">2. The reconciliation invariant</a>
+  <a href="#constraints">Global constraints</a>
+  <a href="#prs">3. Ordered sequence of PRs (PR1–PR10)</a>
+  <a href="#matrix">4. Gap-closure matrix</a>
+  <a href="#rollout">5. Phased rollout &amp; E2E prod validation</a>
+  <a href="#dod">6. Definition of done</a>
+  <a href="#review">7. Independent review</a>
+  <a href="#storyboard-independent">8. What Storyboard can do independently</a>
+</div>
+
+<!-- ============ 1. FINDINGS ============ -->
+<h2 id="findings">1. Design-review findings &amp; resolutions</h2>
+<table>
+  <thead><tr><th>#</th><th>Review lens</th><th>Finding</th><th>Resolution</th><th>Enforced by</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>F1</td><td>No duplication / dead-code removal (B2)</td>
+      <td>The margin/tier model lives in <code>docs/pricing-v1/pricing-table.json</code> + <code>convert.py</code> (<code>display_price_usd = upstream_cost_usd &times; (1+margin_pct/100)</code> per <code>tier</code>) — the descriptor carries no <code>upstream_cost_usd/margin_pct/tier/flat_fee_usd</code>. The earlier framing ("<code>convert.py</code> writes <em>back into</em> the descriptor") inverted the real dependency. (The purported orphan <code>mintUserSignerJwtForExternalUser</code> exists only in planning docs — verified absent from product code, so nothing to delete.)</td>
+      <td><b>Two SoTs, one direction:</b> <code>pricing-table.json</code> (cost + margin + tier) is the <b>build-time source</b> that <b>generates</b> the descriptor's published price; the descriptor <code>offering.price</code> is the <b>single runtime source of truth</b>. <code>convert.py</code> <em>generates</em> <code>price_per_unit</code> (and the <code>static-pricing.json</code> / <code>CAPABILITIES_JSON</code> artifacts) <em>from</em> <code>pricing-table.json</code> — it does not write into the descriptor. Keep <code>static-pricing.json</code> as a <b>generated runtime fallback</b> (B4). Demote <code>pricing-table-deploy.json</code> as a separately-advertised config only after the orch aggregates runner prices.</td>
+      <td><span class="tag t-new">PR9</span></td>
+    </tr>
+    <tr>
+      <td>F2</td><td>One source of truth</td>
+      <td>The descriptor is not yet a <em>lossless</em> replacement for <code>price.json</code>: <code>PriceSchema</code> lacks <code>unit_kind</code> + <code>quantity_source</code>; <code>discovery-sync.ts:108</code> fakes <code>unit_kind</code> from <code>display_unit</code> (lossy for TTS — bills per <code>characters</code>, may display per <code>1000_characters</code>).</td>
+      <td>Add optional <code>unit_kind</code> + <code>quantity_source</code> to <code>PriceSchema</code> (additive). Stop faking: read <code>price.unit_kind</code>, fall back to <code>display_unit</code> only when absent.</td>
+      <td><span class="tag t-new">PR1</span> <span class="tag t-new">PR2</span></td>
+    </tr>
+    <tr>
+      <td>F3</td><td>Agent &harr; on-chain no-drift invariant</td>
+      <td>Agent quote and on-chain fee are computed on different paths with no shared quantity or reconciliation, so they can silently diverge.</td>
+      <td>Make both derive from the <b>same descriptor price row</b> and the <b>same <code>quantity</code></b> (one <code>quantity_source</code> extractor). Add a CI parity test + a production delta metric <code>|unitCostUsd &minus; feeUsd|</code>. See §2.</td>
+      <td><span class="tag t-new">PR4</span> <span class="tag t-new">PR7</span> <span class="tag t-new">PR8</span></td>
+    </tr>
+    <tr>
+      <td>F4</td><td>Simplicity / no over-engineering (B1)</td>
+      <td>Tempting-but-wrong elaborations: per-cap/per-modality meters, a general quantity rules engine, a second agent&rarr;pymthouse reporting channel (Model B). <b>Correction:</b> a per-price <em>scaling</em> field is <b>not</b> speculative — <code>pixels_per_unit</code> already exists on <code>PriceSchema</code> and is load-bearing in the wei&harr;USD conversion.</td>
+      <td><b>One</b> meter (<code>usage_units</code>, SUM) grouped by <code>unit_kind</code>. <code>unit_kind</code>/<code>quantity_source</code> are <b>closed enums</b> &rarr; small reviewable extractor set, no rules engine. Model A only. Keep <code>price_scaling</code> as the single <b>global</b> wire constant (<code>1_000_000</code>); do not add a <em>new</em> per-price <code>price_scaling</code> field — the per-price scaling the arithmetic needs is already carried by <code>pixels_per_unit</code> (must be retained end-to-end into the signer fee-from-qty math, PR8).</td>
+      <td><span class="tag t-good">design</span> <span class="tag t-new">PR6</span> <span class="tag t-new">PR8</span></td>
+    </tr>
+    <tr>
+      <td>F5</td><td>No-regression guards</td>
+      <td>Every new field/path can perturb today's billed flow if not gated.</td>
+      <td>All new fields <b>additive &amp; optional</b>; all new paths <b>flag-gated default OFF</b>; when absent the signer/gateway/collector behave byte-identically. Backward-compat test: no-unit event &rarr; <code>usage_units</code>=0, billing falls back to fee. Transition floor <code>billedUsd = max(unitCostUsd, feeUsd)</code>.</td>
+      <td><span class="tag t-off">all PRs</span></td>
+    </tr>
+    <tr>
+      <td>F6</td><td>Billed-path gap (G1)</td>
+      <td>Orch <code>GetCapabilitiesPrices</code> does not aggregate Live-Runner runner descriptor prices; LR prices live only on <code>GET /discovery</code> &rarr; LR advertises zero &rarr; <code>400 "missing or zero priceInfo"</code>. No per-cap price surface for one-orch&rarr;many-runners.</td>
+      <td>Aggregate each runner descriptor's <code>offering.price</code> into <code>CapabilitiesPrices</code> behind <code>-aggregateRunnerPrices</code>. Apply the same 1% txCost overhead the requested-cap path already applies, so <code>ExpectedPrice == RecipientRandHash</code> price (fixes the <code>invalid recipientRand</code> class).</td>
+      <td><span class="tag t-new">PR3</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============ 2. INVARIANT ============ -->
+<h2 id="invariant">2. The reconciliation invariant</h2>
+<div class="box invariant">
+  <p style="margin-top:0"><b>Invariant.</b> The agent's USD quote and the on-chain settled USD are two views of the <em>same</em> arithmetic:</p>
+  <pre>agentQuoteUsd(cap, qty)      = per_unit_usd(cap)      &times; qty          // pre-flight estimate (descriptor.display_usd)
+onchainSettledUsd(cap, qty)  = bridge(fee_wei)        where
+    fee_wei                  = (price_per_unit / price_scaling) &times; pixels_per_unit &times; qty   // signer, fee-from-quantity
+pymthouseUnitCostUsd(cap,qty)= per_unit_usd(cap)      &times; qty          // meter: usage_units SUM
+
+where  per_unit_usd  and  price_per_unit  are the SAME descriptor price row,
+       price_scaling   is the GLOBAL wire constant (1_000_000), and
+       pixels_per_unit is the PER-PRICE natural-unit&rarr;pixel scaling term.
+       BOTH are load-bearing. convert.py:56&ndash;67 defines the exact inverse:
+          price_per_unit = (display_usd / eth_usd &times; 1e18) &times; price_scaling / pixels_per_unit
+       so  bridge(fee_wei) == display_usd &times; qty  by construction (B1).
+       display_usd is itself GENERATED build-time from pricing-table.json
+       (display_usd = upstream_cost_usd &times; (1 + margin_pct/100) per tier; see F1/B2),
+and    qty is produced by ONE quantity_source extractor,
+       used identically by the gateway (fee) and the meter (cost).</pre>
+  <p style="margin-bottom:0">&rArr; the three numbers are equal up to <code>eth_usd</code> timing and integer rounding — <b>reconciliation by construction</b>, not by a matching engine. <b>Two sources of truth, cleanly split:</b> <code>pricing-table.json</code> (cost + margin + tier) is the <em>build-time</em> source that <em>generates</em> the descriptor's published price; the descriptor <code>offering.price</code> is the <em>single runtime</em> source of truth. <code>pixels_per_unit</code> already exists on <code>PriceSchema</code>, so per-price scaling is <b>not</b> speculative — it is required for the wei&harr;USD conversion (corrects the earlier F4 wording).</p>
+</div>
+<h3>Reconciliation checks</h3>
+<ul class="clean">
+  <li><b>CI parity test:</b> assert <code>agentQuoteUsd(cap, qty) == pymthouseUnitCostUsd(cap, qty)</code> for one cap per <code>unit_kind</code> (megapixel, image, second, characters, call, <b><code>tokens</code></b>).</li>
+  <li><b>Cross-language quantity golden vectors (M1):</b> a shared extractor <b>spec</b> + committed golden fixture (one canonical payload &rarr; expected <code>qty</code> per <code>unit_kind</code>) asserted in <em>all three</em> repos' CI, proving <code>gatewayQty(Py) == signerQty(Go) == agentQty(TS) == meterQty</code> — not merely <code>agent == pymthouse</code>. Extractor drift is caught by construction.</li>
+  <li><b>Production delta metric:</b> alert on <code>|unitCostUsd &minus; feeUsd|</code> per cap; catches unit or price drift live.</li>
+  <li><b>Price-guard invariant (compute-placement):</b> assert <code>signer ExpectedPrice == orch advertised price</code> (the #3993 invariant) and cross-check <code>gateway-qty</code> against the orch's request-derived qty at settlement, so the derived fee stays reconcilable and no untrusted layer becomes a fee authority.</li>
+  <li><b>Transition floor:</b> <code>billedUsd = max(unitCostUsd, feeUsd)</code> guarantees we never under-bill the real on-chain fee while parity is being proven.</li>
+</ul>
+
+<!-- ============ GLOBAL CONSTRAINTS ============ -->
+<h2 id="constraints">Global constraints</h2>
+<ul class="clean">
+  <li>New descriptor fields are <code>.optional()</code> zod; every existing descriptor + golden fixture must parse unchanged.</li>
+  <li><code>price_scaling</code> stays the single global wire constant <code>1_000_000</code>; do <b>not</b> add a <em>new</em> per-price field. The per-price scaling the wei&harr;USD math needs is the existing <code>pixels_per_unit</code> — carry it through PR8's fee-from-qty (B1).</li>
+  <li><code>unit_kind</code> &isin; {<code>megapixel, image, second, characters, call, tokens</code>} (verified against <code>static-pricing.json</code>; no other live unit exists — <code>track/clip/mesh/minute/training/audio_seconds</code> are not present); <code>quantity_source</code> &isin; a closed enum of extractors. No open-ended rules engine.</li>
+  <li>Model A only — no agent&rarr;pymthouse usage reporting channel.</li>
+  <li>Every flag defaults OFF; absent fields &rArr; byte-identical to today's behavior.</li>
+  <li>One meter: <code>usage_units</code> (SUM) grouped by <code>unit_kind</code>/capability/model. Keep the <code>network_fee_usd_micros</code> fee meter forever (on-chain truth).</li>
+  <li>Sanitize <code>billing_unit_kind</code> like <code>sanitizeUsageLabel</code> (trim + 128-rune cap); clamp <code>billing_unit_quantity</code> to a sane positive range.</li>
+</ul>
+
+<!-- ============ 3. PRs ============ -->
+<h2 id="prs">3. Ordered sequence of self-contained PRs</h2>
+<p class="note"><b>Order rationale:</b> schema first (PR1) so downstream can read real fields; discovery (PR2) makes the descriptor lossless before anything consumes it; orch aggregation (PR3) unblocks the billed path (G1) and is independently valuable; then the signer/gateway/meter data path is built <b>observe-first</b> (PR4&ndash;PR7) so nothing bills on the new number until proven; enforcement flags flip last (PR7 ENFORCE, PR8); cleanup (PR9) only after the descriptor is authoritative everywhere; agent polish (PR10) is UX and can land any time after PR2.</p>
+
+<!-- PR1 -->
+<div class="pr">
+  <div class="h"><span class="num">PR1</span> <b>Descriptor schema: add <code>unit_kind</code> + <code>quantity_source</code>, reconcile <code>price_scaling</code></b> <span class="repo">storyboard-a3</span></div>
+  <table>
+    <tr><th>Scope</th><td>Make <code>PriceSchema</code> a lossless superset of <code>price.json</code> (additive, optional). No behavior change.</td></tr>
+    <tr><th>Key files</th><td><code>lib/capabilities/descriptor.ts</code> (<code>PriceSchema</code> ~105&ndash;113); golden descriptor fixtures.</td></tr>
+    <tr><th>Change</th><td>Add <code>unit_kind: z.enum(["megapixel","image","second","characters","call","tokens"]).optional()</code> (B3 &mdash; <code>tokens</code> is in production for <code>gemini-text</code>, <code>static-pricing.json:241</code>, <code>display_unit=1000_tokens</code>) and <code>quantity_source: z.enum([...]).optional()</code>. <b>Enum audit (done):</b> the only live <code>unit_kind</code> values are those six — no <code>track/clip/mesh/minute/training/audio_seconds</code> exist, so the enum is complete. Document that <code>price_scaling</code> stays the global <code>1_000_000</code> constant while the per-price scaling term <code>pixels_per_unit</code> already exists and is retained.</td></tr>
+    <tr><th>Flag</th><td>none (schema is additive/optional) <span class="tag t-off">n/a</span></td></tr>
+    <tr><th>Depends on</th><td>—</td></tr>
+    <tr><th>Test plan</th><td>Unit: every existing descriptor + golden fixture parses unchanged; a descriptor with the new fields round-trips; a <code>tokens</code>/<code>1000_tokens</code> cap validates. Type: exported <code>Price</code> type includes optional fields.</td></tr>
+    <tr><th>Prod validation</th><td>Publish one staging descriptor carrying <code>unit_kind</code>; confirm it appears on that runner's <code>/discovery</code> and existing caps are unaffected on <code>/capabilities</code>.</td></tr>
+    <tr><th>Rollback</th><td>Revert PR; optional fields disappear, no consumer required them.</td></tr>
+    <tr><th>Owner</th><td>qiang (storyboard-a3)</td></tr>
+  </table>
+</div>
+
+<!-- PR2 -->
+<div class="pr">
+  <div class="h"><span class="num">PR2</span> <b>Discovery/registry: stop faking <code>unit_kind</code>, read from descriptor (reconcile BOTH registry paths, M2)</b> <span class="repo">storyboard-a3</span></div>
+  <table>
+    <tr><th>Scope</th><td>Consume the real <code>price.unit_kind</code> instead of aliasing <code>display_unit</code> — in <b>both</b> registry-building paths, so there is no second, divergent pricing source.</td></tr>
+    <tr><th>Key files</th><td><code>lib/capabilities/discovery-sync.ts</code> (~108&ndash;110); <b>M2:</b> <code>generate-registry.ts:168&ndash;199</code> (<code>lookupStaticDisplayPrice</code> / <code>capabilityStaticPrice</code>, with <code>CAP_REGISTRY_PRICING</code> defaulting <b>ON</b>).</td></tr>
+    <tr><th>Change</th><td><code>unit_kind = price.unit_kind ?? price.display_unit</code> (fallback only when absent); same <code>quantity_source</code> passthrough. <b>M2:</b> make <code>generate-registry.ts</code> read <code>price.unit_kind</code> the same way and declare the descriptor-synced path canonical; keep <code>CAP_REGISTRY_PRICING</code> only as a generated-from-static fallback that must agree with the descriptor.</td></tr>
+    <tr><th>Flag</th><td>none (pure fallback, safe) <span class="tag t-off">n/a</span></td></tr>
+    <tr><th>Depends on</th><td>PR1</td></tr>
+    <tr><th>Test plan</th><td>Unit: descriptor with <code>unit_kind=characters</code>, <code>display_unit=1000_characters</code> &rarr; registry row bills <code>characters</code>; a <code>tokens</code> cap &rarr; <code>unit_kind=tokens</code>. Descriptor without <code>unit_kind</code> &rarr; falls back to <code>display_unit</code> (today's behavior). <b>M2 parity:</b> both <code>discovery-sync</code> and <code>generate-registry</code> produce the <em>same</em> <code>unit_kind</code> for a shared cap.</td></tr>
+    <tr><th>Prod validation</th><td>On staging, a TTS cap's registry/<code>/capabilities</code> row shows <code>unit_kind=characters</code> while display stays per-1K; image/video caps unchanged.</td></tr>
+    <tr><th>Rollback</th><td>Revert; sync returns to <code>display_unit</code> alias.</td></tr>
+    <tr><th>Owner</th><td>qiang (storyboard-a3)</td></tr>
+  </table>
+</div>
+
+<!-- PR3 -->
+<div class="pr">
+  <div class="h"><span class="num">PR3</span> <b>Orch: aggregate runner descriptor prices &rarr; <code>GetCapabilitiesPrices</code> (closes G1)</b> <span class="repo">go-livepeer / qiang</span></div>
+  <table>
+    <tr><th>Scope</th><td>Surface Live-Runner per-cap prices to the billed path; fix the overhead split that yields <code>invalid recipientRand</code> / <code>400 Could not parse payment</code>.</td></tr>
+    <tr><th>Key files</th><td><code>core/orchestrator.go</code> (<code>GetCapabilitiesPrices</code>; overhead math ~444&ndash;459).</td></tr>
+    <tr><th>Change</th><td>When <code>-aggregateRunnerPrices</code> is on, read each runner descriptor's <code>offering.price</code> from <code>/discovery</code> and merge into <code>CapabilitiesPrices[]</code>. Apply the <b>same</b> <code>overhead = 1 + 1/txCostMultiplier</code> that <code>PriceInfoForCaps</code> applies, so <code>ExpectedPrice == RecipientRandHash</code> price. <b>Adopt the #3992 runner-price schema shape</b> (PR&nbsp;#3992 <code>ai/runner/live_runner.go</code>): parse the runner-advertised <b>decimal USD price</b> <code>{price (decimal string), currency, unit}</code> → wei rather than the old <code>{price_per_unit, pixels_per_unit}</code> integers, and map the pricing <code>unit</code> into our vocabulary (live <code>hour</code>&rarr;<code>unit_kind=second</code>, <code>pixels_per_unit=1</code>; live <code>720p</code>&rarr;pixel-scaled <code>megapixel/second</code>). <b>Guard (compute-placement):</b> assert the aggregated per-cap price equals what the signer pins as <code>ExpectedPrice</code>.</td></tr>
+    <tr><th>Flag</th><td><code>-aggregateRunnerPrices</code> <span class="tag t-off">default OFF</span></td></tr>
+    <tr><th>Depends on</th><td>PR1 (descriptor carries the price fields); logically independent of the metering path.</td></tr>
+    <tr><th>Risk (#3992 caveat)</th><td>#3992 replaced <b>per-capability/model</b> max-price filtering in remote discovery with a single <b>global</b> <code>BroadcastCfg.MaxPrice()</code>. Track as a follow-up: our per-cap pricing should not silently lose price-policy granularity when adopting #3992's discovery path.</td></tr>
+    <tr><th>Test plan</th><td>Table-driven Go unit (hermetic, no CGO): OFF &rArr; <code>CapabilitiesPrices</code> byte-identical to today (default/gateway/BYOC only). ON &rArr; LR caps present with overhead-adjusted price; assert <code>CapabilitiesPrices[cap] == PriceInfoForCaps[cap]</code>; assert the #3992 decimal-<code>price</code> shape parses and maps to the right <code>unit_kind</code>/<code>pixels_per_unit</code>.</td></tr>
+    <tr><th>Prod validation</th><td>On staging orch with flag ON: LR cap returns non-zero <code>priceInfo</code> (no more <code>400 missing or zero priceInfo</code>); a billed LR generation completes; orch <code>PriceInfo == signer ExpectedPrice</code> for that cap.</td></tr>
+    <tr><th>Rollback</th><td>Flip flag OFF &rarr; today's aggregation; revert PR if needed.</td></tr>
+    <tr><th>Owner</th><td>qiang (go-livepeer orch)</td></tr>
+  </table>
+</div>
+
+<!-- PR4 -->
+<div class="pr">
+  <div class="h"><span class="num">PR4</span> <b>Gateway: compute <code>billing_unit_quantity</code> from payload, send unit+qty</b> <span class="repo">livepeer-python-gateway</span></div>
+  <table>
+    <tr><th>Scope</th><td>Derive the natural-unit <b>QUANTITY</b> from the job request and forward it (with unit) to the signer. The gateway reports <b>quantity, never the fee</b> (compute-placement verdict = A: signer derives the fee). No fee change.</td></tr>
+    <tr><th>Key files</th><td>gateway payment-request builder / <code>byoc.py</code> (<code>get_orch_info</code> / <code>generate-live-payment</code> call).</td></tr>
+    <tr><th>Change</th><td>One pure extractor per <code>quantity_source</code>, defined by a <b>shared extractor SPEC + committed golden vectors (M1)</b> reused verbatim by the signer (Go) and agent (TS): image megapixel <code>= w&times;h&times;num_images / 2^20</code>; per-image <code>= num_images</code>; video <code>= requested_seconds</code>; TTS <code>= len(text)</code>; <b><code>tokens</code> = input+output token count (B3)</b>; tool <code>= 1</code>. <b>Per-call and per-image are NOT a new payment type</b> — they ride the same quantity mechanism (<code>quantity_source = const_1</code> for call; <code>= num_images</code> for image), so no special fee path. Attach <code>{billing_unit_kind, billing_unit_quantity}</code> to <code>/generate-live-payment</code> (the same request <code>type</code> discriminator #3992 uses for <code>lv2v</code>/<code>live</code> — extend it, don't fork).</td></tr>
+    <tr><th>Flag</th><td><code>SEND_UNIT_METERING</code> <span class="tag t-off">default OFF</span> (OFF &rArr; body byte-identical, no new keys)</td></tr>
+    <tr><th>Depends on</th><td>PR2 (unit available on the cap row).</td></tr>
+    <tr><th>Test plan</th><td>Unit: table-driven quantity extractors per unit_kind (1024&times;1024&times;1 &rarr; ~1.0 MP; 2 images &rarr; 2; 2000-char &rarr; 2000; a token payload &rarr; input+output tokens; tool &rarr; 1). <b>M1:</b> the committed golden vector (same payload &rarr; expected qty per unit_kind) is asserted here <em>and</em> in the Go signer + TS agent CI. OFF &rArr; request body has no new keys.</td></tr>
+    <tr><th>Prod validation</th><td>On staging with flag ON, capture the <code>/generate-live-payment</code> body for image/video/TTS/tool; assert correct <code>billing_unit_kind</code> + quantity; fee/behavior unchanged (signer still ignores for fee at this stage).</td></tr>
+    <tr><th>Rollback</th><td>Flip flag OFF &rarr; no new keys emitted.</td></tr>
+    <tr><th>Owner</th><td>gateway (livepeer-python-gateway)</td></tr>
+  </table>
+</div>
+
+<!-- PR5 -->
+<div class="pr">
+  <div class="h"><span class="num">PR5</span> <b>Signer: accept + stamp <code>billing_unit_kind/quantity</code> on <code>create_signed_ticket</code> (dual-write OBSERVE, fee unchanged)</b> <span class="repo">go-livepeer / qiang</span></div>
+  <table>
+    <tr><th>Scope</th><td>Extend the request struct + telemetry event with the two fields; keep today's fee math. The signer remains the fee authority (compute-placement = A); gateway supplies only quantity.</td></tr>
+    <tr><th>Key files</th><td><code>server/remote_signer.go</code> (verified in the <code>glp-combine</code> checkout): <code>RemotePaymentRequest</code>; <code>GenerateLivePayment</code> (<code>~:489</code>); <code>SendQueueEventAsync("create_signed_ticket", …)</code> (<code>~:855</code>); <code>sanitizeUsageLabel</code> (<b>verified real at <code>~:383</code></b> — the earlier "does not exist" note was itself stale). No <code>RemoteType_Live</code> yet (it lands with draft PR&nbsp;#3992).</td></tr>
+    <tr><th>Change</th><td>Add <code>BillingUnitKind string</code> + <code>BillingUnitQuantity float64</code> (<code>omitempty</code>). Sanitize kind via the existing <code>sanitizeUsageLabel</code> (trim+128-rune), clamp qty. Stamp both on the event. <b>Follow the #3992 signer template:</b> #3992 adds a <code>Type</code> field to <code>RemotePaymentState</code> and locks it per session (<code>job type mismatch</code> guard) while branching billing on <code>type &isin; {lv2v, live}</code> — PR5 stamps <code>billing_unit_kind</code>/<code>billing_unit_quantity</code> on the same event the same way, extending (not forking) that discriminator. <b>Watch:</b> #3992 renames the emitted <code>cost_per_pixel</code>&rarr;<code>cost</code>; the event-schema / forbidden-field work must account for that rename. <b>Fee math untouched</b>; when fields absent, byte-identical to today.</td></tr>
+    <tr><th>Flag</th><td>gated by presence of fields (only when gateway sends them). Observe-only.</td></tr>
+    <tr><th>Depends on</th><td>PR4.</td></tr>
+    <tr><th>Test plan</th><td>Go unit (hermetic): event with fields &rarr; carries kind+qty; event without &rarr; identical to current serialization; sanitize/clamp bounds tested.</td></tr>
+    <tr><th>Prod validation</th><td>On staging: emitted <code>create_signed_ticket</code> for a billed gen carries correct <code>billing_unit_kind</code>/<code>billing_unit_quantity</code>; <code>computed_fee</code>/<code>pixels</code> unchanged vs pre-PR baseline.</td></tr>
+    <tr><th>Rollback</th><td>Revert; or gateway flag OFF &rarr; signer emits no new fields.</td></tr>
+    <tr><th>Owner</th><td>qiang (go-livepeer signer)</td></tr>
+  </table>
+</div>
+
+<!-- PR6 -->
+<div class="pr">
+  <div class="h"><span class="num">PR6</span> <b>Collector + OpenMeter: passthrough + <code>usage_units</code> meter</b> <span class="repo">pymthouse / John</span></div>
+  <table>
+    <tr><th>Scope</th><td>Carry the two fields through the collector and add ONE new meter. No billing change.</td></tr>
+    <tr><th>Key files</th><td>Benthos/Redpanda-Connect collector mapping; <code>config.yaml</code> (meter defs ~40&ndash;61); <code>konnect-catalog.ts</code>; <code>entitlements.ts</code>; internal OpenMeter schema + forbidden-field list.</td></tr>
+    <tr><th>Change</th><td>Map <code>unit_kind = billing_unit_kind ?: "unknown"</code>, <code>unit_quantity = billing_unit_quantity | 0</code>. Add meter <code>usage_units: SUM($.unit_quantity)</code> grouped by <code>unit_kind</code>/capability/model. Add both fields to the schema forbidden-field list (BPP hygiene). Keep <code>network_fee_usd_micros</code> + <code>signed_ticket_count</code> untouched.</td></tr>
+    <tr><th>Flag</th><td>meter is additive; reads 0 until producers emit. <span class="tag t-off">safe</span></td></tr>
+    <tr><th>Depends on</th><td>PR5 (fields on the event) — but can deploy first (Phase 0) reading 0.</td></tr>
+    <tr><th>Test plan</th><td>Collector test: synthetic <code>create_signed_ticket</code> with new fields &rarr; CloudEvent carries <code>unit_kind</code>/<code>unit_quantity</code> AND still <code>network_fee_usd_micros</code>. OpenMeter integration: ingest &rarr; query <code>usage_units</code> grouped by unit_kind. Backward-compat: no-field event &rarr; <code>usage_units</code>=0.</td></tr>
+    <tr><th>Prod validation</th><td>On staging: <code>usage_units</code> provisions; existing fee meter unchanged; ingest a real signed ticket &rarr; per-unit SUM appears grouped by unit_kind for image/video/TTS/tool.</td></tr>
+    <tr><th>Rollback</th><td>Remove meter; passthrough fields are inert.</td></tr>
+    <tr><th>Owner</th><td>John (pymthouse + collector)</td></tr>
+  </table>
+</div>
+
+<!-- PR7 -->
+<div class="pr">
+  <div class="h"><span class="num">PR7</span> <b>pymthouse cost: quantity &times; per_unit_usd, OBSERVE &rarr; ENFORCE, reconcile vs fee</b> <span class="repo">pymthouse / John</span></div>
+  <table>
+    <tr><th>Scope</th><td>Compute per-unit cost, first logged-only, then billed via the safety floor; wire the reconciliation metric.</td></tr>
+    <tr><th>Key files</th><td>pymthouse cost/settlement module; per-unit dashboards; reconciliation alert.</td></tr>
+    <tr><th>Change</th><td><b>Observe:</b> <code>unitCostUsd = quantity &times; per_unit_usd</code> logged for comparison only. <b>Enforce:</b> <code>billedUsd = max(unitCostUsd, feeUsd)</code>. Emit delta metric <code>|unitCostUsd &minus; feeUsd|</code> per cap.</td></tr>
+    <tr><th>Flag</th><td><code>UNIT_COST_ENFORCE</code> <span class="tag t-off">default OFF (observe)</span></td></tr>
+    <tr><th>Depends on</th><td>PR6.</td></tr>
+    <tr><th>Test plan</th><td>Unit: <code>unitCostUsd</code> per unit_kind matches <code>display_price_usd &times; qty</code> (see §5 table). CI parity: <code>agentQuoteUsd == pymthouseUnitCostUsd</code> per unit_kind. Backward-compat: missing qty &rarr; falls back to fee.</td></tr>
+    <tr><th>Prod validation</th><td>Observe phase in prod: dashboards show <code>unitCostUsd</code> tracking <code>feeUsd</code> within tolerance for &ge;1 cap per unit_kind before flipping <code>UNIT_COST_ENFORCE</code>; after enforce, invoices reconcile to advertised prices.</td></tr>
+    <tr><th>Rollback</th><td>Flip <code>UNIT_COST_ENFORCE</code> OFF &rarr; bill on fee (today).</td></tr>
+    <tr><th>Owner</th><td>John (pymthouse)</td></tr>
+  </table>
+</div>
+
+<!-- PR8 -->
+<div class="pr">
+  <div class="h"><span class="num">PR8</span> <b>Signer: fee-from-quantity ENFORCE (flag flip)</b> <span class="repo">go-livepeer / qiang</span></div>
+  <table>
+    <tr><th>Scope</th><td>Make the on-chain fee itself derive from <code>quantity &times; per-unit price</code> for non-lv2v caps, so on-chain settled USD converges to the quote. Signer is the fee authority (compute-placement = A); orch independently re-derives and must agree.</td></tr>
+    <tr><th>Key files</th><td><code>server/remote_signer.go</code> <code>GenerateLivePayment</code> (<code>~:489</code>; fee/<code>billableSecs</code> basis <code>~:690&ndash;708</code>).</td></tr>
+    <tr><th>Change</th><td>When <code>UNIT_FEE_ENFORCE</code> on and fields present, derive the fee with the <b>B1-correct</b> wire math (retaining the per-price term): <code>fee_wei = (price_per_unit / price_scaling) &times; pixels_per_unit &times; billing_unit_quantity</code> for image/image-flat/video/TTS/tool/<b>tokens</b>. This mirrors #3992's <code>calculateFee(billableUnits, initialPrice)</code> pattern, branched on the same session-locked <code>type</code>/<code>unit_kind</code> discriminator. lv2v seconds path <b>untouched</b>. Falls back to today's <code>req.Type</code> basis when off/absent. <b>Guard:</b> pin + assert <code>ExpectedPrice == orch advertised price</code> and cross-check <code>billing_unit_quantity</code> against the orch's request-derived qty.</td></tr>
+    <tr><th>Flag</th><td><code>UNIT_FEE_ENFORCE</code> <span class="tag t-off">default OFF</span></td></tr>
+    <tr><th>Depends on</th><td>PR5, and PR7 observe proving the delta is ~0.</td></tr>
+    <tr><th>Risk (#3992 caveat)</th><td>#3992's <code>live_payment_processor.go</code> <code>processOne</code> still derives the billable amount from <b>pixels (720p@30fps)</b> regardless of the new price unit (open bug, j0sh "fix incoming"). Our fee-from-qty path must not inherit this; add a test that a non-pixel cap is billed on <code>qty</code>, not pixels.</td></tr>
+    <tr><th>Test plan</th><td>Go unit (hermetic fee math): fee for image/image-flat/video/TTS/tool/tokens == <code>(price_per_unit/price_scaling) &times; pixels_per_unit &times; qty</code>; lv2v regression: 30s stream fee unchanged; flag OFF &rArr; identical to today. <b>M1:</b> signer <code>qty</code> matches the shared golden vector.</td></tr>
+    <tr><th>Prod validation</th><td>Staging then prod canary: after flip, on-chain fee tracks advertised per-unit price; <code>max(unitCost,fee)</code> delta &rarr; ~0; lv2v streams unaffected.</td></tr>
+    <tr><th>Rollback</th><td>Flip <code>UNIT_FEE_ENFORCE</code> OFF &rarr; time-derived fee basis (today).</td></tr>
+    <tr><th>Owner</th><td>qiang (go-livepeer signer)</td></tr>
+  </table>
+</div>
+
+<!-- PR9 -->
+<div class="pr">
+  <div class="h"><span class="num">PR9</span> <b>Remove <em>authoring</em> duplication (keep generated runtime fallback)</b> <span class="repo">storyboard-a3 / NaaP</span></div>
+  <table>
+    <tr><th>Scope</th><td>Collapse to one <em>runtime</em> source of truth without deleting the safety net — only after the descriptor is authoritative everywhere (PR2) and the orch aggregates runner prices (PR3). <b>B2 direction:</b> <code>pricing-table.json</code> (cost/margin/tier) is the build-time source; the descriptor <code>offering.price</code> is the runtime SoT.</td></tr>
+    <tr><th>Key files</th><td><code>docs/pricing-v1/convert.py</code> (<b>generates</b> the descriptor's <code>price_per_unit</code> <em>from</em> <code>pricing-table.json</code>; emits <code>static-pricing.json</code> / <code>CAPABILITIES_JSON</code> as <em>generated</em> artifacts); <code>pricing-table.json</code>. (No <code>mintUserSignerJwtForExternalUser</code> deletion — <b>verified absent from product code</b>, it exists only in planning docs, so there is nothing to delete.)</td></tr>
+    <tr><th>Change</th><td>Retain <code>pricing-table.json</code> + <code>convert.py</code> as a build-time generator only; <code>convert.py</code> <em>generates</em> the descriptor price from <code>pricing-table.json</code> (it does <b>not</b> write back). Remove only the duplicate <b>authoring</b> of runtime price (hand-kept <code>price.json</code> / separately-advertised <code>pricing-table-deploy.json</code>) where a live runtime path no longer needs it. <b>B4:</b> <b>KEEP <code>static-pricing.json</code> as a generated runtime fallback</b> — it is the documented guard against the 2026-07-04 "$0 estimate" regression when <code>/capabilities</code> drops <code>display_price_usd</code>. Do not delete the fallback read path.</td></tr>
+    <tr><th>Flag</th><td>none (removal) — guarded by the fact all readers now use the descriptor. <span class="tag t-warn">gated by PR2+PR3 in prod</span></td></tr>
+    <tr><th>Depends on</th><td>PR2, PR3.</td></tr>
+    <tr><th>Test plan</th><td>Build: <code>convert.py</code> regenerates artifacts identical to prior committed values (golden diff). <b>B4 regression test:</b> a live <code>/capabilities</code> payload missing <code>display_price_usd</code> still estimates <b>non-zero</b> via the <code>static-pricing.json</code> fallback. Grep proves zero references to any removed <em>authoring</em> path. Full type-check/build green.</td></tr>
+    <tr><th>Prod validation</th><td>Deploy with descriptor-only pricing; confirm <code>/capabilities</code>, orch prices, and agent quotes match pre-removal values for a full cap sweep; no 404/undefined from removed paths.</td></tr>
+    <tr><th>Rollback</th><td>Revert PR; regenerator + files restored.</td></tr>
+    <tr><th>Owner</th><td>qiang (storyboard-a3 / NaaP)</td></tr>
+  </table>
+</div>
+
+<!-- PR10 -->
+<div class="pr">
+  <div class="h"><span class="num">PR10</span> <b>Agent USD-only surface polish</b> <span class="repo">Storyboard / NaaP</span></div>
+  <table>
+    <tr><th>Scope</th><td>Ensure the agent surfaces USD estimates only and never reports usage to pymthouse (Model A discipline).</td></tr>
+    <tr><th>Key files</th><td><code>lib/mcp-server/tools/get-pricing.ts</code>; <code>estimateCost</code>; per-gen tally (<code>create-media.ts</code>, <code>storage.ts</code>).</td></tr>
+    <tr><th>Change</th><td><code>get_pricing</code>/<code>estimateCost</code> return <code>display_price_usd</code>/<code>unit_kind</code> (incl. <code>tokens</code>) and an estimate = <code>per_unit_usd &times; estimateUnits(payload)</code> using the <b>same shared extractor SPEC + golden vectors as PR4</b> (M1 — the TS side asserts the same fixture). Label estimates clearly as pre-flight. Remove any lingering agent&rarr;pymthouse usage write.</td></tr>
+    <tr><th>Flag</th><td>none (UX; no billing effect) <span class="tag t-off">n/a</span></td></tr>
+    <tr><th>Depends on</th><td>PR2 (unit_kind on the cap row); can land any time after.</td></tr>
+    <tr><th>Test plan</th><td>Unit: quote for image/video/TTS/tool equals <code>display_price_usd &times; qty</code>; snapshot rate-card. Assert no agent code path posts usage to pymthouse.</td></tr>
+    <tr><th>Prod validation</th><td>Live agent quote for one cap per unit_kind matches the eventual settled amount within tolerance (see §5 E2E).</td></tr>
+    <tr><th>Rollback</th><td>Revert PR (UX only).</td></tr>
+    <tr><th>Owner</th><td>qiang (Storyboard / NaaP)</td></tr>
+  </table>
+</div>
+
+<!-- ============ 4. MATRIX ============ -->
+<h2 id="matrix">4. Gap-closure matrix</h2>
+<p class="note">Rows = end-state requirements. Every requirement maps to a delivering PR at a specific layer — proving no gaps remain.</p>
+<table>
+  <thead><tr><th>End-state requirement</th><th>Layer</th><th>Delivering PR(s)</th><th>Status after plan</th></tr></thead>
+  <tbody>
+    <tr><td>One orch &rarr; many runners, each with its own cap descriptor</td><td>Descriptor / discovery</td><td>PR1, PR2</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Each runner configures pricing via descriptor <code>offering.price</code> (unit + qty source + price)</td><td>Descriptor</td><td>PR1</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Agent discovers &amp; selects caps; sees USD only</td><td>Agent / MCP</td><td>PR2, PR10</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Inference &rarr; tickets sent (billed path sees per-cap price; LR non-zero)</td><td>Orch</td><td>PR3 (G1)</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Gateway computes natural-unit quantity from payload</td><td>Gateway</td><td>PR4</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Signer signs ticket + stamps unit_kind/quantity; fee from quantity (B1 arithmetic w/ <code>pixels_per_unit</code>)</td><td>Signer</td><td>PR5 (stamp), PR8 (fee)</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Token-priced caps (LLM) representable + billable end-to-end (B3)</td><td>Descriptor / gateway / signer / meter</td><td>PR1, PR4, PR8, PR6</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Per-call / per-image ride the quantity mechanism (qty=1 / n; no new "fixed" type)</td><td>Gateway / signer</td><td>PR4, PR8</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Cross-language quantity-extractor parity, no drift (M1)</td><td>Cross-layer</td><td>PR4/PR8/PR10 shared spec + golden vectors</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Single registry pricing path (no second source) (M2)</td><td>Discovery / registry</td><td>PR2 (discovery-sync + generate-registry)</td><td class="tag t-good">closed</td></tr>
+    <tr><td>pymthouse meters per-unit (one <code>usage_units</code> meter)</td><td>Collector / OpenMeter</td><td>PR6</td><td class="tag t-good">closed</td></tr>
+    <tr><td>pymthouse cost = quantity &times; per_unit_usd; reconciles vs fee</td><td>pymthouse</td><td>PR7</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Reporting: per-unit usage &amp; USD per customer/cap/model</td><td>OpenMeter / dashboards</td><td>PR6, PR7</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Two SoTs, one direction (build-time <code>pricing-table.json</code> &rarr; runtime descriptor); safety-net fallback retained (B2/B4)</td><td>Config / build</td><td>PR9</td><td class="tag t-good">closed</td></tr>
+    <tr><td>Agent quote == on-chain settled == pymthouse metered (no drift)</td><td>Cross-layer invariant</td><td>PR4+PR7+PR8 + CI parity + cross-lang golden vectors + delta metric</td><td class="tag t-good">closed</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 5. ROLLOUT ============ -->
+<h2 id="rollout">5. Phased rollout (observe &rarr; enforce) &amp; E2E prod validation</h2>
+<table>
+  <thead><tr><th>Phase</th><th>PRs live</th><th>Behavior</th><th>Gate to advance</th></tr></thead>
+  <tbody>
+    <tr><td>0 — Schema + passthrough</td><td>PR1, PR2, PR6</td><td>Fields exist; meter reads 0; no billing change</td><td>Meter provisions; fee meter unchanged; conformance suite green</td></tr>
+    <tr><td>1 — Producer dual-write (observe)</td><td>PR3 (ON staging), PR4 (ON), PR5, PR7 (observe)</td><td>Both meters populate; pymthouse logs <code>unitCostUsd</code> for comparison only</td><td><code>unit_quantity</code> non-zero &amp; correct for image/TTS/video/tool/call/tokens in staging; delta vs fee within tolerance</td></tr>
+    <tr><td>2 — Fee from quantity (enforce)</td><td>PR8 flip</td><td>On-chain fee = per_unit &times; quantity (non-lv2v); lv2v untouched</td><td>On-chain fee tracks advertised price; <code>max(unitCost,fee)</code> delta &rarr; ~0</td></tr>
+    <tr><td>3 — Bill on unit cost</td><td>PR7 enforce</td><td><code>billedUsd = max(unitCostUsd, feeUsd)</code>; per-unit dashboards live</td><td>Invoices reconcile to advertised prices; delta metric flat</td></tr>
+    <tr><td>4 — Cleanup</td><td>PR9, PR10</td><td>Descriptor sole source; dead code gone; retire pixels-as-quantity display</td><td>No consumers of legacy <code>price.json</code>/<code>pixels</code> for cost; full cap sweep matches</td></tr>
+  </tbody>
+</table>
+
+<h3>End-to-end prod validation (agent-quote == on-chain-settled == pymthouse-metered)</h3>
+<table>
+  <thead><tr><th>Unit</th><th>Cap</th><th>Stimulus</th><th>Agent quote</th><th>OpenMeter <code>usage_units</code></th><th>pymthouse cost</th><th>Pass criterion</th></tr></thead>
+  <tbody>
+    <tr><td>megapixel</td><td class="mono">flux-schnell</td><td>1024&times;1024 &times;1</td><td><code>display_price_usd &times; 1.0</code></td><td><code>megapixel</code>, qty &asymp; 1.0</td><td>&asymp; <code>display_price_usd &times; 1.0</code></td><td>3-way match &plusmn; rounding</td></tr>
+    <tr><td>image</td><td class="mono">nano-banana</td><td>2 images</td><td><code>display_price_usd &times; 2</code></td><td><code>image</code>, qty = 2</td><td><code>display_price_usd &times; 2</code></td><td>exact 3-way match</td></tr>
+    <tr><td>second</td><td class="mono">ltx-i2v</td><td>6 s i2v</td><td><code>0.042 &times; 6</code></td><td><code>second</code>, qty &asymp; 6 (reconcile to 6.12)</td><td>&asymp; <code>0.042 &times; 6</code></td><td>3-way within reconciliation tolerance</td></tr>
+    <tr><td>characters</td><td class="mono">chatterbox-tts</td><td>2000-char input</td><td><code>0.02625 &times; 2</code> (per-1K)</td><td><code>characters</code>, qty = 2000</td><td><code>0.02625 &times; 2</code></td><td>exact 3-way match</td></tr>
+    <tr><td>call</td><td class="mono">ffmpeg-concat</td><td>1 tool call</td><td>flat call price</td><td><code>call</code>, qty = 1</td><td>flat call price</td><td>exact 3-way match</td></tr>
+    <tr><td>tokens</td><td class="mono">gemini-text</td><td>input+output tokens</td><td><code>display_price_usd &times; tokens/1000</code></td><td><code>tokens</code>, qty = input+output</td><td><code>display_price_usd &times; tokens/1000</code></td><td>3-way match (B3)</td></tr>
+    <tr><td>second (lv2v)</td><td class="mono">longlive</td><td>30 s stream (regression)</td><td>streaming per-sec</td><td><code>second</code>, qty &asymp; 30</td><td>streaming per-sec</td><td><b>unchanged from today</b></td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 6. DoD ============ -->
+<h2 id="dod">6. Definition of done — pricing is a solved problem</h2>
+<div class="box">
+  <p style="margin-top:0">Pricing is <b>solved</b> when a single value flows losslessly and consistently across the entire chain:</p>
+  <ol>
+    <li><b>App config / published:</b> a new cap/tool is a new <b>descriptor</b> (with <code>offering.price</code> incl. <code>unit_kind</code> + <code>quantity_source</code>) — never a <code>price.json</code> edit. <span class="tag t-new">PR1, PR9</span></li>
+    <li><b>Runtime metering:</b> gateway derives the natural-unit quantity; orch advertises the per-cap price for every runner incl. LR (G1 closed). <span class="tag t-new">PR3, PR4</span></li>
+    <li><b>Agent estimation:</b> the agent quotes <code>per_unit_usd &times; qty</code> in USD only — a pre-flight estimate, no direct usage reporting. <span class="tag t-new">PR10</span></li>
+    <li><b>On-chain settlement:</b> the signer stamps <code>unit_kind</code>/<code>quantity</code> and derives the fee from <code>per_unit_price &times; quantity</code>. <span class="tag t-new">PR5, PR8</span></li>
+    <li><b>pymthouse metering:</b> one <code>usage_units</code> meter (SUM by <code>unit_kind</code>); cost = <code>quantity &times; per_unit_usd</code>. <span class="tag t-new">PR6, PR7</span></li>
+    <li><b>Reporting &amp; reconciliation:</b> per-unit dashboards live; <b>agent-quote == on-chain-settled == pymthouse-metered</b> for image (megapixel), video (second), TTS (characters), tool (call), and LLM (<code>tokens</code>), verified by the CI parity test, the cross-language golden vectors (M1), and the production delta metric — <b>consistent by construction</b>. <span class="tag t-new">invariant</span></li>
+  </ol>
+  <p style="margin-bottom:0"><b>And:</b> a clean two-SoT split (build-time <code>pricing-table.json</code> cost/margin/tier &rarr; runtime descriptor), no duplicate <em>authoring</em> of runtime price, the <code>static-pricing.json</code> safety-net fallback retained, no dead code (<code>price.json</code> authoring demoted; <code>mintUserSignerJwtForExternalUser</code> already absent from product code on the deploy branch), and lv2v streaming billing byte-identical to today.</p>
+</div>
+
+<p class="legend" style="margin-top:26px">
+  <span><span class="tag t-good">closed</span> requirement met</span>
+  <span><span class="tag t-new">PRn</span> delivering PR</span>
+  <span><span class="tag t-off">default OFF</span> flag-gated</span>
+</p>
+
+<!-- ============ INDEPENDENT REVIEW ============ -->
+<h2 id="review">7. Independent review (fresh-eyes, code-verified)</h2>
+<p class="note">Reviewer stance: do <b>not</b> assume the plan is correct. Claims were spot-checked against the actual code in sibling repos
+(<code>storyboard-a3</code>, <code>livepeer/go-livepeer</code>). Line citations, symbols, and arithmetic were verified against source, not the doc.</p>
+
+<div class="box invariant">
+  <p style="margin-top:0"><b>ORIGINAL VERDICT: <span class="tag t-warn">NEEDS-REWORK</span> &nbsp;&rarr;&nbsp; STATUS NOW: <span class="tag t-good">REWORKED — APPROVE-able</span></b></p>
+  <p>The architecture (additive, flag-gated, observe&rarr;enforce, one meter, Model A, lv2v untouched) and the PR ordering are <b>sound</b>. The four blockers (B1&ndash;B4) and two majors (M1&ndash;M2) that originally held the plan back have all been <b>resolved in-plan</b> (see the "Resolution" column below and the updated §2 invariant, §1 F1/F4, and PR1/2/3/4/5/8/9). No residual blockers remain; the only open items are the two <b>external</b> #3992 caveats tracked as risks (the <code>live_payment_processor.go</code> pixel-accounting bug and the global-vs-per-cap max-price change), which do not gate this plan.</p>
+  <p style="margin-bottom:0"><b>Bottom line:</b> the reconciliation arithmetic now matches the real wire math (<code>fee_wei = price_per_unit/price_scaling &times; pixels_per_unit &times; qty</code>, B1); the source-of-truth story is stated cleanly as <em>two SoTs in one direction</em> (build-time <code>pricing-table.json</code> &rarr; runtime descriptor, B2) with the <code>static-pricing.json</code> safety net retained (B4); the enum now carries <code>tokens</code> (B3); cross-language quantity drift is closed by a shared spec + golden vectors (M1); and the second registry path is reconciled (M2). Pricing is solved-by-construction with no material regression. #3992 is folded in as evidence + template (runner decimal-USD price; signer type-branched fee), with per-call/per-image riding the quantity mechanism and <code>tokens</code> now covered.</p>
+</div>
+
+<h3>What is genuinely correct (verified)</h3>
+<ul class="clean">
+  <li><b>G1 premise is real.</b> <code>orchestrator.go:258 GetCapabilitiesPrices</code> aggregates only default / gateway / BYOC-external prices &mdash; no Live-Runner descriptor prices. PR3 targets the right function; overhead math is at <code>~448&ndash;457</code>. <span class="tag t-good">accurate</span></li>
+  <li><b>Signer event gap is real.</b> <code>remote_signer.go</code> emits <code>create_signed_ticket</code> with <code>pixels / computed_fee / cost_per_pixel / billable_secs</code> and no unit/qty. PR5 is correctly scoped. <span class="tag t-good">accurate</span></li>
+  <li><b>Descriptor <code>PriceSchema</code> lacks <code>unit_kind</code>/<code>quantity_source</code></b> and is <code>.strict()</code>, so PR1's optional additions are safe and golden-neutral. <code>discovery-sync.ts:108</code> does alias <code>unit_kind = display_unit</code>. <span class="tag t-good">accurate</span></li>
+  <li><b>Observe&rarr;enforce sequencing, transition floor <code>max(unitCost,fee)</code>, and the keep-fee-meter-forever rule</b> are the right safety posture. lv2v carve-out is explicit. <span class="tag t-good">good</span></li>
+</ul>
+
+<h3>Findings</h3>
+<table>
+  <thead><tr><th>#</th><th>Sev</th><th>Issue</th><th>Where (verified)</th><th>Recommended fix</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>B1</td><td><span class="tag" style="background:rgba(248,81,73,.15);color:var(--bad);border:1px solid var(--bad)">blocker</span></td>
+      <td><b>The invariant arithmetic is wrong.</b> §2 states <code>fee_wei = (price_per_unit / price_scaling) &times; qty</code>. The real wire math divides by the <b>per-price</b> <code>pixels_per_unit</code>, not the global <code>price_scaling</code>: <code>ppu = target_wei &times; price_scaling / pixels_per_unit</code> and the orch "charges <code>price_per_unit / pixels_per_unit</code> wei per pixel." So F4's decision to <b>reject a per-price scaling field as "speculative"</b> is factually false &mdash; <code>pixels_per_unit</code> already exists and is load-bearing.</td>
+      <td><code>convert.py:56&ndash;67</code>; <code>estimate.ts:297&ndash;334 costPaidUsdFromWei</code>; <code>descriptor.ts:108 pixels_per_unit</code></td>
+      <td>Rewrite the invariant to include <code>pixels_per_unit</code>. Keep/carry it in the descriptor + signer fee-from-qty math (PR8). Delete the F4 line calling per-price scaling speculative; it's real and required for wei&rarr;USD.<br><b class="tag t-good">&#10003; RESOLVED</b> — §2 invariant now reads <code>fee_wei = (price_per_unit/price_scaling) &times; pixels_per_unit &times; qty</code> (verified against <code>convert.py:56&ndash;67</code>: <code>ppu = target_wei &times; price_scaling / pixels_per_unit</code>, so <code>bridge(fee_wei)==display_usd&times;qty</code>). F4 wording corrected; PR8 carries <code>pixels_per_unit</code>.</td>
+    </tr>
+    <tr>
+      <td>B2</td><td><span class="tag" style="background:rgba(248,81,73,.15);color:var(--bad);border:1px solid var(--bad)">blocker</span></td>
+      <td><b>"Descriptor = single source of truth" is lossy.</b> The <em>actual</em> source is <code>docs/pricing-v1/pricing-table.json</code> + <code>convert.py</code>, which derives <code>display_price_usd</code> from <code>upstream_cost_usd &times; (1+margin_pct)</code> per <code>tier</code>, then generates the orch <code>CAPABILITIES_JSON</code> and the agent <code>static-pricing.json</code>. The descriptor has <b>no</b> <code>upstream_cost_usd/margin_pct/tier/flat_fee_usd</code>. F1/PR9 invert the real dependency ("<code>convert.py</code> writes back into the descriptor") and would <b>drop the margin/tier model</b> &rarr; pricing is <em>not</em> losslessly single-sourced.</td>
+      <td><code>docs/pricing-v1/pricing-table.json</code>; <code>convert.py:106&ndash;180</code></td>
+      <td>Name <code>pricing-table.json</code> (cost+margin+tier) as the true source; the descriptor is the <em>published projection</em>. Either add the cost/margin/tier fields to the source-of-truth story or explicitly scope the descriptor as "published price only, generated from pricing-table." Reconcile before PR9.<br><b class="tag t-good">&#10003; RESOLVED</b> — §2 + F1 + PR9 now state <b>two SoTs, one direction</b>: build-time <code>pricing-table.json</code> (<code>display_usd = upstream_cost &times; (1+margin/100)</code> per tier) <em>generates</em> the descriptor's published price (runtime SoT). <code>convert.py</code> <em>generates</em> (no "writes back"); the margin/tier model is explicitly retained build-time.</td>
+    </tr>
+    <tr>
+      <td>B3</td><td><span class="tag" style="background:rgba(248,81,73,.15);color:var(--bad);border:1px solid var(--bad)">blocker</span></td>
+      <td><b>Closed enum drops a live unit.</b> <code>unit_kind &isin; {megapixel,image,second,characters,call}</code> omits <code>tokens</code>, which is in production (<code>gemini-text</code>: <code>unit_kind=tokens, display_unit=1000_tokens</code>) and already handled by the estimator. PR1's <code>z.enum([5])</code> + PR4/PR8 extractors + the §5 parity matrix cannot represent token-priced caps &rarr; onboarding/billing gap and a regression for LLM caps.</td>
+      <td><code>static-pricing.json:239&ndash;242</code>; <code>registry.json:1203</code>; <code>estimate.ts:96&ndash;103</code></td>
+      <td>Add <code>tokens</code> (and confirm <code>1000_tokens</code> display handling) to the enum + extractor set + parity matrix. Audit all live <code>unit_kind</code>/<code>display_unit</code> values (also <code>track,clip,mesh,minute,training,audio_seconds</code>) before freezing the enum.<br><b class="tag t-good">&#10003; RESOLVED</b> — <code>tokens</code> added to PR1 enum, PR4/PR8 extractors, §2 parity list, PR10, and the §5 matrix. <b>Audit done:</b> the only live <code>unit_kind</code> values are {megapixel,image,second,characters,call,tokens} — <code>track/clip/mesh/minute/training/audio_seconds</code> do not exist, so the enum is complete. Per-call/per-image = <code>quantity=1</code>/<code>n</code> (no new type).</td>
+    </tr>
+    <tr>
+      <td>B4</td><td><span class="tag" style="background:rgba(248,81,73,.15);color:var(--bad);border:1px solid var(--bad)">blocker</span></td>
+      <td><b>PR9 removes a documented safety net.</b> <code>static-pricing.json</code> is the explicit fallback for when live <code>/capabilities</code> drops <code>display_price_usd</code> (the 2026-07-04 "$0 estimate" regression). PR9 "remove the redundant runtime price.json read path" would reintroduce that exact regression unless the fallback is preserved.</td>
+      <td><code>estimate.ts:158&ndash;193, 249&ndash;276</code></td>
+      <td>Keep <code>static-pricing.json</code> as a generated fallback (it already is generated). Scope PR9 to removing <em>duplication of authoring</em>, not the runtime fallback. Add a test that a live payload missing <code>display_price_usd</code> still estimates non-zero.<br><b class="tag t-good">&#10003; RESOLVED</b> — PR9 rescoped to remove only duplicate <em>authoring</em>; <code>static-pricing.json</code> runtime fallback is explicitly <b>kept</b>, with a B4 regression test (missing <code>display_price_usd</code> &rarr; non-zero estimate).</td>
+    </tr>
+    <tr>
+      <td>M1</td><td><span class="tag t-warn">major</span></td>
+      <td><b>"Same extractor both sides" is aspirational, not by-construction.</b> The quantity extractor is re-implemented in Python (gateway PR4), Go (signer PR8), and TS (agent PR10). The §2 CI parity test only asserts <code>agentQuoteUsd == pymthouseUnitCostUsd</code> &mdash; it does <b>not</b> assert gateway-qty == signer-qty == meter-qty across languages. That cross-language equality is precisely the drift the invariant claims to eliminate.</td>
+      <td>§2; PR4 / PR8 / PR10 (3 impls)</td>
+      <td>Add a cross-language golden vector (fixed payload &rarr; expected qty per unit_kind) asserted in all three repos' CI. Or centralize the extractor and have the others consume it.<br><b class="tag t-good">&#10003; RESOLVED</b> — §2 now mandates a shared extractor <b>spec + committed golden vectors</b> asserted in PR4 (Py), PR8 (Go) and PR10 (TS) CI: <code>gatewayQty == signerQty == agentQty == meterQty</code>.</td>
+    </tr>
+    <tr>
+      <td>M2</td><td><span class="tag t-warn">major</span></td>
+      <td><b>Second, unmentioned registry path.</b> Besides <code>discovery-sync.ts</code>, <code>generate-registry.ts:192</code> already reads <code>price.unit_kind</code> via <code>lookupStaticDisplayPrice</code>, and <code>capabilityStaticPrice</code> defaults <code>CAP_REGISTRY_PRICING</code> <b>ON</b>. PR2 only fixes discovery-sync. Which registry is authoritative post-plan (descriptor-synced vs generated-from-static) is unresolved.</td>
+      <td><code>generate-registry.ts:168&ndash;199</code>; <code>estimate.ts:202&ndash;216</code></td>
+      <td>State which path is canonical and make PR2 reconcile both; add a test that both produce the same <code>unit_kind</code> for a shared cap.<br><b class="tag t-good">&#10003; RESOLVED</b> — PR2 now covers <b>both</b> <code>discovery-sync.ts</code> and <code>generate-registry.ts</code> (<code>CAP_REGISTRY_PRICING</code>, default-on): descriptor-synced path is canonical, generated-from-static is a fallback that must agree, with a parity test on a shared cap.</td>
+    </tr>
+    <tr>
+      <td>m1</td><td><span class="tag t-off">minor</span></td>
+      <td><b>Stale references.</b> Re-verified against the <code>glp-combine</code> checkout: <code>sanitizeUsageLabel</code> <b>does exist</b> (<code>remote_signer.go:383</code>) — the "does not exist" claim was itself stale. <code>mintUserSignerJwtForExternalUser</code> is <b>absent from product code</b> (only in planning docs) &mdash; nothing to delete. Prior signer line cites were off.</td>
+      <td>go-livepeer(<code>glp-combine</code>) <code>server/remote_signer.go</code></td>
+      <td>Keep <code>sanitizeUsageLabel</code> (real). Drop the mint-helper deletion. Refresh line numbers.<br><b class="tag t-good">&#10003; RESOLVED</b> — verified cites now used: <code>GenerateLivePayment ~:489</code>, fee basis <code>~:690&ndash;708</code>, event <code>create_signed_ticket ~:855</code>, <code>sanitizeUsageLabel ~:383</code>; <code>RemoteType_Live</code> lands with #3992. PR9/F1 no longer delete the (non-existent) mint helper.</td>
+    </tr>
+    <tr>
+      <td>m2</td><td><span class="tag t-off">minor</span></td>
+      <td><b>Orch&rarr;runner discovery not wired by any PR.</b> PR3 reads "each runner descriptor's <code>offering.price</code> from <code>/discovery</code>", but no PR establishes that the orch enumerates its runners' descriptors (the "one O &rarr; many runners" premise). If it doesn't already, PR3 is under-specified.</td>
+      <td>PR3; §4 row 1</td>
+      <td>Confirm the orch already polls runner <code>/discovery</code>; if not, add a step/PR for runner enumeration.</td>
+    </tr>
+    <tr>
+      <td>n1</td><td><span class="tag t-off">nit</span></td>
+      <td>"byte-identical when flags OFF" is asserted but no golden/byte-diff artifact is cited as the gate. The per-PR test plans intend it; make it an explicit CI gate.</td>
+      <td>F5; PR3/PR5 test plans</td>
+      <td>Add a committed golden diff (flags OFF) as the merge gate for PR3/PR5/PR8.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Does the plan leave pricing "solved"? Regression risks?</h3>
+<ul class="clean">
+  <li><b>Now solved (was B1/B2/B3):</b> the three numbers reconcile by construction — B1 arithmetic corrected to carry <code>pixels_per_unit</code>; the source-of-truth story is stated as two SoTs in one direction (build-time <code>pricing-table.json</code> &rarr; runtime descriptor, B2); and <code>tokens</code> is now representable end-to-end (B3).</li>
+  <li><b>Regression risks now mitigated (was B4/B3/M1):</b> the <code>static-pricing.json</code> $0-estimate fallback is explicitly retained (B4); token caps are billed via the enum + extractors (B3); cross-language qty drift is closed by a shared spec + golden vectors asserted in all three repos (M1).</li>
+  <li><b>Correctly mitigated (unchanged):</b> lv2v byte-identical carve-out, flag-default-OFF posture, transition floor, and the observe-before-enforce gates are the right regression guards for the paths they cover.</li>
+  <li><b>Residual (external, non-gating):</b> two #3992 caveats tracked as risks/tasks — <code>live_payment_processor.go</code> still bills pixels (open upstream bug), and remote discovery moved to a <b>global</b> (not per-cap) max price. Neither blocks this plan.</li>
+</ul>
+<p class="note">B1&ndash;B4 and M1&ndash;M2 are resolved in-plan; the design makes pricing solved-by-construction with no material regression and the plan is <b>APPROVE-able</b>. #3992 is folded in as evidence (runner-declared decimal USD price; signer type-branched fee) and its two caveats are captured as tracked risks.</p>
+
+<!-- ============ 8. STORYBOARD-INDEPENDENT ============ -->
+<h2 id="storyboard-independent">8. What Storyboard can do independently (and the payoff once live)</h2>
+<p class="note"><b>Repo reality (verified 2026-07-21):</b> the working checkout <code>storyboard-a3</code> <em>is</em> a clone of <code>github.com/livepeer/storyboard</code>. Both the capability-descriptor layer (<code>lib/capabilities/descriptor.ts</code>, <code>discovery-sync.ts</code>, <code>generate-registry.ts</code>, <code>docs/pricing-v1/convert.py</code>, <code>docs/pricing-v1/pricing-table.json</code>, <code>lib/mcp-server/pricing/static-pricing.json</code>) <b>and</b> the MCP/agent surface (<code>lib/mcp-server/tools/get-pricing.ts</code>, <code>lib/mcp-server/pricing/estimate.ts</code>, <code>lib/mcp-server/tools/create-media.ts</code>) live in the <b>same</b> repo. So "storyboard-a3 (descriptor)" and "livepeer/storyboard (MCP/agent)" are two subtrees of one Storyboard-owned repo — every PR below is landable without touching go-livepeer, python-gateway, or pymthouse.</p>
+
+<h3>Storyboard-only PRs &mdash; repo, regression class, standalone payoff</h3>
+<table>
+  <thead><tr><th>PR</th><th>Repo (subtree)</th><th>Storyboard-only?</th><th>Regression class</th><th>What it delivers on its own</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="tag t-new">PR1</span> descriptor schema (<code>unit_kind</code>+<code>quantity_source</code>)</td>
+      <td><code>livepeer/storyboard</code> &mdash; <code>lib/capabilities/descriptor.ts</code></td>
+      <td class="tag t-good">YES &mdash; no upstream dep</td>
+      <td class="tag t-good">NO-REGRESSION</td>
+      <td>Additive/optional Zod fields on a <code>.strict()</code> schema; every existing descriptor + golden fixture parses unchanged. Makes the descriptor a <b>lossless superset</b> of <code>price.json</code> and lets a <code>tokens</code>/<code>1000_tokens</code> cap be represented (B3) &mdash; the single source of truth for pricing metadata.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR2</span> discovery/registry read real <code>unit_kind</code> (M2)</td>
+      <td><code>livepeer/storyboard</code> &mdash; <code>discovery-sync.ts</code> + <code>generate-registry.ts</code></td>
+      <td class="tag t-good">YES &mdash; depends only on PR1 (same repo)</td>
+      <td class="tag t-good">NO-REGRESSION</td>
+      <td>Pure fallback (<code>unit_kind = price.unit_kind ?? price.display_unit</code>), no flag; when a descriptor omits <code>unit_kind</code> the behavior is byte-identical to today. Stops faking <code>unit_kind</code> from <code>display_unit</code> and reconciles <b>both</b> registry paths (M2 parity) &mdash; correct unit on the cap row (incl. <code>characters</code>/<code>tokens</code>) and discovery parity.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR10</span> agent USD-only surface polish</td>
+      <td><code>livepeer/storyboard</code> &mdash; <code>lib/mcp-server/*</code> (<code>get-pricing.ts</code>, <code>estimate.ts</code>, <code>create-media.ts</code>)</td>
+      <td class="tag t-good">YES &mdash; depends only on PR2 (same repo)</td>
+      <td class="tag t-warn">HAS-RISK (low, UX/display only)</td>
+      <td>Returns <code>display_price_usd</code>/<code>unit_kind</code> (incl. <code>tokens</code>) and an estimate = <code>per_unit_usd &times; estimateUnits(payload)</code> via the shared extractor (M1). <b>Risk is display-only:</b> it deliberately changes agent estimate math and removes a lingering agent&rarr;pymthouse usage write &mdash; no billing/settlement effect, but pre-flight quote values can shift, so it is not purely additive. Guard with the snapshot rate-card test.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR9</span> remove authoring duplication (keep generated fallback)</td>
+      <td><code>livepeer/storyboard</code> &mdash; <code>docs/pricing-v1/convert.py</code>, <code>pricing-table.json</code>, <code>static-pricing.json</code></td>
+      <td class="tag t-warn">Code is Storyboard-only, but prod cutover is gated by <b>PR3 (go-livepeer)</b></td>
+      <td class="tag t-warn">HAS-RISK (deletion; upstream-gated)</td>
+      <td>Collapses to one runtime source of truth. The <em>build-time generator</em> refactor (keep <code>convert.py</code>+<code>pricing-table.json</code> as generator only) can land in-repo, but removing runtime authoring is <b>gated by PR2+PR3 in prod</b> and carries the 2026-07-04 "$0 estimate" regression risk if the <code>static-pricing.json</code> fallback is disturbed (B4). <b>Do not treat as independent</b> for the prod cutover.</td>
+    </tr>
+  </tbody>
+</table>
+<p class="note"><b>Fully Storyboard-independent &amp; NO-REGRESSION:</b> <span class="tag t-new">PR1</span> and <span class="tag t-new">PR2</span>. <span class="tag t-new">PR10</span> is Storyboard-independent but carries a low, display-only risk (no billing impact). <span class="tag t-new">PR9</span> lives in the Storyboard repo but its prod cutover depends on the upstream <span class="tag t-new">PR3</span>, so it is <b>not</b> shippable-to-done independently. PR3&ndash;PR8 are owned by others (go-livepeer / python-gateway / pymthouse).</p>
+
+<h3>What you GET by shipping the Storyboard-only PRs before go-livepeer/gateway land</h3>
+<div class="box">
+<p style="margin-top:0">Shipping <b>PR1 + PR2 (+ PR10)</b> ahead of the upstream work is <b>immediately valuable and self-contained</b>: the descriptor becomes a <b>lossless single source of truth</b> for pricing metadata (correct <code>unit_kind</code> incl. <code>tokens</code>/<code>characters</code>, plus <code>quantity_source</code>), the <b>fake <code>unit_kind = display_unit</code> alias is removed</b> and <b>both registry paths are reconciled</b> (M2) so there is no second divergent pricing source, <b>discovery parity</b> holds across <code>/capabilities</code> and the registry, and the <b>agent's USD estimates are aligned</b> to the same shared quantity extractor the signer/gateway will later use (M1) with the agent&rarr;pymthouse write removed (Model-A discipline). None of this waits on anyone else, and none of it changes billing.</p>
+<p style="margin-bottom:0"><b>What still requires the upstream PRs to fully realize:</b> the correct metadata and aligned quotes are <em>pre-flight only</em> until (a) <b>go-livepeer</b> lands <span class="tag t-new">PR3</span> (orch aggregates runner per-cap descriptor prices into <code>GetCapabilitiesPrices</code>), <span class="tag t-new">PR5</span> (signer stamps <code>billing_unit_kind</code>/<code>quantity</code>) and <span class="tag t-new">PR8</span> (on-chain <b>per-unit settlement</b>: <code>fee = per_unit &times; qty</code>), and <b>python-gateway</b> lands <span class="tag t-new">PR4</span> (payload&rarr;quantity), and (b) <b>pymthouse</b> lands <span class="tag t-new">PR6</span>/<span class="tag t-new">PR7</span> (<b>per-unit metering</b> + <code>cost = quantity &times; per_unit_usd</code>). Until then, on-chain fees and pymthouse cost stay on today's pixel/second/fee basis &mdash; Storyboard makes the <em>data</em> correct and the <em>quote</em> right; upstream makes the <em>money</em> match.</p>
+</div>
+
+<h3>Upstream (go-livepeer / gateway) &mdash; already-exists vs still-needed</h3>
+<p class="note"><b>Recon basis (verified 2026-07-21, read-only):</b> branches on <code>github.com/livepeer/go-livepeer</code> &mdash; <code>ja/live-runner</code> = <b>PR #3938</b> "Live Runner" (base <code>master</code>, OPEN; <b>deployed as <code>lr-orch</code></b> via image <code>livepeer/go-livepeer:ja-live-runner</code>, gateway pinned <code>jm/live-runner-session-payments</code>); <code>ja/live-pricing</code> = <b>PR #3992</b> "Ja/live pricing" (base <code>ja/live-runner</code>, OPEN <b>draft</b>, <b>not deployed</b>). <code>byoc-staging-1</code> runs <code>feat/remote-signer-byoc-v2</code> @ <code>be5a669e</code> (= PR #3896). Separate <code>feat/byoc-per-cap-pricing-and-usage-labels</code> branch exists (usage-label plumbing) but is <b>not</b> the deployed byoc image. Confirmed: <code>core/orchestrator.go GetCapabilitiesPrices</code> is <b>untouched</b> on <code>ja/live-runner</code>, <code>ja/live-pricing</code>, and the per-cap-pricing branch; grep for <code>billing_unit_kind</code>/<code>billing_unit_quantity</code>/<code>unit_kind</code> across <code>ja/live-pricing</code> server/core/ai returns <b>zero</b> hits.</p>
+<table>
+  <thead><tr><th>Plan PR (upstream owner)</th><th>Already exists upstream (branch / file / commit)</th><th>Still needed (genuinely left for the owner)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="tag t-new">PR3</span> Orch aggregation &rarr; <code>GetCapabilitiesPrices</code> (G1) <span class="repo">go-livepeer</span></td>
+      <td><b>#3992</b> wires the runner <b>decimal-USD price schema</b> (<code>ai/runner/live_runner.go</code> <code>LiveRunnerPriceInfo{price, currency:usd, unit:hour|720p}</code> &rarr; wei) and bridges it to a <b>per-session</b> <code>net.PriceInfo</code> via <code>server/ai_http.go runnerOrchInfo()</code> + <code>DiscoverLiveRunners()</code>. This is the exact price shape PR3 must adopt. <b>#3938</b> (deployed as <code>lr-orch</code>) ships the runner/discovery surface.</td>
+      <td><b>Yes &mdash; not done.</b> <code>GetCapabilitiesPrices</code> (<code>core/orchestrator.go:266</code>) is <b>unchanged</b> on every branch &mdash; it still aggregates only default/gateway/BYOC-external prices, <b>not</b> Live-Runner per-cap descriptor prices (G1 open). Still need: the <code>-aggregateRunnerPrices</code> merge, the overhead split fix (<code>ExpectedPrice == RecipientRandHash</code>), and parsing #3992's decimal-<code>price</code> shape (not the old <code>price_per_unit/pixels_per_unit</code>).</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR4</span> Gateway payload&rarr;quantity <span class="repo">python-gateway</span></td>
+      <td>Gateway pin <code>jm/live-runner-session-payments</code> already sends the live-runner session payment and the <code>type</code> discriminator (<code>live</code>/<code>lv2v</code>); #3992 gives the <code>second</code> (elapsed-seconds) basis "for free".</td>
+      <td><b>Yes &mdash; not done.</b> No per-<code>quantity_source</code> extractor (megapixel/image/characters/<b>tokens</b>/call), no <code>SEND_UNIT_METERING</code> flag, and no <code>{billing_unit_kind, billing_unit_quantity}</code> on <code>/generate-live-payment</code>. #3992 covers <b>only</b> <code>second</code>; image/call/characters/tokens are entirely PR4.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR5</span> Signer stamp <code>billing_unit_kind/quantity</code> (observe) <span class="repo">go-livepeer</span></td>
+      <td><b>#3992 is a near-template:</b> adds <code>RemoteType_Live</code>, a <code>Type</code> field on <code>RemotePaymentState</code>, session-locks it (<code>job type mismatch</code> guard) and branches billing on <code>type</code> (<code>server/remote_signer.go</code>). <code>sanitizeUsageLabel</code> (trim+128-rune, <code>~:383</code>) + <code>resolveUsageLabels</code> already exist on <code>feat/byoc-per-cap-pricing-and-usage-labels</code>. <b>Watch:</b> #3992 renames emitted <code>cost_per_pixel</code>&rarr;<code>cost</code>.</td>
+      <td><b>Yes &mdash; not done.</b> The two fields <code>BillingUnitKind</code>/<code>BillingUnitQuantity</code> do <b>not</b> exist anywhere on <code>ja/live-pricing</code> (grep = 0) and are not stamped on <code>create_signed_ticket</code>. Still need to add + sanitize/clamp + stamp them, extending (not forking) the #3992 <code>type</code> discriminator.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR8</span> Signer fee-from-quantity ENFORCE <span class="repo">go-livepeer</span></td>
+      <td><b>Pattern exists:</b> #3992's <code>calculateFee(billableUnits, initialPrice)</code> with type-branched <code>billableUnits</code> (elapsed seconds for <code>live</code>, pixels for <code>lv2v</code>, 10s minimum) is the precedent PR8 mirrors.</td>
+      <td><b>Yes &mdash; not done.</b> #3992 bills <b>elapsed seconds only</b>; there is no <code>fee = (price_per_unit/price_scaling) &times; pixels_per_unit &times; qty</code> for image/image-flat/video/TTS/tool/<b>tokens</b>, no <code>UNIT_FEE_ENFORCE</code> flag, and no <code>pixels_per_unit</code> carry-through. <b>Caveat:</b> #3992's <code>live_payment_processor.go processOne</code> still bills <b>pixels</b> (open upstream bug) &mdash; PR8 must not inherit it.</td>
+    </tr>
+  </tbody>
+</table>
+<p class="note"><b>Bottom line for the owners:</b> the runner-side <b>decimal-USD price schema, USD&rarr;wei conversion, the session <code>type</code> discriminator, and <code>sanitizeUsageLabel</code></b> already exist (#3992 / byoc branches) &mdash; do <b>not</b> rebuild them. What is genuinely left is: <b>orch per-cap aggregation into <code>GetCapabilitiesPrices</code></b> (PR3), the <b>gateway quantity extractors</b> for non-second units incl. tokens (PR4), the <b>two billing-unit fields on the signer</b> (PR5), and the <b>general <code>fee = per_unit &times; qty</code> enforce path</b> (PR8) &mdash; none of which is present on <code>ja/live-runner</code>, <code>ja/live-pricing</code>, <code>byoc-staging-1</code>, or <code>lr-orch</code> today.</p>
+
+</div>
+</body>
+</html>

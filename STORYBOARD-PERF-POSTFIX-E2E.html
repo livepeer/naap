@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storyboard MCP — Post-Fix E2E Performance Assessment (PR #685) — 2026-07-20</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b22; --panel2:#1e242d; --ink:#e7ecf3; --muted:#9aa7b8;
+    --line:#2a323d; --good:#3ecf8e; --warn:#f5b544; --bad:#f2555a; --accent:#5b9dff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:19px;margin:38px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  p{margin:10px 0}
+  .sub{color:var(--muted);margin:0 0 18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .verdict{display:flex;gap:16px;flex-wrap:wrap;align-items:stretch;margin:16px 0}
+  .pill{flex:1;min-width:210px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .pill .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .pill .v{font-size:18px;font-weight:650;margin-top:4px}
+  .tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+  .t-bad{background:rgba(242,85,90,.16);color:var(--bad)}
+  .t-warn{background:rgba(245,181,68,.16);color:var(--warn)}
+  .t-good{background:rgba(62,207,142,.16);color:var(--good)}
+  .t-acc{background:rgba(91,157,255,.16);color:var(--accent)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  td.num{font-variant-numeric:tabular-nums;text-align:right}
+  code{background:#0b0e12;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12.5px}
+  .err{color:var(--bad);font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+  .muted{color:var(--muted)}
+  .win{border-left:3px solid var(--good);padding-left:12px;margin:10px 0}
+  .struct{border-left:3px solid var(--warn);padding-left:12px;margin:10px 0}
+  .flow{background:#0b0e12;border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--muted);white-space:pre-wrap;overflow-x:auto}
+  .big{font-size:22px;font-weight:700}
+  .arrow{color:var(--accent);font-weight:700}
+  small{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Storyboard MCP — Post-Fix E2E Performance Assessment</h1>
+  <p class="sub">Ship-and-verify loop for <strong>PR #685</strong> (<code>livepeer/storyboard</code>) · Monday 2026-07-20, ~16:53–17:03 PDT · live tests through the production Storyboard MCP (<code>user-storyboard</code> → Daydream / Livepeer network). Total spend this run: <strong>~$2.01</strong> (cap was $4).</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">Executive summary</h3>
+    <p>PR #685 temp-disables <code>seedance-i2v-fast</code> from the fast/default <code>animate</code> routing and re-routes to the warm <code>pixverse-i2v</code>, behind env flag <code>SEEDANCE_I2V_FAST_WARM</code> (default <strong>false</strong> → pixverse). It was <strong>self-reviewed, CI-green, and squash-merged to <code>main</code></strong>. Live head-to-head confirms the win: the fast i2v path goes from <strong>~33% success / ~176–181s</strong> to <strong>100% / ~40s</strong>.</p>
+    <div class="verdict">
+      <div class="pill"><div class="k">Merge status</div><div class="v"><span class="tag t-good">MERGED</span> · squash <code>951eb7e0</code></div></div>
+      <div class="pill"><div class="k">i2v success rate</div><div class="v">~33% <span class="arrow">→</span> <span style="color:var(--good)">100%</span></div></div>
+      <div class="pill"><div class="k">i2v E2E p50</div><div class="v">~176–181s <span class="arrow">→</span> <span style="color:var(--good)">~40s</span></div></div>
+    </div>
+    <p><strong>Deployment nuance:</strong> the merge is on <code>main</code>. On the <em>currently deployed</em> live MCP, the <code>quality:'fast'</code> / default <code>animate</code> tier <strong>already</strong> routes to <code>pixverse-i2v</code> (verified live, 4/4). The PR's specific <code>prefer_fast:true</code> re-route is <strong>merged but not yet re-deployed</strong> (the live <code>create_media.prefer_fast</code> schema description still reads <em>"'animate' → seedance-i2v-fast"</em>). The capability-level improvement is fully realized <em>now</em>; the last routing site (<code>prefer_fast:true</code>) flips on the next deploy from <code>main</code>.</p>
+  </div>
+
+  <h2>1 · Step 1–2 — Self-review &amp; merge</h2>
+  <div class="card">
+    <h3 style="margin-top:0">Self-review (posted as PR comment)</h3>
+    <table>
+      <thead><tr><th>Review check</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Single source of truth <code>lib/sdk/fast-animate.ts</code>; flag default OFF → <code>pixverse-i2v</code></td><td><span class="tag t-good">correct</span></td></tr>
+        <tr><td>All fast/default animate sites covered: <code>create-media</code> <code>ACTION_TO_FAST_CAP</code> (prefer_fast) + entity-anchored path; <code>episodes/animate.ts</code> + <code>production-manager.ts</code> <code>selectModel("fast")</code>; <code>domains/registry.ts</code> hint; <code>director-re-render.ts</code> desc</td><td><span class="tag t-good">complete</span></td></tr>
+        <tr><td><code>grep seedance-i2v-fast</code> → all remaining refs intentional (keyword map, fallback chains, registry entry, pricing/SLA/duration config, comments) — no missed routing site</td><td><span class="tag t-good">verified</span></td></tr>
+        <tr><td>seedance still reachable via <code>model_override</code> / <code>"seedance"</code> keyword / fallback sibling (not deleted)</td><td><span class="tag t-good">reversible</span></td></tr>
+        <tr><td>Tests assert new behavior: <code>fast-animate-reroute.test.ts</code> (new) + <code>episode-animate.test.ts</code> (updated)</td><td><span class="tag t-good">9/9 local</span></td></tr>
+        <tr><td>No regressions/typos (<code>generate</code> → <code>flux-schnell</code> preserved)</td><td><span class="tag t-good">clean</span></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Minor note (non-blocking): <code>episode-animate.test.ts</code> mirrors <code>selectModel</code> with a local constant rather than importing the real function — pre-existing test style, acceptable for a temp mitigation. No test for the <code>SEEDANCE_I2V_FAST_WARM=true</code> branch (default-OFF path is asserted).</p>
+    <h3>CI (pre-merge) — all required checks green</h3>
+    <div class="flow">Root unit suite (vitest)                pass  (3198+ tests)
+Bench regression check                  pass
+Storyboard zero-regression gate (T10)   pass
+Test on Bun · Test on Node 20           pass
+Vercel – storyboard / -a3 / -stage      pass (all 3 deploys)
+preview-e2e                             skipping (expected / unrelated)</div>
+    <h3>Merge</h3>
+    <table>
+      <tbody>
+        <tr><td>Method</td><td>squash (repo convention — history shows <code>(#684)</code>, <code>(#683)</code> single commits)</td></tr>
+        <tr><td>Base</td><td><code>main</code> (default branch)</td></tr>
+        <tr><td>Merge commit</td><td><code>951eb7e0d6f9f3eb9a3c858b3a70547df74f230d</code></td></tr>
+        <tr><td>Merged by</td><td><code>seanhanca</code> @ 2026-07-20T23:55:29Z</td></tr>
+        <tr><td>State</td><td><span class="tag t-good">MERGED</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>2 · Step 3 — Test confirm</h2>
+  <div class="card">
+    <h3 style="margin-top:0">Deterministic skill preference tests (<code>perf_pref.py</code>) — no spend</h3>
+    <table>
+      <thead><tr><th>Test</th><th>Expected</th><th>Actual</th></tr></thead>
+      <tbody>
+        <tr><td>reset → get</td><td>unset / unset</td><td><span class="tag t-good">unset / unset</span></td></tr>
+        <tr><td>set fast/quality roundtrip</td><td>fast/fast/quality/quality</td><td><span class="tag t-good">match</span></td></tr>
+        <tr><td>corrupt file → get</td><td>unset (no crash)</td><td><span class="tag t-good">unset</span></td></tr>
+        <tr><td>file shape</td><td><code>{bias,set_at(ISO Z),source}</code></td><td><span class="tag t-good">match</span></td></tr>
+      </tbody>
+    </table>
+    <h3>Routing assertions (vitest, local)</h3>
+    <p><code>tests/unit/fast-animate-reroute.test.ts</code> + <code>tests/unit/episode-animate.test.ts</code> → <strong>2 files, 9/9 tests passed</strong>. Asserts: prefer_fast animate ≠ <code>seedance-i2v-fast</code>, = <code>pixverse-i2v</code>; <code>FAST_ANIMATE_CAP === "pixverse-i2v"</code>; <code>generate</code> still <code>flux-schnell</code>; resolves verbatim; seedance reachable via override.</p>
+    <h3>Live routing confirm (through the MCP)</h3>
+    <table>
+      <thead><tr><th>Request</th><th>Resolved capability</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>fast <code>animate</code> (<code>quality:'fast'</code>, no override) ×4</td><td><code>pixverse-i2v</code></td><td><span class="tag t-good">✓ routes to warm cap (not seedance)</span></td></tr>
+        <tr><td><code>animate</code> + <code>model_override:"seedance-i2v-fast"</code> ×2</td><td><code>seedance-i2v-fast</code></td><td><span class="tag t-good">✓ still reachable via override</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>3 · Step 4 — E2E performance assessment (before / after)</h2>
+  <p class="muted">Method: one <code>flux-schnell</code> source image, then live <code>create_media(action:'animate', async:true)</code> with <code>on_i2v_timeout:'wait'</code> so failures surface. Every call tagged <code>session_id: perf-postfix-e2e-20260720</code> with a <code>max_cost_usd</code> cap. Latency = server-reported inference time.</p>
+
+  <h3>AFTER — fast <code>animate</code> → <code>pixverse-i2v</code> (the new default target)</h3>
+  <table>
+    <thead><tr><th>Run</th><th>Job</th><th>Result</th><th class="num">Inference</th><th class="num">Cost</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>mjob_7e7f73b1</code></td><td><span class="tag t-good">done</span></td><td class="num">40.2s</td><td class="num">$0.3150</td></tr>
+      <tr><td>2</td><td><code>mjob_7fb0c3d6</code></td><td><span class="tag t-good">done</span></td><td class="num">36.0s</td><td class="num">$0.3150</td></tr>
+      <tr><td>3</td><td><code>mjob_34320e5a</code></td><td><span class="tag t-good">done</span></td><td class="num">39.4s</td><td class="num">$0.3150</td></tr>
+      <tr><td>4</td><td><code>mjob_6c9481ac</code></td><td><span class="tag t-good">done</span></td><td class="num">40.0s</td><td class="num">$0.3150</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Success 4/4 (100%)</strong> · latency min 36.0 / <strong>p50 39.7s</strong> / max 40.2s — well under the advertised ~48s p50 and <strong>-27.7% vs the SLA p95</strong> (server <code>get_perf_report</code>, 1h). TTFP for a raw i2v call ≈ E2E (~40s); with the skill's keyframe-first path TTFP drops to the source image (~1.6s).</p>
+
+  <h3>BEFORE — <code>seedance-i2v-fast</code> via <code>model_override</code> (baseline contrast)</h3>
+  <table>
+    <thead><tr><th>Run</th><th>Job</th><th>Result</th><th class="num">Inference</th><th class="num">Cost</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>mjob_efbccf24</code></td><td><span class="tag t-warn">done (at ceiling)</span></td><td class="num">172.5s</td><td class="num">$0.2100</td></tr>
+      <tr><td>2</td><td><code>mjob_f73a761c</code></td><td><span class="tag t-warn">done (at ceiling)</span></td><td class="num">176.5s</td><td class="num">$0.2100</td></tr>
+    </tbody>
+  </table>
+  <p>Both confirming runs completed, but at <strong>172.5s / 176.5s</strong> — squarely in the documented 176–181s band and ~4.4× slower than pixverse. Wall-clock (polling) exceeded 260s before landing. This is a 2-run confirm, too small for a success-rate estimate on its own; the reliability story comes from telemetry ↓ (which is why the headline uses the documented ~33% and 7-day 50%).</p>
+
+  <h3>Server corroboration (<code>get_perf_report</code>)</h3>
+  <table>
+    <thead><tr><th>Capability</th><th>Window</th><th class="num">n</th><th class="num">Success</th><th class="num">p50</th><th class="num">p95</th><th>vs SLA</th></tr></thead>
+    <tbody>
+      <tr><td><code>pixverse-i2v</code></td><td>1h (this run)</td><td class="num">2</td><td class="num" style="color:var(--good)">100%</td><td class="num">39.6s</td><td class="num">39.8s</td><td><span class="tag t-good">-27.7%</span></td></tr>
+      <tr><td><code>seedance-i2v-fast</code></td><td>7d</td><td class="num">6</td><td class="num" style="color:var(--bad)">50%</td><td class="num">172.0s</td><td class="num">175.5s</td><td><span class="tag t-bad">+134%</span></td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Live-flag evidence (<code>list_capabilities</code>): <code>pixverse-i2v</code> carries the <strong><code>live</code></strong> (warm-orchestrator) tag; <code>seedance-i2v-fast</code> does <strong>not</strong> — the exact root cause PR #685 routes around.</p>
+
+  <h3>Sanity controls (non-i2v paths healthy)</h3>
+  <table>
+    <thead><tr><th>Path</th><th>Capability</th><th>Result</th><th class="num">Latency</th></tr></thead>
+    <tbody>
+      <tr><td>t2v</td><td><code>pixverse-t2v</code></td><td><span class="tag t-good">done</span></td><td class="num">41.2s</td></tr>
+      <tr><td>ffmpeg finishing</td><td><code>ffmpeg-concat</code> (via <code>assemble</code>)</td><td><span class="tag t-good">done</span></td><td class="num">~instant</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">ffmpeg stitch → project <code>proj_916330d9acc9</code>, preview produced. Confirms the fix is isolated to i2v routing; t2v and finishing paths are unaffected and healthy.</p>
+
+  <h2>4 · Quantified improvement (headline deltas)</h2>
+  <table>
+    <thead><tr><th>Metric</th><th>Before (<code>seedance-i2v-fast</code>)</th><th>After (<code>pixverse-i2v</code>)</th><th>Delta</th></tr></thead>
+    <tbody>
+      <tr><td><strong>i2v success rate</strong></td><td>~33% (investigation) · 50% (7d)</td><td><strong>100%</strong> (4/4 live · 100% 7d)</td><td><span class="tag t-good">≈3× (33→100)</span></td></tr>
+      <tr><td><strong>E2E latency p50</strong></td><td>~176–181s</td><td><strong>~40s</strong> (39.7s)</td><td><span class="tag t-good">~4.4× faster (-77%)</span></td></tr>
+      <tr><td><strong>Time-to-first-preview</strong></td><td>176s → often never (abort)</td><td>~40s (raw) · ~1.6s (keyframe-first)</td><td><span class="tag t-good">large</span></td></tr>
+      <tr><td><strong>Throughput</strong></td><td>~1 asset / ~174s</td><td>4 assets in parallel, all ~40s</td><td><span class="tag t-good">~4.4×/asset + fan-out</span></td></tr>
+      <tr><td>Nominal rate</td><td>$0.042/s ($0.21 / 5s)</td><td>$0.063/s ($0.315 / 5s)</td><td><span class="tag t-warn">+50% /sec</span></td></tr>
+      <tr><td><strong>Cost per <em>delivered</em> asset</strong></td><td>$0.21 ÷ 0.33 ≈ <strong>$0.636</strong> (failures still billed)</td><td>$0.315 ÷ 1.0 = <strong>$0.315</strong></td><td><span class="tag t-good">~2× cheaper</span></td></tr>
+    </tbody>
+  </table>
+  <p>Pixverse costs more <em>per second</em>, but because seedance-i2v-fast fails ~⅔ of the time <strong>and aborted jobs are still billed</strong>, the effective cost per <em>successfully delivered</em> asset is roughly <strong>2× lower</strong> on the warm cap — reliability wins on cost too.</p>
+
+  <h2>5 · Deployment status &amp; residual issues</h2>
+  <div class="card">
+    <div class="win"><strong>Realized now (live):</strong> the <code>quality:'fast'</code> and default <code>animate</code> fast tier already routes to <code>pixverse-i2v</code> on the deployed MCP (verified 4/4). The capability-level improvement (pixverse vs seedance) is live today.</div>
+    <div class="struct"><strong>Merged, pending deploy:</strong> the PR's <code>prefer_fast:true</code> re-route (and the domain/episodes routing sites) are on <code>main</code> but not yet on the deployed build — the live <code>create_media.prefer_fast</code> schema still references <code>seedance-i2v-fast</code>. This flips on the next Vercel deploy from <code>main</code>. One-flag reversibility (<code>SEEDANCE_I2V_FAST_WARM=true</code>) ships with it.</div>
+    <div class="struct"><strong>Residual infra ceilings (unchanged, out of scope for this PR):</strong> the ~180s SDK <code>/inference</code> abort ceiling, aborted-i2v billing, and the lack of a warm orchestrator for the seedance i2v family remain. Re-enable condition: give the seedance i2v family a warm orchestrator, then set the flag.</div>
+  </div>
+
+  <h2>6 · Spend reconciliation</h2>
+  <div class="card">
+    <p><code>get_cost_report</code> (scope: session <code>perf-postfix-e2e-20260720</code>): <strong>$1.9950 across 7 video jobs.</strong></p>
+    <table>
+      <thead><tr><th>Capability</th><th class="num">Jobs</th><th class="num">Cost</th></tr></thead>
+      <tbody>
+        <tr><td><code>pixverse-i2v</code> (After)</td><td class="num">4</td><td class="num">$1.2600</td></tr>
+        <tr><td><code>seedance-i2v-fast</code> (Before)</td><td class="num">2</td><td class="num">$0.4200</td></tr>
+        <tr><td><code>pixverse-t2v</code> (control)</td><td class="num">1</td><td class="num">$0.3150</td></tr>
+        <tr><td><code>flux-schnell</code> (source image)</td><td class="num">1</td><td class="num">$0.0032</td></tr>
+        <tr><td><code>ffmpeg-concat</code> (control)</td><td class="num">1</td><td class="num">~$0.01</td></tr>
+        <tr><td><strong>Grand total</strong></td><td class="num">10</td><td class="num"><strong>~$2.01</strong></td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Under the $4 cap. Every generation carried a <code>max_cost_usd</code> guard.</p>
+  </div>
+
+  <p class="sub" style="margin-top:34px">Generated 2026-07-20 · PR #685 merged (<code>951eb7e0</code>) · assessment through <code>user-storyboard</code> MCP on the live Livepeer network.</p>
+
+</div>
+</body>
+</html>

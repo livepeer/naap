@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Per-Unit (Per-Ticket) Metering &mdash; Design Proposal</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --border:#2b3441;
+    --ink:#e6edf3; --mut:#9aa7b4; --accent:#4fa3ff; --accent2:#7ee787;
+    --warn:#f0b429; --bad:#ff6b6b; --ok:#4fd08a; --mid:#ffb454;
+    --chip:#222b38;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 28px 96px}
+  header.hero{
+    background:linear-gradient(135deg,#12203a,#1a1030 60%,#0e1116);
+    border:1px solid var(--border); border-radius:16px; padding:32px 34px; margin-bottom:28px;
+  }
+  header.hero h1{margin:0 0 6px; font-size:28px; letter-spacing:-.4px}
+  header.hero .sub{color:var(--mut); font-size:15px}
+  header.hero .meta{margin-top:16px; display:flex; flex-wrap:wrap; gap:8px}
+  .chip{background:var(--chip); border:1px solid var(--border); color:var(--mut);
+    border-radius:999px; padding:4px 12px; font-size:12.5px}
+  .chip b{color:var(--ink); font-weight:600}
+  h2{font-size:21px; margin:40px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+  h3{font-size:16.5px; margin:24px 0 8px; color:#cbd6e2}
+  p{margin:10px 0}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:#0b0f14; border:1px solid var(--border); border-radius:5px;
+    padding:1px 6px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.8px; color:#e3b341}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin:16px 0}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px}
+  .card h4{margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--mut)}
+  .card .big{font-size:22px; font-weight:700}
+  .verdict{border-left:4px solid var(--accent); background:var(--panel2); border-radius:0 10px 10px 0;
+    padding:14px 18px; margin:16px 0}
+  .verdict.no{border-left-color:var(--bad)}
+  .verdict.yes{border-left-color:var(--ok)}
+  .verdict.cond{border-left-color:var(--warn)}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px; background:var(--panel); border-radius:10px; overflow:hidden}
+  th,td{padding:9px 11px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top}
+  th{background:var(--panel2); color:#cbd6e2; font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.4px}
+  tr:last-child td{border-bottom:none}
+  td.mono,th.mono{font-family:ui-monospace,Menlo,monospace; font-size:12.4px}
+  .tag{display:inline-block; padding:2px 8px; border-radius:6px; font-size:11.5px; font-weight:600; white-space:nowrap}
+  .t-yes{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  .t-no{background:#3a1418; color:var(--bad); border:1px solid #63232a}
+  .t-part{background:#3a2e12; color:var(--mid); border:1px solid #6b5320}
+  .t-keep{background:#122a33; color:#5ad1e0; border:1px solid #1e4f5c}
+  .t-new{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  .risk-hi{color:var(--bad); font-weight:700}
+  .risk-md{color:var(--mid); font-weight:700}
+  .risk-lo{color:var(--ok); font-weight:700}
+  ul.clean{margin:8px 0; padding-left:22px}
+  ul.clean li{margin:5px 0}
+  .do-dont{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0}
+  @media(max-width:760px){.do-dont{grid-template-columns:1fr}}
+  .do{background:#0f1f16; border:1px solid #1e5637; border-radius:12px; padding:16px 18px}
+  .dont{background:#1f1113; border:1px solid #63232a; border-radius:12px; padding:16px 18px}
+  .do h3{color:var(--ok); margin-top:0} .dont h3{color:var(--bad); margin-top:0}
+  .note{background:#1a2436; border:1px dashed #365; border-radius:10px; padding:12px 16px; margin:14px 0; color:#bcd}
+  .note.warn{background:#2a2312; border-color:#6b5320; color:#f2d999}
+  .note.bad{background:#231314; border-color:#63232a; color:#f2b8b8}
+  .toc{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 20px; margin:20px 0; columns:2; column-gap:30px}
+  .toc a{display:block; padding:3px 0; color:var(--mut)}
+  .toc a:hover{color:var(--accent)}
+  .foot{margin-top:56px; padding-top:18px; border-top:1px solid var(--border); color:var(--mut); font-size:12.5px}
+  .phase{border-left:3px solid var(--accent); padding:4px 0 4px 18px; margin:14px 0}
+  .phase h3{margin:0 0 4px}
+  .gate{font-size:12.5px; color:var(--accent2)}
+  .pill{display:inline-block;background:var(--chip);border:1px solid var(--border);border-radius:6px;padding:1px 7px;font-size:12px;color:var(--mut);margin:0 2px}
+  pre.diagram{background:#0b0f14; border:1px solid var(--border); border-radius:10px; padding:16px 18px;
+    overflow-x:auto; font-family:ui-monospace,Menlo,monospace; font-size:12.3px; line-height:1.5; color:#cbd6e2}
+  pre.code{background:#0b0f14; border:1px solid var(--border); border-radius:10px; padding:14px 16px;
+    overflow-x:auto; font-family:ui-monospace,Menlo,monospace; font-size:12.3px; line-height:1.5; color:#c9d4e0}
+  pre.code .k{color:#e3b341} pre.code .s{color:#7ee787} pre.code .c{color:#6b7684}
+  .flabel{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Per-Unit (Per-Ticket) Metering &mdash; Design Proposal</h1>
+  <div class="sub">Meter every request/ticket at its <b>correct unit</b> (megapixel / second / 1&#8203;K&nbsp;chars / image / call) and compute the <b>correct cost</b> &mdash; ending the flat / seconds-as-flat / fee-floor status quo across signer &rarr; OpenMeter &rarr; pymthouse.</div>
+  <div class="meta">
+    <span class="chip">Deploy branch: <b class="mono">fix/signer-composite-bearer-forward</b></span>
+    <span class="chip">Builds on: <b class="mono">BILLED-E2E-BLOCKER-AUDIT.md</b> @ <b class="mono">93ca2119</b></span>
+    <span class="chip">Repos: <b>go-livepeer</b> &middot; <b>pymthouse</b> &middot; <b>gateway</b> &middot; <b>simple-infra</b></span>
+    <span class="chip">Read-only investigation &middot; evidence-based</span>
+  </div>
+</header>
+
+<div class="toc">
+  <a href="#tldr">0. Direct answers (TL;DR)</a>
+  <a href="#exec">1. Executive summary</a>
+  <a href="#current">2. Current metering pipeline (file:line evidence)</a>
+  <a href="#gap">3. The gap &mdash; why today is wrong</a>
+  <a href="#matrix">4. Per-unit requirement matrix</a>
+  <a href="#sot">5. Source of truth for units &amp; quantity</a>
+  <a href="#design">6. The 3-hop design (diagram + schema)</a>
+  <a href="#design-signer">6a. Hop 1 &mdash; Signer / producer</a>
+  <a href="#design-om">6b. Hop 2 &mdash; OpenMeter (collector + meters)</a>
+  <a href="#design-pmt">6c. Hop 3 &mdash; pymthouse cost</a>
+  <a href="#migration">7. Backward-compat &amp; phased rollout</a>
+  <a href="#test">8. Test &amp; measurement plan</a>
+  <a href="#owners">9. Owners per hop</a>
+  <a href="#dodont">10. DO / DON'T / risks</a>
+</div>
+
+<!-- ================= TL;DR ================= -->
+<h2 id="tldr">0. Direct answers</h2>
+
+<div class="verdict no">
+  <b>Q1 &mdash; Is per-unit metering implemented today?</b><br>
+  <b>No.</b> There is no <code>billing_unit_kind</code> and no natural-unit quantity anywhere on the metering path. The only quantity the signer emits is <code>pixels</code> (which for BYOC is <code>ceil(billable_secs)</code>) plus <code>computed_fee</code> (wei). The collector collapses everything to one number &mdash; <code>network_fee_usd_micros</code> &mdash; and OpenMeter only <code>SUM</code>s that fee. No unit dimension, no quantity value-property exists downstream.
+</div>
+
+<div class="verdict cond">
+  <b>Q2 &mdash; Is cost a flat price, seconds-as-flat-unit, or fee-floor?</b><br>
+  <b>All three, layered:</b> (a) The metered USD is <b>fee-floor</b> &mdash; <code>ceil(fee_wei &times; eth_usd / 1e12)</code> rounds every sub-micro fee up to &ge;&nbsp;1&nbsp;&micro;USD, so the recorded cost is ~1&ndash;2&nbsp;&micro;USD per request regardless of output size. (b) The upstream fee itself is computed <b>seconds-as-flat-unit</b> &mdash; BYOC sets <code>pixels = ceil(billable_secs)</code> and <code>billable_secs</code> preloads to 60&nbsp;s at payment-gen, so the real output (6&nbsp;s of video, N megapixels, K chars) is never measured. (c) Net effect at the meter is a <b>flat per-request charge</b>, identical across image / video / TTS / tools.
+</div>
+
+<div class="verdict yes">
+  <b>Q3 &mdash; The fix (headline).</b><br>
+  Add two fields to the per-ticket event &mdash; <code>billing_unit_kind</code> and <code>billing_unit_quantity</code> &mdash; sourced from the <b>capability price row</b> (unit) and the <b>job request payload</b> (quantity), and carry them through all three hops:
+  <b>(1) Signer</b> emits unit + true quantity and computes the fee from quantity&times;per-unit price (not from wall-clock seconds);
+  <b>(2) OpenMeter</b> collector forwards them as labels/value and a new <code>usage_units</code> meter <code>SUM</code>s quantity grouped by <code>unit_kind</code>/capability/model;
+  <b>(3) pymthouse</b> computes cost = <code>quantity &times; per_unit_usd</code> and reconciles it against the on-chain network fee.
+</div>
+
+<!-- ================= EXEC ================= -->
+<h2 id="exec">1. Executive summary</h2>
+<p>
+Every capability in the catalog is priced in a natural, industry-standard unit &mdash; images in <b>megapixels</b> or <b>per-image</b>, video in <b>seconds</b>, TTS in <b>1&nbsp;000 characters</b>, tools/MCP <b>per-call</b>. That unit is advertised on <code>/capabilities</code> (<code>unit_kind</code>) and is the basis of every price shown to users. But the metering path throws the unit away: the signer picks a billing basis from <code>req.Type</code> (lv2v vs byoc) only, emits a wall-clock-derived <code>pixels</code> count, and the collector reduces the whole event to a single fee number that OpenMeter sums. The result is that a 4-megapixel image, a 6-second video, and a 2&nbsp;000-character TTS call all meter as the same ~1&nbsp;&micro;USD blip.
+</p>
+<p>
+This proposal makes the unit a <b>first-class field on the metering event</b>, carries a <b>true per-request quantity</b> measured from the request, and adds a <b>quantity meter</b> so OpenMeter and pymthouse can compute <code>cost = quantity &times; per_unit_price</code> per unit kind. It is deliberately minimal: two new event fields, one new collector passthrough, one new meter, and one cost function &mdash; no change to the wire ticket format, the PM ledger, or the on-chain fee mechanics. It ships behind a flag with a dual-write window so current billing never breaks.
+</p>
+
+<div class="grid">
+  <div class="card"><h4>New event fields</h4><div class="big">2</div><div class="flabel">unit_kind + quantity</div></div>
+  <div class="card"><h4>New OpenMeter meter</h4><div class="big">1</div><div class="flabel">usage_units (SUM qty)</div></div>
+  <div class="card"><h4>Distinct unit kinds</h4><div class="big">5</div><div class="flabel">MP / sec / 1K-char / image / call</div></div>
+  <div class="card"><h4>Hops changed</h4><div class="big">3</div><div class="flabel">signer &rarr; collector/OM &rarr; pymthouse</div></div>
+</div>
+
+<!-- ================= CURRENT STATE ================= -->
+<h2 id="current">2. Current metering pipeline (end-to-end, with file:line evidence)</h2>
+<p>The metering event is <b>not</b> the on-chain ticket. It is a fire-and-forget Kafka telemetry event (<code>create_signed_ticket</code>) emitted by the remote signer at payment-generation time, transformed by a Benthos/Redpanda-Connect collector into a CloudEvent, and ingested by OpenMeter. Here is every hop:</p>
+
+<table>
+  <thead><tr><th>#</th><th>Hop</th><th>What it does with unit / quantity</th><th>Evidence (file:line)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><b>Capability price row</b> (source of unit)</td>
+      <td><code>unit_kind</code>, <code>pixels_per_unit</code>, <code>display_*</code> are <span class="tag t-part">display-only</span> &mdash; "returned by /capabilities, never sent to orch". Wire fields sent to orch are only <code>name, price_per_unit, price_scaling</code>.</td>
+      <td class="mono">simple-infra/tool-host-build/tool-adapter/&#8203;src/livepeer_tool_adapter/config.py:40-48, 60-62, 155-162, 191-195</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><b>Gateway &rarr; signer</b> payment request</td>
+      <td>Gateway POSTs <code>/generate-live-payment</code> with <code>{orchestrator, type, capabilities|capability}</code>. <span class="tag t-no">No quantity</span>, no unit, no request payload &mdash; the megapixels/seconds/chars are never sent to the signer.</td>
+      <td class="mono">livepeer-python-gateway/&#8203;src/livepeer_gateway/byoc.py:220-234</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><b>Signer: choose billing basis</b></td>
+      <td>Basis chosen by <code>req.Type</code> only. BYOC: <code>pixels = ceil(billable_secs)</code>; lv2v: <code>pixels = H&times;W&times;FPS&times;secs</code>. <code>billable_secs</code> preloads to 60&nbsp;s / floors on first call. <span class="tag t-no">unit_kind never consulted</span>.</td>
+      <td class="mono">golivepeer/glp-combine/&#8203;server/remote_signer.go:684-718</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><b>Signer: compute fee</b></td>
+      <td><code>fee = calculateFee(pixels, initialPrice)</code>. Per-cap price (when <code>ByocPerCapPricing</code> on) is read from <code>CapabilitiesPrices</code> and interpreted as <b>wei/second</b>, so fee = capPriceWeiPerSec &times; seconds.</td>
+      <td class="mono">remote_signer.go:466-486, 548-558, 691-700, 731</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><b>Signer: emit metering event</b></td>
+      <td><code>SendQueueEventAsync("create_signed_ticket", {pipeline, model_id, pixels, computed_fee, billable_secs, cost_per_pixel, &hellip;})</code>. <span class="tag t-no">No unit_kind, no natural-unit quantity.</span> <code>pixels</code> is the only "quantity" and it is time-derived.</td>
+      <td class="mono">remote_signer.go:848-878</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><b>Collector transform</b> (Kafka &rarr; CloudEvent)</td>
+      <td>Reads <code>computed_fee</code> (wei), <code>eth_usd</code>, <code>pixels</code>, <code>pipeline</code>, <code>model_id</code>. Computes <code>fee_usd_micros = (fee_wei &times; eth_usd / 1e12).ceil()</code> &mdash; <b>the 1&nbsp;&micro;USD floor</b>. Emits <code>{network_fee_usd_micros, pipeline, model_id, pixels, fee_wei}</code>. <span class="tag t-no">unit_kind dropped; no quantity metering value.</span></td>
+      <td class="mono">pymthouse/deploy/openmeter-collector/&#8203;collector.yaml:106-171 (floor @142-143)</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td><b>OpenMeter meters</b></td>
+      <td>Only two meters. <code>network_fee_usd_micros</code>: <code>SUM($.network_fee_usd_micros)</code> grouped by client/user/pipeline/model. <code>signed_ticket_count</code>: <code>COUNT</code>. <span class="tag t-no">No unit_kind dimension, no quantity value-property.</span></td>
+      <td class="mono">pymthouse/docker/openmeter/config.yaml:40-61; &#8203;src/lib/openmeter/konnect-catalog.ts:29-58; entitlements.ts:219-246</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><b>pymthouse cost / settlement</b></td>
+      <td>"Cost" = the summed <code>network_fee_usd_micros</code> (a fee, not quantity&times;price). Dashboard rows carry <code>networkFeeUsdMicros</code> + optional raw <code>pixels</code>; entitlements burn the fee meter; Konnect settles <code>credit_then_invoice</code> on the same fee. <span class="tag t-no">No quantity&times;per-unit-price calc exists.</span></td>
+      <td class="mono">pymthouse/src/lib/openmeter/&#8203;signed-ticket-events.ts:287-300; entitlements.ts:103-126, 168-217</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Signer event fields today</b> (<span class="mono">remote_signer.go:855-877</span>): <span class="mono">session_id, session_status, pipeline, model_id, request_id, orch_address, orch_url, manifest_id, pm_session_id, current_time(_unix), previous_time(_unix), billable_secs, pixels, session_balance, computed_fee, cost_per_pixel, sequence_number, num_tickets, auth_id</span>. The words <b>unit</b>, <b>megapixel</b>, <b>chars</b>, <b>images</b> do not appear.
+</div>
+
+<!-- ================= GAP ================= -->
+<h2 id="gap">3. The gap &mdash; why the current approach is wrong</h2>
+
+<div class="verdict no">
+  <b>Wrong #1 &mdash; Fee-floor collapses all units to a flat blip.</b>
+  The metered value is <code>ceil(fee_wei &times; eth_usd / 1e12)</code>. Because BYOC fees are tiny at payment-gen (see #2), the ceiling clamps them to <b>1&ndash;2&nbsp;&micro;USD per request</b>. Image megapixels, video seconds, and TTS characters produce the <em>same</em> metered number. (<span class="mono">collector.yaml:142-143</span>)
+</div>
+
+<div class="verdict no">
+  <b>Wrong #2 &mdash; "Seconds-as-flat-unit" is the wrong quantity for non-live caps.</b>
+  For BYOC the signer sets <code>pixels = ceil(billable_secs)</code> and <code>billable_secs</code> preloads to 60&nbsp;s / floors at payment-gen. A one-shot image, a 6-second i2v render, and a 2&nbsp;000-char TTS call are all charged as an arbitrary wall-clock interval, not their true output. The per-cap price is even <em>interpreted</em> as wei/second, which does not match the catalog's per-megapixel / per-image / per-1K-char definitions. (<span class="mono">remote_signer.go:691-700</span>)
+</div>
+
+<div class="verdict no">
+  <b>Wrong #3 &mdash; No unit dimension anywhere downstream.</b>
+  Even if the fee were correct, OpenMeter could not attribute it to a unit: there is no <code>unit_kind</code> label and no quantity value-property. The only meters are <code>SUM(fee)</code> and <code>COUNT</code>. You cannot answer "how many megapixels / seconds / chars did this customer consume?" &mdash; only "how many &micro;USD of fee-floor did we record." (<span class="mono">config.yaml:40-61</span>)
+</div>
+
+<p class="mono" style="color:var(--mut)">Run-53 multi-cap probe (BILLED-E2E-BLOCKER-AUDIT.md:927-1038): every cap shows <span style="color:var(--ok)">price correct? &check;</span> (advertised) but <span style="color:var(--bad)">metering unit correct? &cross;</span> (floor) &mdash; image/video/TTS alike.</p>
+
+<!-- ================= MATRIX ================= -->
+<h2 id="matrix">4. Per-unit requirement matrix</h2>
+<p>The catalog already defines the correct unit and the price per unit for every capability. The columns below come straight from the authoritative pricing table (<span class="mono">storyboard-wg/docs/pricing-v1/pricing-table-deploy.json</span>) and the adapter config. The last two columns are what this proposal must produce.</p>
+
+<table>
+  <thead><tr><th>Modality</th><th>Example caps</th><th><code>unit_kind</code></th><th>Per-unit price basis</th><th>Quantity known at sign-time?</th><th>Quantity source</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Image (diffusion)</td>
+      <td class="mono">flux-schnell, flux-dev, ideogram-v4</td>
+      <td><span class="tag t-keep">megapixel</span></td>
+      <td>USD / MP (<code>display_price_usd</code>, <code>pixels_per_unit=1048576</code>)</td>
+      <td><span class="tag t-yes">Yes</span></td>
+      <td><code>width&times;height&times;num_images / 2<sup>20</sup></code> from request</td>
+    </tr>
+    <tr>
+      <td>Image (flat-per-image)</td>
+      <td class="mono">nano-banana, recraft-v4, gpt-image, flux-pro</td>
+      <td><span class="tag t-keep">image</span></td>
+      <td>USD / image</td>
+      <td><span class="tag t-yes">Yes</span></td>
+      <td><code>num_images</code> (default 1) from request</td>
+    </tr>
+    <tr>
+      <td>Video (t2v / i2v)</td>
+      <td class="mono">ltx-i2v, veo-t2v, kling-i2v, pixverse-i2v</td>
+      <td><span class="tag t-keep">second</span></td>
+      <td>USD / second (<code>pixels_per_unit=8294400</code>)</td>
+      <td><span class="tag t-part">Mostly</span></td>
+      <td>requested <code>duration</code> / <code>num_frames&divide;fps</code>; reconcile to actual on completion</td>
+    </tr>
+    <tr>
+      <td>TTS</td>
+      <td class="mono">chatterbox-tts, gemini-tts, grok-tts</td>
+      <td><span class="tag t-keep">characters</span></td>
+      <td>USD / 1&nbsp;000 chars (<code>pixels_per_unit=100000</code>)</td>
+      <td><span class="tag t-yes">Yes</span></td>
+      <td><code>len(input_text)</code> from request</td>
+    </tr>
+    <tr>
+      <td>LLM / text</td>
+      <td class="mono">gemini-text</td>
+      <td><span class="tag t-keep">tokens</span></td>
+      <td>USD / 1&nbsp;000 tokens</td>
+      <td><span class="tag t-part">Input only</span></td>
+      <td>input tokens at sign-time; output tokens reconcile on completion</td>
+    </tr>
+    <tr>
+      <td>Music / 3D / multimodal</td>
+      <td class="mono">music, sfx, tripo-*, nemotron-omni</td>
+      <td><span class="tag t-keep">call</span></td>
+      <td>USD / call (flat)</td>
+      <td><span class="tag t-yes">Yes</span></td>
+      <td>quantity = 1</td>
+    </tr>
+    <tr>
+      <td>Tools (Docker)</td>
+      <td class="mono">ffmpeg-*, yolo-*, opencv-*</td>
+      <td><span class="tag t-keep">call</span></td>
+      <td>USD / call (flat, 30% margin)</td>
+      <td><span class="tag t-yes">Yes</span></td>
+      <td>quantity = 1</td>
+    </tr>
+    <tr>
+      <td>MCP bridges</td>
+      <td class="mono">slack-send-file, drive-upload, github-create-pr</td>
+      <td><span class="tag t-keep">call</span></td>
+      <td>USD / call (flat fee)</td>
+      <td><span class="tag t-yes">Yes</span></td>
+      <td>quantity = 1</td>
+    </tr>
+    <tr>
+      <td>Live video (lv2v)</td>
+      <td class="mono">longlive, ltx2, krea_realtime_video</td>
+      <td><span class="tag t-keep">second</span></td>
+      <td>USD / second (streaming)</td>
+      <td><span class="tag t-yes">Yes</span></td>
+      <td><code>billable_secs</code> between tickets &mdash; <b>already correct for this modality</b></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Key realization:</b> "seconds" is the <em>right</em> unit for the live-video (lv2v) family and only that family. The bug is applying a time-based quantity to <em>every</em> modality. The catalog already tells us the correct unit per cap &mdash; we just never forward it.
+</div>
+
+<!-- ================= SOT ================= -->
+<h2 id="sot">5. Source of truth for units &amp; quantity</h2>
+<ul class="clean">
+  <li><b>Unit kind (which unit a cap bills in):</b> the capability price row &mdash; <code>ToolCapability.unit_kind</code> in the adapter (<span class="mono">config.py:60,160</span>), populated for AI/fal caps from the deploy pricing table (<span class="mono">pricing-table-deploy.json</span> &rarr; <code>unit_kind</code>, <code>pixels_per_unit</code>, <code>display_price_usd</code>). This is authoritative and already advertised on <code>/capabilities</code>.</li>
+  <li><b>Per-unit price (USD):</b> also the price row &mdash; <code>display_price_usd</code> per <code>display_unit</code>. The on-chain wire price is <code>price_per_unit / price_scaling = wei/pixel</code>, and <code>pixels_per_unit</code> maps one natural unit to pixel-equivalents, so <code>USD_per_unit = wei_per_pixel &times; pixels_per_unit &times; eth_usd</code> is internally consistent with the advertised price.</li>
+  <li><b>Quantity (how many units this request consumed):</b> the <b>job request payload/parameters</b> &mdash; not currently sent to the signer. For image: <code>width&times;height&times;num_images</code>; TTS: <code>len(text)</code>; video: requested <code>duration</code>/<code>num_frames&divide;fps</code>; call-based: 1. The gateway (<span class="mono">byoc.py</span>) already holds the payload, so it is the natural place to compute quantity and pass it to the signer.</li>
+</ul>
+
+<div class="note warn">
+  <b>Sign-time vs completion-time.</b> The metering event fires at <em>payment-generation</em>, before the worker runs. For image / TTS / call / lv2v the quantity is fully known from the request. For video/LLM the <em>output</em> may differ from the request (e.g. model truncates duration, or output tokens). The design meters the <b>requested</b> quantity at sign-time and adds an <b>optional reconciliation</b> event at job-completion (orchestrator already has actuals) for the two modalities where request &ne; output. This keeps the common path simple and correct while covering the edge.
+</div>
+
+<!-- ================= DESIGN ================= -->
+<h2 id="design">6. The 3-hop design</h2>
+
+<h3>Pipeline diagram (producer &rarr; labels &rarr; collector &rarr; meters &rarr; cost)</h3>
+<pre class="diagram">
+  CAPABILITY PRICE ROW                    JOB REQUEST PAYLOAD
+  (unit_kind, per_unit_usd,               (width/height/num_images,
+   pixels_per_unit)                        text length, duration, ...)
+        │  source of UNIT                        │  source of QUANTITY
+        ▼                                         ▼
+  ┌───────────────────────────────────────────────────────────┐
+  │ HOP 1 · GATEWAY + SIGNER  (go-livepeer remote_signer.go)   │
+  │  gateway computes billing_unit_quantity from payload,      │
+  │  passes {billing_unit_kind, billing_unit_quantity} on      │
+  │  /generate-live-payment.                                    │
+  │  signer: fee = per_unit_price × quantity (not wall-clock). │
+  │  emits create_signed_ticket + NEW fields:                  │
+  │    billing_unit_kind, billing_unit_quantity               │
+  └───────────────────────────────────────────────────────────┘
+        │ Kafka  (create_signed_ticket)
+        ▼
+  ┌───────────────────────────────────────────────────────────┐
+  │ HOP 2a · COLLECTOR  (collector.yaml)                       │
+  │  passthrough NEW fields → CloudEvent data:                 │
+  │    unit_kind, unit_quantity  (+ existing fee/pixels)       │
+  │  keep network_fee_usd_micros for continuity (dual-write)   │
+  └───────────────────────────────────────────────────────────┘
+        │ CloudEvent
+        ▼
+  ┌───────────────────────────────────────────────────────────┐
+  │ HOP 2b · OPENMETER METERS  (config.yaml / konnect-catalog) │
+  │  EXISTING: network_fee_usd_micros  SUM  (kept)             │
+  │  NEW:      usage_units             SUM($.unit_quantity)    │
+  │            groupBy: client, user, pipeline, model,         │
+  │                     unit_kind                              │
+  └───────────────────────────────────────────────────────────┘
+        │ usage query (quantity per unit_kind per cap)
+        ▼
+  ┌───────────────────────────────────────────────────────────┐
+  │ HOP 3 · PYMTHOUSE COST  (billing/cost calc)               │
+  │  cost_usd = Σ (unit_quantity × per_unit_usd[cap])          │
+  │  reconcile vs Σ network_fee_usd_micros (on-chain fee)      │
+  │  bill max(fee_floor, unit_cost) → credit_then_invoice     │
+  └───────────────────────────────────────────────────────────┘
+</pre>
+
+<h3 id="design-signer">6a. Hop 1 &mdash; Signer / producer (owner: go-livepeer / signer)</h3>
+<p><b>Gateway change</b> (<span class="mono">livepeer-python-gateway/src/livepeer_gateway/byoc.py</span>): compute the natural-unit quantity from the request payload and add it (with the unit kind) to the <code>/generate-live-payment</code> body. The unit kind can be looked up from the cap's <code>/capabilities</code> row (already fetched) or defaulted per-cap.</p>
+<pre class="code"><span class="c"># byoc.py :: _create_byoc_payment — add to payment_payload</span>
+payment_payload = {
+    <span class="s">"orchestrator"</span>: orch_info_b64,
+    <span class="s">"type"</span>: payment_type,
+    <span class="s">"capability"</span>: capability,               <span class="c"># already the real cap on lv2v path</span>
+    <span class="s">"billing_unit_kind"</span>: unit_kind,          <span class="c"># NEW: "megapixel"|"second"|"characters"|"image"|"call"</span>
+    <span class="s">"billing_unit_quantity"</span>: quantity,       <span class="c"># NEW: float, computed from payload</span>
+}
+</pre>
+<p><b>Signer change</b> (<span class="mono">remote_signer.go</span>): extend <code>RemotePaymentRequest</code> with the two additive fields; when present, use quantity to compute the fee and always stamp them onto the metering event.</p>
+<pre class="code"><span class="c">// RemotePaymentRequest — additive, optional (backward compatible)</span>
+<span class="k">BillingUnitKind</span>     string  `json:<span class="s">"billing_unit_kind,omitempty"</span>`
+<span class="k">BillingUnitQuantity</span> float64 `json:<span class="s">"billing_unit_quantity,omitempty"</span>`
+
+<span class="c">// GenerateLivePayment — fee basis (guarded; falls back to today's path)</span>
+<span class="k">if</span> useUnitPricing &amp;&amp; req.BillingUnitQuantity &gt; 0 {
+    <span class="c">// price row already resolved into priceInfo (wei per pixel-equivalent);</span>
+    <span class="c">// pixels-equivalent = quantity × pixels_per_unit  (carried via priceInfo)</span>
+    pixels = int64(math.Ceil(req.BillingUnitQuantity * pixelsPerUnit))
+} <span class="k">else</span> { <span class="c">/* existing lv2v / seconds path unchanged */</span> }
+
+<span class="c">// SendQueueEventAsync("create_signed_ticket", { ... existing ...,</span>
+<span class="s">"billing_unit_kind"</span>:     billingUnitKind,       <span class="c">// NEW label</span>
+<span class="s">"billing_unit_quantity"</span>: req.BillingUnitQuantity, <span class="c">// NEW numeric quantity</span>
+<span class="c">// })</span>
+</pre>
+<div class="note">Sanitize <code>billing_unit_kind</code> exactly like the existing <code>sanitizeUsageLabel</code> (<span class="mono">remote_signer.go:385-391</span>) &mdash; trim + 128-rune cap &mdash; and clamp <code>billing_unit_quantity</code> to a sane positive range to bound cardinality/abuse. When either field is absent the signer behaves byte-identically to today.</div>
+
+<h3 id="design-om">6b. Hop 2 &mdash; OpenMeter (owner: pymthouse + collector / John)</h3>
+<p><b>Collector</b> (<span class="mono">collector.yaml</span>): stop <em>collapsing</em> &mdash; carry the two new fields through to CloudEvent <code>data</code>, alongside the (retained) fee. No change to the fee-floor line during the dual-write window; it stays for continuity.</p>
+<pre class="code"><span class="c"># collector.yaml — add inside the egress data { } object</span>
+<span class="k">"unit_kind"</span>: <span class="k">if</span> $data.billing_unit_kind != <span class="s">""</span> { $data.billing_unit_kind } <span class="k">else</span> { <span class="s">"unknown"</span> },
+<span class="k">"unit_quantity"</span>: $data.billing_unit_quantity.number().or(0),
+<span class="c"># keep: network_fee_usd_micros, pipeline, model_id, pixels, fee_wei (unchanged)</span>
+</pre>
+<p><b>Meters</b> (<span class="mono">docker/openmeter/config.yaml</span> + <span class="mono">config.railway.yaml</span> + <span class="mono">konnect-catalog.ts</span> + <span class="mono">entitlements.ts:OPENMETER_METER_DEFINITIONS</span>): add ONE meter that sums the true quantity, grouped by unit kind so each unit can be settled separately.</p>
+<pre class="code"><span class="k">- slug</span>: usage_units
+  <span class="k">description</span>: Per-request natural-unit usage (MP / sec / chars / image / call)
+  <span class="k">eventType</span>: create_signed_ticket
+  <span class="k">aggregation</span>: SUM
+  <span class="k">valueProperty</span>: $.unit_quantity
+  <span class="k">groupBy</span>:
+    client_id: $.client_id
+    external_user_id: $.external_user_id
+    pipeline: $.pipeline          <span class="c"># = capability</span>
+    model_id: $.model_id
+    unit_kind: $.unit_kind        <span class="c"># NEW dimension</span>
+</pre>
+<div class="note">Keep <code>network_fee_usd_micros</code> and <code>signed_ticket_count</code> exactly as-is. <code>usage_units</code> is additive; existing subscriptions/entitlements keep working during rollout. The new <code>unit_kind</code> group-by key lets one meter serve every modality (a customer's row splits into MP-rows, second-rows, char-rows, etc.).</div>
+
+<h3 id="design-pmt">6c. Hop 3 &mdash; pymthouse cost (owner: pymthouse / John)</h3>
+<p>Replace "cost = summed network fee" with <b>cost = quantity &times; per-unit price</b>, keeping the network fee as the reconciliation floor.</p>
+<pre class="code"><span class="c">// per (client, user, pipeline/cap, unit_kind) group from usage_units meter:</span>
+unitQty      = SUM($.unit_quantity)                <span class="c">// from OpenMeter</span>
+perUnitUsd   = capPrice(cap).display_price_usd     <span class="c">// from CapabilitiesPrices / catalog</span>
+unitCostUsd  = unitQty * perUnitUsd                <span class="c">// the CORRECT cost</span>
+
+feeUsd       = SUM($.network_fee_usd_micros)/1e6   <span class="c">// on-chain network fee (existing meter)</span>
+billedUsd    = max(unitCostUsd, feeUsd)            <span class="c">// never under-bill the on-chain fee</span>
+<span class="c">// settle billedUsd via credit_then_invoice (unchanged settlement engine)</span>
+</pre>
+<ul class="clean">
+  <li><b>Per-unit price source:</b> the same <code>CapabilitiesPrices</code> / catalog row already used to advertise the price &mdash; so the amount billed matches the amount shown to the user.</li>
+  <li><b>Reconciliation:</b> <code>unitCostUsd</code> and <code>feeUsd</code> should converge once the signer computes the fee from quantity (Hop&nbsp;1). <code>max(...)</code> is a safety net for the transition and for caps where the on-chain fee legitimately exceeds the advertised price (e.g. min-ticket EV). Emit a metric on the delta to catch drift.</li>
+  <li><b>Backward-compat:</b> if <code>unit_quantity</code> is absent/zero (pre-rollout events), fall back to <code>feeUsd</code> &mdash; identical to today.</li>
+</ul>
+
+<h3>Field / schema definitions</h3>
+<table>
+  <thead><tr><th>Field</th><th>Where</th><th>Type</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">billing_unit_kind</td><td>gateway&rarr;signer body; signer event</td><td>string enum</td><td><code>megapixel|second|characters|tokens|image|call</code>. From cap price row.</td></tr>
+    <tr><td class="mono">billing_unit_quantity</td><td>gateway&rarr;signer body; signer event</td><td>number</td><td>True count of natural units this request consumes. From request payload.</td></tr>
+    <tr><td class="mono">unit_kind</td><td>CloudEvent <code>data</code>; meter group-by</td><td>string</td><td>Passthrough of <code>billing_unit_kind</code> (default <code>unknown</code>).</td></tr>
+    <tr><td class="mono">unit_quantity</td><td>CloudEvent <code>data</code>; meter value</td><td>number</td><td>Passthrough of <code>billing_unit_quantity</code> (default 0). <code>SUM</code>med by <code>usage_units</code>.</td></tr>
+    <tr><td class="mono">usage_units</td><td>OpenMeter meter</td><td>meter (SUM)</td><td>NEW meter. Sum of quantity grouped incl. <code>unit_kind</code>.</td></tr>
+  </tbody>
+</table>
+<div class="note warn"><b>BPP boundary:</b> <code>unit_kind</code> / <code>unit_quantity</code> live in the <em>provider-internal</em> OpenMeter shape (<span class="mono">contracts/billing-provider-protocol/provider-internal-openmeter.schema.json</span>). They must be added there and to its <code>x-bpp-forbidden-field-names</code> list so they never leak through the neutral BPP usage-ingest seam &mdash; consistent with <code>network_fee_usd_micros</code>, <code>fee_wei</code>, etc. today.</div>
+
+<!-- ================= MIGRATION ================= -->
+<h2 id="migration">7. Backward-compat &amp; phased rollout</h2>
+<p>Every change is additive and flag-gated. At no point does removing the fee path break current billing; the new unit path is proven in parallel before it becomes authoritative.</p>
+
+<div class="phase">
+  <h3>Phase 0 &mdash; Schema + passthrough (no behavior change)</h3>
+  <p>Add <code>unit_kind</code>/<code>unit_quantity</code> to the collector passthrough and the internal schema; add the <code>usage_units</code> meter. Signer/gateway not yet emitting the fields &rarr; meter reads 0. <span class="gate">Gate: meter provisions; existing fee meter unchanged; conformance suite green.</span></p>
+</div>
+<div class="phase">
+  <h3>Phase 1 &mdash; Producer dual-write (flag <code>UnitMetering</code> = observe)</h3>
+  <p>Gateway computes quantity; signer stamps <code>billing_unit_kind</code>/<code>billing_unit_quantity</code> onto the event but <b>keeps the current fee math</b>. Now both meters populate. pymthouse computes <code>unitCostUsd</code> for <b>comparison only</b> (logged, not billed). <span class="gate">Gate: unit_quantity non-zero and correct for image/TTS/video/call in staging; delta vs fee within tolerance.</span></p>
+</div>
+<div class="phase">
+  <h3>Phase 2 &mdash; Fee from quantity (flag = enforce fee)</h3>
+  <p>Signer computes <code>fee = per_unit_price &times; quantity</code> for non-lv2v caps. lv2v seconds path untouched. <span class="gate">Gate: on-chain fee now tracks advertised per-unit price; <code>max(unitCost,fee)</code> delta &rarr; ~0.</span></p>
+</div>
+<div class="phase">
+  <h3>Phase 3 &mdash; Bill on unit cost</h3>
+  <p>pymthouse settles <code>billedUsd = max(unitCostUsd, feeUsd)</code>. Fee-floor line kept as the safety net. Optional completion-time reconciliation event enabled for video/LLM. <span class="gate">Gate: invoices reconcile to advertised prices; per-unit dashboards live.</span></p>
+</div>
+<div class="phase">
+  <h3>Phase 4 &mdash; Cleanup</h3>
+  <p>Retire the pixels-as-quantity display once <code>unit_quantity</code> is fully populated. Keep the fee meter permanently (it is the on-chain truth). <span class="gate">Gate: no consumers of legacy <code>pixels</code> for cost.</span></p>
+</div>
+
+<!-- ================= TEST ================= -->
+<h2 id="test">8. Test &amp; measurement plan</h2>
+<p>Each unit kind gets an explicit assertion that the <em>right</em> quantity in the <em>right</em> unit reaches OpenMeter, and that pymthouse cost equals the advertised price.</p>
+<table>
+  <thead><tr><th>Unit</th><th>Cap under test</th><th>Stimulus</th><th>Assert (OpenMeter <code>usage_units</code>)</th><th>Assert (pymthouse cost)</th></tr></thead>
+  <tbody>
+    <tr><td>megapixel</td><td class="mono">flux-schnell</td><td>1024&times;1024 image (1 img)</td><td><code>unit_kind=megapixel</code>, qty &asymp; 1.0 (&plusmn;rounding)</td><td>&asymp; <code>display_price_usd &times; 1.0</code></td></tr>
+    <tr><td>image</td><td class="mono">nano-banana</td><td>2 images</td><td><code>unit_kind=image</code>, qty = 2</td><td>= <code>display_price_usd &times; 2</code></td></tr>
+    <tr><td>second</td><td class="mono">ltx-i2v</td><td>6&nbsp;s i2v render</td><td><code>unit_kind=second</code>, qty &asymp; 6 (requested), reconcile to actual 6.12</td><td>&asymp; <code>0.042 &times; 6</code></td></tr>
+    <tr><td>characters</td><td class="mono">chatterbox-tts</td><td>2&nbsp;000-char input</td><td><code>unit_kind=characters</code>, qty = 2000</td><td>= <code>0.02625 &times; 2</code> (per-1K)</td></tr>
+    <tr><td>call</td><td class="mono">ffmpeg-concat</td><td>1 tool call</td><td><code>unit_kind=call</code>, qty = 1</td><td>= flat call price</td></tr>
+    <tr><td>second (lv2v)</td><td class="mono">longlive</td><td>30&nbsp;s stream (regression)</td><td><code>unit_kind=second</code>, qty &asymp; 30 &mdash; unchanged from today</td><td>= streaming per-sec price</td></tr>
+  </tbody>
+</table>
+<ul class="clean">
+  <li><b>Unit tests:</b> pure quantity-derivation functions (gateway) and <code>resolveByocPrice</code>/fee math (signer, hermetic &mdash; no CGO) with table-driven cases per unit kind.</li>
+  <li><b>Collector test:</b> feed a synthetic <code>create_signed_ticket</code> with the new fields; assert CloudEvent carries <code>unit_kind</code>/<code>unit_quantity</code> and still carries <code>network_fee_usd_micros</code>.</li>
+  <li><b>OpenMeter integration:</b> ingest events, query <code>usage_units</code> grouped by <code>unit_kind</code>; assert per-unit sums.</li>
+  <li><b>Reconciliation metric:</b> dashboard/alert on <code>|unitCostUsd - feeUsd|</code> per cap &mdash; catches unit or price drift in production.</li>
+  <li><b>Backward-compat test:</b> event with no unit fields &rarr; <code>usage_units</code>=0, billing falls back to fee (byte-identical to today).</li>
+</ul>
+
+<!-- ================= OWNERS ================= -->
+<h2 id="owners">9. Owners per hop</h2>
+<table>
+  <thead><tr><th>Hop</th><th>Change</th><th>Owner</th></tr></thead>
+  <tbody>
+    <tr><td>Gateway</td><td>Compute <code>billing_unit_quantity</code> from payload; send unit+qty on <code>/generate-live-payment</code></td><td><b>gateway</b> (livepeer-python-gateway)</td></tr>
+    <tr><td>Signer</td><td>Accept unit+qty; compute fee from quantity; stamp fields on <code>create_signed_ticket</code></td><td><b>go-livepeer / signer</b> (qiang)</td></tr>
+    <tr><td>Collector + OpenMeter</td><td>Passthrough fields; add <code>usage_units</code> meter (config.yaml, konnect-catalog.ts, entitlements.ts); update internal schema + forbidden-field list</td><td><b>pymthouse + collector</b> (John)</td></tr>
+    <tr><td>pymthouse cost</td><td>cost = quantity &times; per-unit price; reconcile vs fee; per-unit dashboards</td><td><b>pymthouse</b> (John)</td></tr>
+    <tr><td>Catalog / units</td><td>Keep <code>unit_kind</code>/<code>pixels_per_unit</code>/<code>display_price_usd</code> authoritative &amp; complete per cap</td><td><b>infra + storyboard</b> (qiang)</td></tr>
+  </tbody>
+</table>
+
+<!-- ================= DO / DONT ================= -->
+<h2 id="dodont">10. DO / DON'T / risks</h2>
+<div class="do-dont">
+  <div class="do">
+    <h3>DO</h3>
+    <ul class="clean">
+      <li>Make <code>billing_unit_kind</code> + <code>billing_unit_quantity</code> additive &amp; optional &mdash; absence = today's behavior.</li>
+      <li>Source the <b>unit</b> from the cap price row and the <b>quantity</b> from the request payload.</li>
+      <li>Keep the fee meter forever; add <code>usage_units</code> alongside it.</li>
+      <li>Use one meter with a <code>unit_kind</code> group-by, not one meter per unit.</li>
+      <li>Dual-write &amp; compare (Phase 1) before billing on the new number.</li>
+      <li>Alert on the <code>unitCost</code> vs <code>fee</code> delta.</li>
+      <li>Add the new fields to the internal OpenMeter schema's forbidden-field list (BPP hygiene).</li>
+    </ul>
+  </div>
+  <div class="dont">
+    <h3>DON'T</h3>
+    <ul class="clean">
+      <li>Don't keep <code>pixels = ceil(billable_secs)</code> as the quantity for non-live caps.</li>
+      <li>Don't meter the fee-floor as "cost" &mdash; it hides the unit.</li>
+      <li>Don't change the on-chain wire ticket format or the PM ledger.</li>
+      <li>Don't create a meter per modality (cardinality + maintenance blow-up).</li>
+      <li>Don't let unit/qty fields leak through the neutral BPP seam.</li>
+      <li>Don't touch the lv2v seconds path &mdash; it is already correct.</li>
+      <li>Don't over-engineer completion-time reconciliation for units already exact at sign-time.</li>
+    </ul>
+  </div>
+</div>
+
+<h3>Risks</h3>
+<table>
+  <thead><tr><th>Risk</th><th>Likelihood &times; impact</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr><td>Quantity at sign-time &ne; actual output (video/LLM)</td><td class="risk-md">MED &times; MED</td><td>Meter requested qty; optional completion-time reconcile event for the two affected modalities only.</td></tr>
+    <tr><td>Missing/incorrect <code>unit_kind</code> on a cap row</td><td class="risk-md">MED &times; MED</td><td>Default to <code>call</code>+qty1; alert on <code>unit_kind=unknown</code>; catalog completeness check in CI.</td></tr>
+    <tr><td>Fee (quantity-based) &ne; advertised price during transition</td><td class="risk-lo">LOW &times; MED</td><td><code>max(unitCost, fee)</code> floor; delta metric; phased enforce.</td></tr>
+    <tr><td>High-cardinality abuse via new fields</td><td class="risk-lo">LOW &times; LOW</td><td>Sanitize/length-cap unit kind; clamp quantity range (mirror existing label guards).</td></tr>
+    <tr><td>Meter/entitlement disruption on rollout</td><td class="risk-lo">LOW &times; HIGH</td><td>Additive meter; fee meter untouched; Phase-0 provisions before any producer change.</td></tr>
+  </tbody>
+</table>
+
+<div class="foot">
+  Per-Unit (Per-Ticket) Metering Design Proposal &middot; read-only investigation, no product code changed.
+  Evidence: <span class="mono">remote_signer.go</span>, <span class="mono">collector.yaml</span>, <span class="mono">docker/openmeter/config.yaml</span>,
+  <span class="mono">konnect-catalog.ts</span>, <span class="mono">entitlements.ts</span>, <span class="mono">signed-ticket-events.ts</span>,
+  <span class="mono">byoc.py</span>, <span class="mono">config.py</span>, <span class="mono">pricing-table-deploy.json</span>,
+  <span class="mono">provider-internal-openmeter.schema.json</span>. Prior trace: <span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span> (commit 93ca2119).
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BYOC &rarr; Live-Runner Migration &amp; go-livepeer Merge Strategy</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --border:#2b3441;
+    --ink:#e6edf3; --mut:#9aa7b4; --accent:#4fa3ff; --accent2:#7ee787;
+    --warn:#f0b429; --bad:#ff6b6b; --ok:#4fd08a; --mid:#ffb454;
+    --chip:#222b38;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 28px 96px}
+  header.hero{
+    background:linear-gradient(135deg,#12203a,#1a1030 60%,#0e1116);
+    border:1px solid var(--border); border-radius:16px; padding:32px 34px; margin-bottom:28px;
+  }
+  header.hero h1{margin:0 0 6px; font-size:28px; letter-spacing:-.4px}
+  header.hero .sub{color:var(--mut); font-size:15px}
+  header.hero .meta{margin-top:16px; display:flex; flex-wrap:wrap; gap:8px}
+  .chip{background:var(--chip); border:1px solid var(--border); color:var(--mut);
+    border-radius:999px; padding:4px 12px; font-size:12.5px}
+  .chip b{color:var(--ink); font-weight:600}
+  h2{font-size:21px; margin:40px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+  h3{font-size:16.5px; margin:24px 0 8px; color:#cbd6e2}
+  p{margin:10px 0}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:#0b0f14; border:1px solid var(--border); border-radius:5px;
+    padding:1px 6px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.8px; color:#e3b341}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin:16px 0}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px}
+  .card h4{margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--mut)}
+  .card .big{font-size:22px; font-weight:700}
+  .verdict{border-left:4px solid var(--accent); background:var(--panel2); border-radius:0 10px 10px 0;
+    padding:14px 18px; margin:16px 0}
+  .verdict.no{border-left-color:var(--bad)}
+  .verdict.yes{border-left-color:var(--ok)}
+  .verdict.cond{border-left-color:var(--warn)}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px; background:var(--panel); border-radius:10px; overflow:hidden}
+  th,td{padding:9px 11px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top}
+  th{background:var(--panel2); color:#cbd6e2; font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.4px}
+  tr:last-child td{border-bottom:none}
+  td.mono,th.mono{font-family:ui-monospace,Menlo,monospace; font-size:12.4px}
+  .tag{display:inline-block; padding:2px 8px; border-radius:6px; font-size:11.5px; font-weight:600; white-space:nowrap}
+  .t-merged{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  .t-open{background:#3a2e12; color:var(--mid); border:1px solid #6b5320}
+  .t-branch{background:#331c2b; color:#ff9ecb; border:1px solid #5c2f4a}
+  .t-closed{background:#2a2f36; color:var(--mut); border:1px solid #3b4653}
+  .t-yes{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  .t-no{background:#3a1418; color:var(--bad); border:1px solid #63232a}
+  .t-part{background:#3a2e12; color:var(--mid); border:1px solid #6b5320}
+  .t-keep{background:#122a33; color:#5ad1e0; border:1px solid #1e4f5c}
+  .t-merge{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  .t-drop{background:#331c2b; color:#ff9ecb; border:1px solid #5c2f4a}
+  .risk-hi{color:var(--bad); font-weight:700}
+  .risk-md{color:var(--mid); font-weight:700}
+  .risk-lo{color:var(--ok); font-weight:700}
+  ul.clean{margin:8px 0; padding-left:22px}
+  ul.clean li{margin:5px 0}
+  .do-dont{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0}
+  @media(max-width:760px){.do-dont{grid-template-columns:1fr}}
+  .do{background:#0f1f16; border:1px solid #1e5637; border-radius:12px; padding:16px 18px}
+  .dont{background:#1f1113; border:1px solid #63232a; border-radius:12px; padding:16px 18px}
+  .do h3{color:var(--ok); margin-top:0} .dont h3{color:var(--bad); margin-top:0}
+  .note{background:#1a2436; border:1px dashed #365; border-radius:10px; padding:12px 16px; margin:14px 0; color:#bcd}
+  .note.warn{background:#2a2312; border-color:#6b5320; color:#f2d999}
+  .toc{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 20px; margin:20px 0; columns:2; column-gap:30px}
+  .toc a{display:block; padding:3px 0; color:var(--mut)}
+  .toc a:hover{color:var(--accent)}
+  .foot{margin-top:56px; padding-top:18px; border-top:1px solid var(--border); color:var(--mut); font-size:12.5px}
+  .phase{border-left:3px solid var(--accent); padding:4px 0 4px 18px; margin:14px 0}
+  .phase h3{margin:0 0 4px}
+  .gate{font-size:12.5px; color:var(--accent2)}
+  .pill{display:inline-block;background:var(--chip);border:1px solid var(--border);border-radius:6px;padding:1px 7px;font-size:12px;color:var(--mut);margin:0 2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>BYOC &rarr; Live-Runner Migration &amp; go-livepeer Merge Strategy</h1>
+  <div class="sub">Deprecating the BYOC code path (<span class="mono">byoc-staging-1</span>), merging the least possible to <span class="mono">main</span> go-livepeer, and migrating fal caps / tools / MCP to a live-runner orchestrator &mdash; regression-focused.</div>
+  <div class="meta">
+    <span class="chip">Deploy branch: <b class="mono">fix/byoc-e2e-v1-and-type-byoc</b> @ <b class="mono">8ddd08ea</b></span>
+    <span class="chip"><b>111</b> commits ahead of <b class="mono">origin/master</b></span>
+    <span class="chip">Prod image tag: <b class="mono">go-livepeer:feat-remote-signer-byoc-v2</b></span>
+    <span class="chip">Evidence-based &middot; analysis only</span>
+  </div>
+</header>
+
+<div class="toc">
+  <a href="#tldr">0. Direct answers (TL;DR)</a>
+  <a href="#exec">1. Executive summary</a>
+  <a href="#deploy">2. byoc-staging-1 deployment state</a>
+  <a href="#prtable">3. PR / branch / commit merge-state table</a>
+  <a href="#unmerged">4. Is it OK to keep deploying an unmerged branch?</a>
+  <a href="#parity">5. Live-runner parity matrix</a>
+  <a href="#minmerge">6. Minimal-merge recommendation</a>
+  <a href="#plan">7. Phased migration + retire plan</a>
+  <a href="#risks">8. Regression risks (likelihood &times; impact &times; mitigation)</a>
+  <a href="#dodont">9. DO / DON'T</a>
+  <a href="#unknowns">10. What could not be determined</a>
+</div>
+
+<!-- ================= TL;DR ================= -->
+<h2 id="tldr">0. Direct answers</h2>
+
+<div class="verdict cond">
+  <b>Q1 &mdash; Is it OK for the BYOC commits to stay unmerged so you can keep deploying the current branch?</b><br>
+  <b>Yes, short-term &mdash; conditionally.</b> The deploy branch is a deliberate, disposable staging line destined for retirement, so it is reasonable to <em>not</em> merge the bulk of the BYOC stack (per-cap pricing signer, <code>type:byoc</code> restore, V1 job-creds) into <code>main</code>. But it is <b>only</b> OK if you (a) merge the one small master-based fix that unblocks billed generation (<b>#3993</b>), (b) accept single-owner / rebase-drift / no-CI-on-main risk for the retire window, and (c) set a hard retire date. Long-term (&gt; a few months) it is <b>not</b> OK to run production off a 111-commit unmerged branch.
+</div>
+
+<div class="verdict no">
+  <b>Q2 &mdash; Can a live-runner (lv2v) orchestrator serve everything BYOC serves without regression?</b><br>
+  <b>No &mdash; not with today's code and staging.</b> Live-runner and BYOC are <em>different subsystems</em>. Live-runner is offchain + zero-priced, exposes no per-cap <code>CapabilitiesPrices</code>, has no <code>/process/request</code> + V1 job-creds path, and today serves only <b>8 fal models + 3 deterministic tool apps</b> vs BYOC's <b>12 fal/gemini caps + a 34-cap tool orch + MCP routing</b>. Migration is viable but requires real work (single-shot payments, on-chain runners, non-zero pricing, cap/tool catalog build-out) before it reaches no-regression parity.
+</div>
+
+<div class="note warn">
+  <b>Top 3 regression risks:</b>
+  <b>(1) Billing/metering correctness</b> &mdash; metering fires at signer payment-generation (<code>platform_ingest</code>), decoupled from orch success, and OpenMeter meters <em>fee only</em>, not units (the unit-metering gap). Migrating pricing surfaces will mis-bill if not fixed.
+  <b>(2) Capability coverage</b> &mdash; live-runner cannot yet serve most fal caps, gemini, the tool catalog, or MCP; image/audio/TTS/tool/MCP flows would regress.
+  <b>(3) Zero-pricing / auth-vs-pricing split</b> &mdash; the billed live-runner path returns <code>400 "missing or zero priceInfo"</code> (structural, not config); composite-bearer auth passes but there is no price to mint a ticket against, and the Daydream path (<code>signer.daydream.live</code>) expects <code>lv2v</code> with a different pricing model (wei/pixel vs per-cap USD).
+</div>
+
+<!-- ================= EXEC ================= -->
+<h2 id="exec">1. Executive summary</h2>
+<div class="grid">
+  <div class="card"><h4>Deploy branch delta</h4><div class="big">111</div><div style="color:var(--mut)">commits ahead of <span class="mono">origin/master</span> (<span class="mono">8ddd08ea</span>)</div></div>
+  <div class="card"><h4>BYOC caps registered</h4><div class="big">12</div><div style="color:var(--mut)">fal + gemini caps on <span class="mono">byoc-staging-1</span></div></div>
+  <div class="card"><h4>Live-runner caps</h4><div class="big">8 + 3</div><div style="color:var(--mut)">fal models + ffmpeg/blender/hyperframes apps</div></div>
+  <div class="card"><h4>Must-merge PRs</h4><div class="big">1</div><div style="color:var(--mut)"><span class="mono">#3993</span> to unblock billed gen</div></div>
+</div>
+
+<p>
+The current <span class="mono">byoc-staging-1</span> deployment runs an on-chain BYOC orchestrator (<code>eth_addr 0x180859c3&hellip;</code>, <code>us-west1-b</code>) plus an inference-adapter that registers 12 capabilities and advertises per-cap USD prices in <code>OrchestratorInfo.CapabilitiesPrices</code>. The go-livepeer code it depends on lives on <span class="mono">fix/byoc-e2e-v1-and-type-byoc</span>, which is <b>111 commits ahead of GitHub main</b>. The entire BYOC billing/signer stack (per-cap pricing, <code>type:byoc</code> billing, V1 job-creds verify) is <b>branch-only</b> &mdash; <b>none of it is on <code>origin/master</code></b>. The only pieces that touch <code>main</code> are open PRs.
+</p>
+<p>
+The strategic goal &mdash; <b>deprecate BYOC, merge the least possible, migrate to live-runner</b> &mdash; is sound. The right posture is: <b>keep <code>byoc-staging-1</code> as the disposable deployment branch</b>, merge only the single small overhead fix that keeps billing correct (<b>#3993</b>), leave the rest branch-only (it dies with BYOC), and build live-runner up to parity <em>cap-by-cap with billing gates</em> before retiring BYOC. Live-runner is <b>not</b> a drop-in replacement today; forcing traffic onto it now would regress capability coverage and billing.
+</p>
+
+<!-- ================= DEPLOY STATE ================= -->
+<h2 id="deploy">2. byoc-staging-1 deployment state</h2>
+<p>From <code>simple-infra/environments/staging/byoc.yaml</code> and <code>byoc.values.yaml</code>:</p>
+<table>
+  <tr><th>Field</th><th>Value</th><th>Source</th></tr>
+  <tr><td>Orch host</td><td class="mono">byoc-staging-1.daydream.monster:8935</td><td>byoc.yaml</td></tr>
+  <tr><td>On-chain?</td><td><b>Yes</b> &mdash; <span class="mono">eth_addr 0x180859c337d14edf588c685f3f7ab4472ab6a252</span>, wallet <span class="mono">scope-stg-orch-wallet</span></td><td>byoc.yaml</td></tr>
+  <tr><td>Orch image tag</td><td class="mono">livepeer/go-livepeer:feat-remote-signer-byoc-v2</td><td>byoc.values.yaml:34</td></tr>
+  <tr><td>Adapter / proxy</td><td class="mono">inference-adapter:latest / serverless-proxy:latest</td><td>byoc.values.yaml:35&ndash;36</td></tr>
+  <tr><td>SDK service image</td><td class="mono">sdk-service:byoc-lv2v-bd8e7807-2026-07-09</td><td>byoc.values.yaml:39</td></tr>
+  <tr><td>Signer / discovery</td><td class="mono">signer.daydream.live + discovery/staging.json</td><td>byoc.values.yaml:46&ndash;48</td></tr>
+  <tr><td>Per-cap pricing</td><td>USD-denominated, advertised in <code>CapabilitiesPrices</code>; charged only when <code>-byocPerCapPricing</code> ON (default OFF)</td><td>byoc.yaml:26&ndash;33</td></tr>
+  <tr><td>Registered caps (12)</td><td class="mono">nano-banana, recraft-v4, flux-schnell, flux-dev, ltx-t2v, ltx-i2v, kontext-edit, bg-remove, topaz-upscale, chatterbox-tts, gemini-image, gemini-text</td><td>byoc.yaml:34&ndash;82</td></tr>
+</table>
+
+<div class="note warn">
+  <b>Uncertainty (verify against the live VM):</b> The infra config pins the orch image tag <code>go-livepeer:feat-remote-signer-byoc-v2</code>, which is <em>not</em> the same name as the local working branch <code>fix/byoc-e2e-v1-and-type-byoc</code> (@ <code>8ddd08ea</code>). These may be the same build under different tag names, or the VM may be running an older image. <b>To confirm exactly what is deployed:</b> SSH to <code>byoc-staging-1</code> and run <code>docker inspect</code> on the orch container (image digest), and diff it against a build of <code>8ddd08ea</code>. Also note <code>#3980</code> was merged into the stack branch as merge-commit <code>410aeebc</code>, which is a <em>parallel history</em> to <code>8ddd08ea</code> &mdash; run <code>git diff 8ddd08ea origin/feat/byoc-per-cap-pricing-and-usage-labels</code> before assuming parity.
+</div>
+
+<!-- ================= PR TABLE ================= -->
+<h2 id="prtable">3. PR / branch / commit merge-state &rarr; keep or merge</h2>
+<p><code>gh</code> confirmed (as <span class="mono">seanhanca</span>). "Merged?" = is it an ancestor of <code>origin/master</code>. All BYOC billing commits are <b>branch-only</b>.</p>
+<table>
+  <tr><th>PR / commit</th><th>What it does</th><th class="mono">Files</th><th>Merge state</th><th>Action</th></tr>
+  <tr>
+    <td class="mono">#3980<br>8ddd08ea</td>
+    <td>Restore <code>type:byoc</code> billing + V1 job-creds verify (<code>FlattenBYOCJob</code>)</td>
+    <td class="mono">byoc/job_orchestrator.go, server/remote_signer.go</td>
+    <td><span class="tag t-merged">MERGED &rarr; stack only</span><br><span style="color:var(--mut);font-size:12px">into <span class="mono">feat/byoc-per-cap-pricing-and-usage-labels</span>, NOT master</span></td>
+    <td><span class="tag t-drop">Branch-only / drop at retire</span></td>
+  </tr>
+  <tr>
+    <td class="mono">#3993<br>ed8f454e</td>
+    <td><code>applyAutoAdjustOverhead</code> in <code>GetCapabilitiesPrices</code> so advertised price = bound price (+~1% tx overhead); fixes signer <code>ExpectedPrice</code> vs <code>RecipientRandHash</code> mismatch</td>
+    <td class="mono">core/orchestrator.go</td>
+    <td><span class="tag t-open">OPEN &rarr; base master</span><br><span style="color:var(--mut);font-size:12px">NOT on deploy branch</span></td>
+    <td><span class="tag t-merge">MERGE to main</span></td>
+  </tr>
+  <tr>
+    <td class="mono">#3975</td>
+    <td>Live-runner <b>single-shot payments</b> (402 challenge + <code>ProcessPayment</code> + metering loop); fixes #3955</td>
+    <td class="mono">server/ai_http.go, ai/runner/live_runner.go</td>
+    <td><span class="tag t-open">OPEN &rarr; base master</span></td>
+    <td><span class="tag t-merge">MERGE (enables LR migration)</span></td>
+  </tr>
+  <tr>
+    <td class="mono">597dbc62<br>84c706ae</td>
+    <td>Charge BYOC live payments at per-cap price; harden per-cap gating + duplicate-price scan (the <code>-byocPerCapPricing</code> feature)</td>
+    <td class="mono">server/remote_signer.go, cmd/livepeer/starter/*, core/livepeernode.go</td>
+    <td><span class="tag t-branch">Branch-only</span><br><span style="color:var(--mut);font-size:12px">#3966/#3967 CLOSED, folded into #3972 OPEN</span></td>
+    <td><span class="tag t-drop">Branch-only / drop at retire</span></td>
+  </tr>
+  <tr>
+    <td class="mono">023d25e9<br>cae4e731</td>
+    <td>Meter real BYOC capability + model_id for usage events; sanitize gateway usage labels</td>
+    <td class="mono">server/remote_signer.go</td>
+    <td><span class="tag t-branch">Branch-only (#3972)</span></td>
+    <td><span class="tag t-drop">Branch-only / drop at retire</span></td>
+  </tr>
+  <tr>
+    <td class="mono">#3972</td>
+    <td>Umbrella: <span class="mono">feat/byoc-per-cap-pricing-and-usage-labels</span> (per-cap pricing + usage labels, incl. John's <code>34038ffa</code> pipeline fix)</td>
+    <td class="mono">signer + capabilities</td>
+    <td><span class="tag t-open">OPEN &rarr; base #3947</span></td>
+    <td><span class="tag t-drop">Do not merge to main</span></td>
+  </tr>
+  <tr>
+    <td class="mono">#3947</td>
+    <td>Model-id signer + Kafka (<code>ModelIDForCapability</code>) &mdash; base of the pricing stack</td>
+    <td class="mono">core/capabilities.go</td>
+    <td><span class="tag t-open">OPEN</span></td>
+    <td><span class="tag t-keep">Keep in stack; merge only if reused by LR</span></td>
+  </tr>
+  <tr>
+    <td class="mono">#3938</td>
+    <td>Live Runner implementation (<span class="mono">ja/live-runner</span>) &mdash; base of the whole stack</td>
+    <td class="mono">ai/runner/live_runner.go, server/ai_http.go</td>
+    <td><span class="tag t-open">OPEN</span></td>
+    <td><span class="tag t-merge">Merge to main (LR foundation)</span></td>
+  </tr>
+  <tr>
+    <td class="mono">#428 (NaaP)</td>
+    <td>Adds <code>lr</code> discovery category routing 8 fal caps to the LR host (dual-homed with <code>byoc</code>)</td>
+    <td class="mono">storyboard-default-plan.ts</td>
+    <td><span class="tag t-merged">MERGED (NaaP)</span></td>
+    <td><span class="tag t-keep">Keep; scope <code>lr</code> to what LR can bill</span></td>
+  </tr>
+</table>
+<div class="note">
+  <b>#428 caveat:</b> go-livepeer PR <span class="mono">#428</span> is an unrelated 2018 "restartable broadcasts" PR. The relevant <span class="mono">#428</span> is the <b>NaaP</b> discovery PR. It only <em>routes</em> caps to the LR host; it does <b>not</b> add pricing, the BYOC adapter, or job-creds. Dual-homing caps to <code>lr</code> that the LR orch cannot yet bill/serve is itself a regression risk (routing may pick a host that returns zero-price).
+</div>
+
+<!-- ================= UNMERGED ================= -->
+<h2 id="unmerged">4. Is it OK to keep deploying an unmerged branch?</h2>
+<p>Yes for the retire window, with eyes open. Trade-offs of running <span class="mono">byoc-staging-1</span> off a 111-commit unmerged branch long-term:</p>
+<table>
+  <tr><th>Concern</th><th>Assessment</th></tr>
+  <tr><td><b>Rebase / drift from main</b></td><td>The branch is 111 commits ahead and diverges from <code>origin/master</code> at <code>866df77e (#3944)</code>. Every week main moves, rebasing gets harder. Because the branch is intended to <em>die</em>, avoid rebasing &mdash; freeze it and cherry-pick only critical fixes.</td></tr>
+  <tr><td><b>Security / CVE patches</b></td><td>Real risk. Security fixes landing on main won't reach the branch automatically. Mitigation: subscribe to go-livepeer security advisories; cherry-pick critical patches; keep the retire window short.</td></tr>
+  <tr><td><b>CI coverage</b></td><td>Branch builds don't get main's CI gates on merge. Mitigation: run the branch through go-livepeer CI on each staging image bump (checklist already exists in <code>byoc.values.yaml</code>).</td></tr>
+  <tr><td><b>Single-owner / bus factor</b></td><td>The stack (John / seanhanca / qianghan) is understood by few. Document the lineage (this report) and the exact deployed digest.</td></tr>
+  <tr><td><b>Who else depends on it</b></td><td>The Daydream path (<code>signer.daydream.live</code>, <code>sdk.daydream.monster</code>) and Storyboard/pymthouse billing all target this orch. Retiring BYOC must be coordinated with those consumers.</td></tr>
+  <tr><td><b>Billing correctness</b></td><td>The one concrete correctness gap on the branch is the missing overhead fix (<b>#3993</b>) &mdash; without it, billed generation is blocked / mis-priced. This is why #3993 should land on main (it's small and master-based) even while the rest stays branch-only.</td></tr>
+</table>
+<div class="verdict cond">
+  <b>Verdict:</b> Keep deploying the branch through the retire window. Merge <b>#3993</b> (and cherry-pick it onto the deploy branch). Do <b>not</b> invest in merging the per-cap pricing / <code>type:byoc</code> / V1 job-creds stack to main &mdash; it is soon-to-be-dead code and merging it would burden <code>main</code> with a subsystem you are deprecating.
+</div>
+
+<!-- ================= PARITY ================= -->
+<h2 id="parity">5. Live-runner parity matrix</h2>
+<p>BYOC path = <code>type:byoc</code> / <code>RemoteType_BYOC</code> / <code>/process/request</code> + <code>FlattenBYOCJob</code> V1 creds + per-cap USD <code>CapabilitiesPrices</code>. Live-runner path = <code>-useLiveRunners</code> / <code>/apps/{id}/session</code> reserve-call-release, prices on <code>/discovery</code> only.</p>
+<table>
+  <tr><th>Capability / feature</th><th>BYOC?</th><th>Live-runner?</th><th>Gap / regression risk</th></tr>
+  <tr><td>Fal image caps (nano-banana, recraft-v4, flux, kontext&hellip;)</td><td><span class="tag t-yes">Yes (12 caps)</span></td><td><span class="tag t-part">8 fal models</span></td><td><span class="risk-hi">HIGH</span> &mdash; missing nano-banana, recraft-v4, gemini-image, bg-remove, topaz; discovery #428 dual-homes caps LR can't price</td></tr>
+  <tr><td>Fal video caps (ltx-t2v, ltx-i2v, pixverse, veo&hellip;)</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-part">Partial</span></td><td><span class="risk-hi">HIGH</span> &mdash; <code>ltx-*</code> absent from LR fal-app catalog</td></tr>
+  <tr><td>Audio / TTS (chatterbox-tts)</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-yes">Yes</span></td><td><span class="risk-lo">LOW</span> &mdash; chatterbox works via LR fal-app</td></tr>
+  <tr><td>Gemini caps (gemini-image, gemini-text)</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-no">No</span></td><td><span class="risk-hi">HIGH</span> &mdash; LR fal-app is fal-only; no gemini provider</td></tr>
+  <tr><td>Tools (ffmpeg-*, pillow-*, yolo-* &hellip; 34-cap tool orch)</td><td><span class="tag t-yes">Yes (tool-staging-1)</span></td><td><span class="tag t-part">3 apps</span></td><td><span class="risk-hi">HIGH</span> &mdash; LR has ffmpeg (3 verbs) + blender + hyperframes only; not the tool-orch map</td></tr>
+  <tr><td>MCP dispatch</td><td><span class="tag t-part">Via gateway/discovery</span></td><td><span class="tag t-no">No orch-native</span></td><td><span class="risk-md">MED</span> &mdash; LR adds no MCP; routing mistake if <code>lr</code> chosen for MCP-backed caps</td></tr>
+  <tr><td>Per-cap USD pricing in <code>CapabilitiesPrices</code></td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-no">No</span></td><td><span class="risk-hi">CRITICAL</span> &mdash; LR prices live on <code>/discovery</code> only; never enter <code>GetCapabilitiesPrices</code></td></tr>
+  <tr><td>On-chain billing / metering</td><td><span class="tag t-yes">Yes (on-chain)</span></td><td><span class="tag t-no">No (offchain)</span></td><td><span class="risk-hi">CRITICAL</span> &mdash; <code>liverunner-staging-1</code> runs <code>-network=offchain</code>, price 0</td></tr>
+  <tr><td>Composite-bearer auth (signer webhook)</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-part">Auth passes</span></td><td><span class="risk-md">MED</span> &mdash; Run 57: bearer accepted, but downstream pricing/creds still fail</td></tr>
+  <tr><td>One-shot <code>/process/request</code> + V1 job-creds</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-no">No</span></td><td><span class="risk-hi">CRITICAL</span> &mdash; LR uses <code>/apps/&hellip;</code>; BYOC cred verify fails on LR-orch (Run 55: 400)</td></tr>
+  <tr><td>Native LV2V streaming (cap 35)</td><td><span class="tag t-no">N/A</span></td><td><span class="tag t-part">Protocol yes</span></td><td><span class="risk-md">MED</span> &mdash; staging lacks a cap-35 (streamdiffusion/scope) worker</td></tr>
+</table>
+
+<h3>Run 55 / 57 &mdash; the zero-pricing finding</h3>
+<p>
+When the same billed BYOC path (Runs 50&ndash;54) was pointed at <code>liverunner-staging-1</code>, <code>/generate-live-payment</code> returned <b><code>400 "missing or zero priceInfo"</code></b> with empty <code>capabilities_prices</code> and <code>PriceInfo 0/1</code>. Run 57 confirmed composite-bearer <b>auth passes</b> on the LR orch, but the <b>pricing block is unchanged</b>. This is <b>structural, not config</b>: the Live Runner registry never feeds runner prices into <code>GetCapabilitiesPrices</code> (which only lists transcoding/AI-model prices + BYOC <code>ExternalCapabilities</code>), and offchain mode suppresses runner price entirely (<code>PaymentInfo &rarr; nil</code>). "Add pricing" therefore means <b>redeploy the LR host as an on-chain BYOC-class orch or ship the single-shot payment path (#3975) with non-zero on-chain runner prices</b> &mdash; not flip a flag.
+</p>
+
+<!-- ================= MIN MERGE ================= -->
+<h2 id="minmerge">6. Minimal-merge recommendation</h2>
+<p>The least set of changes that <b>must</b> land on <code>main</code> go-livepeer, split by purpose:</p>
+
+<h3>(a) To keep the current deployment sane &mdash; merge now</h3>
+<ul class="clean">
+  <li><b>#3993</b> (<code>applyAutoAdjustOverhead</code> in <code>GetCapabilitiesPrices</code>) &mdash; small, master-based, fixes the billed-gen blocker. This is the <em>only</em> BYOC-era change worth putting on main. Also cherry-pick it onto the deploy branch.</li>
+</ul>
+
+<h3>(b) To enable the live-runner migration &mdash; merge as you migrate</h3>
+<ul class="clean">
+  <li><b>#3938</b> (<code>ja/live-runner</code>) &mdash; the Live Runner foundation. Belongs on main long-term.</li>
+  <li><b>#3975</b> (Live Runner single-shot payments) &mdash; required to bill one-shot fal/tool calls on LR.</li>
+  <li><b>#3947</b> (<code>ModelIDForCapability</code>) &mdash; merge only if the LR path reuses model-id resolution; otherwise leave in stack.</li>
+</ul>
+
+<h3>(c) Keep branch-only and drop at retire &mdash; do NOT merge</h3>
+<ul class="clean">
+  <li>The <code>-byocPerCapPricing</code> signer stack (<code>597dbc62</code>, <code>84c706ae</code>, <code>023d25e9</code>, <code>cae4e731</code>) &mdash; #3972 umbrella.</li>
+  <li><code>type:byoc</code> billing restore + V1 job-creds verify (<code>8ddd08ea</code> / #3980-into-stack).</li>
+  <li>Rationale: this is the code path you are <em>deprecating</em>. Merging it to main adds maintenance burden to a subsystem with a death date. Let it live and die on the deploy branch.</li>
+</ul>
+
+<div class="note">
+  <b>Net:</b> exactly <b>one</b> must-merge for deployment sanity (<b>#3993</b>), plus <b>two</b> foundation PRs for the migration (<b>#3938</b>, <b>#3975</b>). Everything else stays branch-only and is deleted when BYOC retires.
+</div>
+
+<!-- ================= PLAN ================= -->
+<h2 id="plan">7. Phased migration + retire plan</h2>
+
+<div class="phase">
+  <h3>Phase 0 &mdash; Freeze &amp; stabilize (now)</h3>
+  <ul class="clean">
+    <li>Merge <b>#3993</b> to main; cherry-pick onto <code>fix/byoc-e2e-v1-and-type-byoc</code>. Freeze the deploy branch (no rebases; critical cherry-picks only).</li>
+    <li>Record the exact deployed orch image digest of <code>byoc-staging-1</code> (resolve the <code>feat-remote-signer-byoc-v2</code> vs <code>8ddd08ea</code> ambiguity).</li>
+    <li>Fix the metering-gating + unit-metering gap (see Risks) so billing is correct <em>before</em> traffic shifts.</li>
+  </ul>
+  <div class="gate">Gate: #3993 deployed; first billed <code>byoc/flux-schnell</code> gen produces an OpenMeter row with <code>networkFeeUsdMicros &gt; 0</code> tied to a real image.</div>
+</div>
+
+<div class="phase">
+  <h3>Phase 1 &mdash; Live-runner foundation on main</h3>
+  <ul class="clean">
+    <li>Merge <b>#3938</b> (LR foundation) and <b>#3975</b> (single-shot payments) to main.</li>
+    <li>Redeploy <code>liverunner-staging-1</code> <b>on-chain</b> with non-zero per-app pricing (currency/unit that pymthouse can meter).</li>
+  </ul>
+  <div class="gate">Gate: a single-shot LR fal call on <code>liverunner-staging-1</code> mints a valid payment (no <code>400 zero priceInfo</code>) and produces an OpenMeter row.</div>
+</div>
+
+<div class="phase">
+  <h3>Phase 2 &mdash; Migrate fal caps (cap-by-cap, gated)</h3>
+  <ul class="clean">
+    <li>Add each BYOC fal cap as an LR offering (start with the shared 8; then add nano-banana, recraft-v4, ltx-*, bg-remove, topaz).</li>
+    <li>For each cap: verify billing parity (per-unit charge matches BYOC per-cap USD), then flip discovery <code>lr</code> to serve it and drop <code>byoc</code> for that cap.</li>
+    <li>Handle gemini caps: LR fal-app is fal-only &mdash; add a gemini provider path or keep gemini on BYOC until covered.</li>
+  </ul>
+  <div class="gate">Gate per cap: parity verified + billing verified + no regression in an E2E probe before dual-home &rarr; single-home <code>lr</code>.</div>
+</div>
+
+<div class="phase">
+  <h3>Phase 3 &mdash; Migrate tools + MCP</h3>
+  <ul class="clean">
+    <li>Build LR tool apps to cover the 34-cap tool orch (or route tools to a dedicated tool-runner); wire MCP dispatch through the LR-backed discovery.</li>
+    <li>Verify Storyboard tool/MCP flows against LR before retiring the tool orch.</li>
+  </ul>
+  <div class="gate">Gate: Storyboard tool + MCP E2E flows pass end-to-end on LR with correct billing.</div>
+</div>
+
+<div class="phase">
+  <h3>Phase 4 &mdash; Retire byoc-staging-1</h3>
+  <ul class="clean">
+    <li>When all caps/tools/MCP are served + billed via LR with no regression, cut over the Daydream/Storyboard/pymthouse consumers.</li>
+    <li>Decommission <code>byoc-staging-1</code>; delete the branch-only BYOC stack; remove <code>byoc</code> from discovery.</li>
+  </ul>
+  <div class="gate">Gate: 100% of prior BYOC traffic served by LR for a soak window with billing reconciliation; rollback path documented.</div>
+</div>
+
+<!-- ================= RISKS ================= -->
+<h2 id="risks">8. Regression risks (likelihood &times; impact &times; mitigation)</h2>
+<table>
+  <tr><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr>
+  <tr>
+    <td><b>Metering fires at payment-gen, not orch success</b> &mdash; OpenMeter increments from <code>/generate-live-payment</code> probes even when the orch rejects the ticket (<code>meteringMode: platform_ingest</code>). Bills for throwaway payments.</td>
+    <td class="risk-hi">High</td>
+    <td class="risk-hi">High</td>
+    <td>Gate metering on orch success (job-creds verified / segment accepted), not payment mint. Owner: pymthouse metering. Fix before traffic shifts &mdash; at floor rate today it's tiny, but mis-bills at full tariff once payments succeed.</td>
+  </tr>
+  <tr>
+    <td><b>OpenMeter unit-metering gap</b> &mdash; the collector/meter sums the network <em>fee</em> (USD micros) only; per-unit quantities (seconds, pixels, images) are not metered.</td>
+    <td class="risk-hi">High</td>
+    <td class="risk-md">Med</td>
+    <td>Carry <code>unit_kind</code> + a per-unit-quantity property through the signer event &rarr; collector transform &rarr; a new OpenMeter meter that sums quantity. Files: <code>collector.yaml</code>, <code>openmeter/config.yaml</code>, <code>konnect-catalog.ts</code>.</td>
+  </tr>
+  <tr>
+    <td><b>Capability coverage regression</b> &mdash; LR serves 8 fal + 3 tool apps; BYOC serves 12 caps + gemini + 34-cap tool orch + MCP. Cutting over early drops image/video/gemini/tool/MCP flows.</td>
+    <td class="risk-hi">High</td>
+    <td class="risk-hi">High</td>
+    <td>Migrate cap-by-cap with per-cap parity gates; never single-home <code>lr</code> for a cap LR can't serve+bill. Keep BYOC as fallback until each cap is proven.</td>
+  </tr>
+  <tr>
+    <td><b>LR zero-pricing / no CapabilitiesPrices</b> &mdash; billed path returns <code>400 "missing or zero priceInfo"</code>; structural, not config.</td>
+    <td class="risk-hi">High (today)</td>
+    <td class="risk-hi">High</td>
+    <td>Ship #3975 + redeploy LR on-chain with non-zero per-app pricing; verify a payment mints before routing real traffic.</td>
+  </tr>
+  <tr>
+    <td><b>Pricing-model mismatch</b> &mdash; BYOC = per-cap USD (USD&rarr;wei/sec); LV2V = wei/pixel (synthetic 720p&times;30fps). Same cap can be priced differently across paths.</td>
+    <td class="risk-md">Med</td>
+    <td class="risk-hi">High</td>
+    <td>Define a single canonical per-cap price and assert LR's effective charge == BYOC's per-cap USD within tolerance per cap before cutover. Reconcile OpenMeter after each migration.</td>
+  </tr>
+  <tr>
+    <td><b>Auth path divergence</b> &mdash; composite bearer works for BYOC signer + passes on LR (Run 57), but LR reserve uses tickets + payer-address, not BYOC job-creds. Requests shaped for BYOC fail creds on LR.</td>
+    <td class="risk-md">Med</td>
+    <td class="risk-md">Med</td>
+    <td>Update the SDK/gateway to emit LR-native reserve/call/release for migrated caps; don't proxy BYOC-shaped <code>/process/request</code> to the LR orch.</td>
+  </tr>
+  <tr>
+    <td><b>Daydream path expects lv2v</b> &mdash; <code>signer.daydream.live</code> + <code>sdk-service</code> are wired for the current BYOC/lv2v hybrid; discovery #428 dual-homes caps to <code>lr</code>.</td>
+    <td class="risk-md">Med</td>
+    <td class="risk-md">Med</td>
+    <td>Scope discovery <code>lr</code> to only what LR actually bills+serves; coordinate the Daydream cutover; keep AUTH_VALIDATE/DISCOVERY_FROM_VALIDATE toggles reversible (they default empty = zero regression).</td>
+  </tr>
+  <tr>
+    <td><b>Unmerged-branch drift</b> &mdash; deploy branch is 111 commits ahead; security/CI gaps during the retire window.</td>
+    <td class="risk-md">Med</td>
+    <td class="risk-md">Med</td>
+    <td>Freeze branch; cherry-pick critical fixes only; short retire window; run CI on each image bump.</td>
+  </tr>
+</table>
+
+<!-- ================= DO/DONT ================= -->
+<h2 id="dodont">9. DO / DON'T</h2>
+<div class="do-dont">
+  <div class="do">
+    <h3>DO</h3>
+    <ul class="clean">
+      <li><b>Merge #3993</b> to main and cherry-pick it onto the deploy branch (unblocks billed gen).</li>
+      <li><b>Keep <code>byoc-staging-1</code></b> as the disposable deployment branch through a defined retire window.</li>
+      <li><b>Fix billing correctness first</b> &mdash; gate metering on orch success + close the unit-metering gap &mdash; <em>before</em> shifting traffic.</li>
+      <li><b>Migrate cap-by-cap</b> with per-cap parity + billing + no-regression gates.</li>
+      <li><b>Redeploy LR on-chain</b> with non-zero pricing and ship #3975 before routing billed traffic.</li>
+      <li><b>Scope discovery <code>lr</code></b> to only caps LR can actually bill + serve.</li>
+      <li><b>Merge #3938 (LR foundation)</b> to main as the long-lived base.</li>
+      <li><b>Record the deployed image digest</b> and document the branch lineage.</li>
+    </ul>
+  </div>
+  <div class="dont">
+    <h3>DON'T</h3>
+    <ul class="clean">
+      <li><b>Don't merge the BYOC per-cap pricing / <code>type:byoc</code> / V1 job-creds stack</b> to main &mdash; it's dying code (#3972 stack, #3980-into-stack).</li>
+      <li><b>Don't cut traffic to live-runner today</b> &mdash; it's offchain, zero-priced, and missing most caps/tools/MCP.</li>
+      <li><b>Don't dual-home a cap to <code>lr</code></b> in discovery if the LR orch can't price/serve it (routing may return zero-price).</li>
+      <li><b>Don't proxy BYOC-shaped <code>/process/request</code></b> to the LR orch &mdash; job-creds verify fails (Run 55: 400).</li>
+      <li><b>Don't rebase</b> the 111-commit deploy branch onto main &mdash; freeze it and cherry-pick.</li>
+      <li><b>Don't start payments succeeding</b> before fixing the metering-gating gap (mis-bills at full tariff).</li>
+      <li><b>Don't assume <code>-byocPerCapPricing</code> alone fixes LR</b> &mdash; there are no advertised prices on the LR orch to resolve against.</li>
+      <li><b>Don't retire BYOC</b> until every cap/tool/MCP flow is proven on LR with reconciled billing.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ================= UNKNOWNS ================= -->
+<h2 id="unknowns">10. What could not be determined from the repos</h2>
+<ul class="clean">
+  <li><b>Exact prod image on <code>byoc-staging-1</code>.</b> Config pins <code>go-livepeer:feat-remote-signer-byoc-v2</code>; local deploy branch tip is <code>8ddd08ea</code>. <span class="mono">Check:</span> <code>docker inspect</code> the orch container digest on the VM; diff against a build of <code>8ddd08ea</code> and against <code>origin/feat/byoc-per-cap-pricing-and-usage-labels</code>.</li>
+  <li><b>Whether staging currently hits the #3993 overhead mismatch.</b> <span class="mono">Check:</span> a billed <code>/generate-live-payment</code> for <code>flux-schnell</code> and watch for <code>invalid recipientRand</code> / <code>ExpectedPrice</code> errors.</li>
+  <li><b>Live <code>-network</code> mode of <code>liverunner-staging-1</code>.</b> Compose says <code>offchain</code>; Run 55 observed <code>ticket_params</code>, hinting at possible VM drift. <span class="mono">Check:</span> the running container command line.</li>
+  <li><b>Exact production USD per-cap numbers.</b> Owner-owned; the yaml carries relative ratios only (e.g. recraft-v4 = 2&times; nano-banana).</li>
+  <li><b>go-livepeer "#428 / lr category" mapping.</b> go-livepeer #428 is unrelated (2018). Treated here as the NaaP discovery PR #428.</li>
+</ul>
+
+<div class="foot">
+  Generated as an evidence-based analysis from: <span class="mono">golivepeer/glp-combine</span> (branch <span class="mono">fix/byoc-e2e-v1-and-type-byoc</span> @ <span class="mono">8ddd08ea</span>),
+  <span class="mono">simple-infra</span> (<span class="mono">environments/staging/*</span>, <span class="mono">live-runner/docker-compose.yml</span>),
+  and NaaP findings (<span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span> Runs 50&ndash;57, <span class="mono">storyboard-default-plan.ts</span>).
+  PR states confirmed via <span class="mono">gh</span> as <span class="mono">seanhanca</span>. Analysis only &mdash; no product code changed.
+</div>
+
+</div>
+</body>
+</html>
