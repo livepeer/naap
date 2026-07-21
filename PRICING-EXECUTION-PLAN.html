@@ -383,6 +383,94 @@ and    qty           is produced by ONE quantity_source extractor,
   <span><span class="tag t-off">default OFF</span> flag-gated</span>
 </p>
 
+<!-- ============ INDEPENDENT REVIEW ============ -->
+<h2 id="review">7. Independent review (fresh-eyes, code-verified)</h2>
+<p class="note">Reviewer stance: do <b>not</b> assume the plan is correct. Claims were spot-checked against the actual code in sibling repos
+(<code>storyboard-a3</code>, <code>livepeer/go-livepeer</code>). Line citations, symbols, and arithmetic were verified against source, not the doc.</p>
+
+<div class="box invariant">
+  <p style="margin-top:0"><b>VERDICT: <span class="tag t-warn">NEEDS-REWORK</span></b></p>
+  <p>The architecture (additive, flag-gated, observe&rarr;enforce, one meter, Model A, lv2v untouched) and the PR ordering are <b>sound and salvageable</b>. But four substantive issues mean that, <b>as written</b>, the plan does <u>not</u> make pricing a solved problem and carries at least two <b>unmitigated regression risks</b>. All four are bounded fixes; none require abandoning the approach. Re-review after B1&ndash;B4 are addressed.</p>
+  <p style="margin-bottom:0"><b>Bottom line:</b> the reconciliation <em>arithmetic the whole plan rests on is inconsistent with the real wire math</em>, the "descriptor is the single source of truth" claim is <em>lossy</em> against the current source, the closed <code>unit_kind</code> enum <em>drops a live unit (<code>tokens</code>)</em>, and PR9 <em>deletes a documented safety net</em>. Fix these and pricing becomes solved-by-construction; ship as-is and it is not.</p>
+</div>
+
+<h3>What is genuinely correct (verified)</h3>
+<ul class="clean">
+  <li><b>G1 premise is real.</b> <code>orchestrator.go:258 GetCapabilitiesPrices</code> aggregates only default / gateway / BYOC-external prices &mdash; no Live-Runner descriptor prices. PR3 targets the right function; overhead math is at <code>~448&ndash;457</code>. <span class="tag t-good">accurate</span></li>
+  <li><b>Signer event gap is real.</b> <code>remote_signer.go</code> emits <code>create_signed_ticket</code> with <code>pixels / computed_fee / cost_per_pixel / billable_secs</code> and no unit/qty. PR5 is correctly scoped. <span class="tag t-good">accurate</span></li>
+  <li><b>Descriptor <code>PriceSchema</code> lacks <code>unit_kind</code>/<code>quantity_source</code></b> and is <code>.strict()</code>, so PR1's optional additions are safe and golden-neutral. <code>discovery-sync.ts:108</code> does alias <code>unit_kind = display_unit</code>. <span class="tag t-good">accurate</span></li>
+  <li><b>Observe&rarr;enforce sequencing, transition floor <code>max(unitCost,fee)</code>, and the keep-fee-meter-forever rule</b> are the right safety posture. lv2v carve-out is explicit. <span class="tag t-good">good</span></li>
+</ul>
+
+<h3>Findings</h3>
+<table>
+  <thead><tr><th>#</th><th>Sev</th><th>Issue</th><th>Where (verified)</th><th>Recommended fix</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>B1</td><td><span class="tag" style="background:rgba(248,81,73,.15);color:var(--bad);border:1px solid var(--bad)">blocker</span></td>
+      <td><b>The invariant arithmetic is wrong.</b> §2 states <code>fee_wei = (price_per_unit / price_scaling) &times; qty</code>. The real wire math divides by the <b>per-price</b> <code>pixels_per_unit</code>, not the global <code>price_scaling</code>: <code>ppu = target_wei &times; price_scaling / pixels_per_unit</code> and the orch "charges <code>price_per_unit / pixels_per_unit</code> wei per pixel." So F4's decision to <b>reject a per-price scaling field as "speculative"</b> is factually false &mdash; <code>pixels_per_unit</code> already exists and is load-bearing.</td>
+      <td><code>convert.py:56&ndash;67</code>; <code>estimate.ts:297&ndash;334 costPaidUsdFromWei</code>; <code>descriptor.ts:108 pixels_per_unit</code></td>
+      <td>Rewrite the invariant to include <code>pixels_per_unit</code>. Keep/carry it in the descriptor + signer fee-from-qty math (PR8). Delete the F4 line calling per-price scaling speculative; it's real and required for wei&rarr;USD.</td>
+    </tr>
+    <tr>
+      <td>B2</td><td><span class="tag" style="background:rgba(248,81,73,.15);color:var(--bad);border:1px solid var(--bad)">blocker</span></td>
+      <td><b>"Descriptor = single source of truth" is lossy.</b> The <em>actual</em> source is <code>docs/pricing-v1/pricing-table.json</code> + <code>convert.py</code>, which derives <code>display_price_usd</code> from <code>upstream_cost_usd &times; (1+margin_pct)</code> per <code>tier</code>, then generates the orch <code>CAPABILITIES_JSON</code> and the agent <code>static-pricing.json</code>. The descriptor has <b>no</b> <code>upstream_cost_usd/margin_pct/tier/flat_fee_usd</code>. F1/PR9 invert the real dependency ("<code>convert.py</code> writes back into the descriptor") and would <b>drop the margin/tier model</b> &rarr; pricing is <em>not</em> losslessly single-sourced.</td>
+      <td><code>docs/pricing-v1/pricing-table.json</code>; <code>convert.py:106&ndash;180</code></td>
+      <td>Name <code>pricing-table.json</code> (cost+margin+tier) as the true source; the descriptor is the <em>published projection</em>. Either add the cost/margin/tier fields to the source-of-truth story or explicitly scope the descriptor as "published price only, generated from pricing-table." Reconcile before PR9.</td>
+    </tr>
+    <tr>
+      <td>B3</td><td><span class="tag" style="background:rgba(248,81,73,.15);color:var(--bad);border:1px solid var(--bad)">blocker</span></td>
+      <td><b>Closed enum drops a live unit.</b> <code>unit_kind &isin; {megapixel,image,second,characters,call}</code> omits <code>tokens</code>, which is in production (<code>gemini-text</code>: <code>unit_kind=tokens, display_unit=1000_tokens</code>) and already handled by the estimator. PR1's <code>z.enum([5])</code> + PR4/PR8 extractors + the §5 parity matrix cannot represent token-priced caps &rarr; onboarding/billing gap and a regression for LLM caps.</td>
+      <td><code>static-pricing.json:239&ndash;242</code>; <code>registry.json:1203</code>; <code>estimate.ts:96&ndash;103</code></td>
+      <td>Add <code>tokens</code> (and confirm <code>1000_tokens</code> display handling) to the enum + extractor set + parity matrix. Audit all live <code>unit_kind</code>/<code>display_unit</code> values (also <code>track,clip,mesh,minute,training,audio_seconds</code>) before freezing the enum.</td>
+    </tr>
+    <tr>
+      <td>B4</td><td><span class="tag" style="background:rgba(248,81,73,.15);color:var(--bad);border:1px solid var(--bad)">blocker</span></td>
+      <td><b>PR9 removes a documented safety net.</b> <code>static-pricing.json</code> is the explicit fallback for when live <code>/capabilities</code> drops <code>display_price_usd</code> (the 2026-07-04 "$0 estimate" regression). PR9 "remove the redundant runtime price.json read path" would reintroduce that exact regression unless the fallback is preserved.</td>
+      <td><code>estimate.ts:158&ndash;193, 249&ndash;276</code></td>
+      <td>Keep <code>static-pricing.json</code> as a generated fallback (it already is generated). Scope PR9 to removing <em>duplication of authoring</em>, not the runtime fallback. Add a test that a live payload missing <code>display_price_usd</code> still estimates non-zero.</td>
+    </tr>
+    <tr>
+      <td>M1</td><td><span class="tag t-warn">major</span></td>
+      <td><b>"Same extractor both sides" is aspirational, not by-construction.</b> The quantity extractor is re-implemented in Python (gateway PR4), Go (signer PR8), and TS (agent PR10). The §2 CI parity test only asserts <code>agentQuoteUsd == pymthouseUnitCostUsd</code> &mdash; it does <b>not</b> assert gateway-qty == signer-qty == meter-qty across languages. That cross-language equality is precisely the drift the invariant claims to eliminate.</td>
+      <td>§2; PR4 / PR8 / PR10 (3 impls)</td>
+      <td>Add a cross-language golden vector (fixed payload &rarr; expected qty per unit_kind) asserted in all three repos' CI. Or centralize the extractor and have the others consume it.</td>
+    </tr>
+    <tr>
+      <td>M2</td><td><span class="tag t-warn">major</span></td>
+      <td><b>Second, unmentioned registry path.</b> Besides <code>discovery-sync.ts</code>, <code>generate-registry.ts:192</code> already reads <code>price.unit_kind</code> via <code>lookupStaticDisplayPrice</code>, and <code>capabilityStaticPrice</code> defaults <code>CAP_REGISTRY_PRICING</code> <b>ON</b>. PR2 only fixes discovery-sync. Which registry is authoritative post-plan (descriptor-synced vs generated-from-static) is unresolved.</td>
+      <td><code>generate-registry.ts:168&ndash;199</code>; <code>estimate.ts:202&ndash;216</code></td>
+      <td>State which path is canonical and make PR2 reconcile both; add a test that both produce the same <code>unit_kind</code> for a shared cap.</td>
+    </tr>
+    <tr>
+      <td>m1</td><td><span class="tag t-off">minor</span></td>
+      <td><b>Stale references undermine reviewer trust.</b> <code>sanitizeUsageLabel</code> (cited <code>remote_signer.go:385&ndash;391</code>) does not exist in go-livepeer. <code>mintUserSignerJwtForExternalUser</code> (F1/PR9 "delete orphaned helper, call sites: none") exists only in planning <code>.md</code> docs, not in code &mdash; nothing to delete. Signer line cites are off (event is at <code>:657</code>, not <code>~848&ndash;878</code>; <code>GenerateLivePayment</code> at <code>:309</code>).</td>
+      <td>go-livepeer <code>server/remote_signer.go</code></td>
+      <td>Drop the mint-helper deletion (or point at real code). Replace the <code>sanitizeUsageLabel</code> reference with a real sanitizer or define one. Refresh line numbers.</td>
+    </tr>
+    <tr>
+      <td>m2</td><td><span class="tag t-off">minor</span></td>
+      <td><b>Orch&rarr;runner discovery not wired by any PR.</b> PR3 reads "each runner descriptor's <code>offering.price</code> from <code>/discovery</code>", but no PR establishes that the orch enumerates its runners' descriptors (the "one O &rarr; many runners" premise). If it doesn't already, PR3 is under-specified.</td>
+      <td>PR3; §4 row 1</td>
+      <td>Confirm the orch already polls runner <code>/discovery</code>; if not, add a step/PR for runner enumeration.</td>
+    </tr>
+    <tr>
+      <td>n1</td><td><span class="tag t-off">nit</span></td>
+      <td>"byte-identical when flags OFF" is asserted but no golden/byte-diff artifact is cited as the gate. The per-PR test plans intend it; make it an explicit CI gate.</td>
+      <td>F5; PR3/PR5 test plans</td>
+      <td>Add a committed golden diff (flags OFF) as the merge gate for PR3/PR5/PR8.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Does the plan leave pricing "solved"? Regression risks?</h3>
+<ul class="clean">
+  <li><b>Not yet solved:</b> B1 (wrong scaling term) and B2 (lossy source) mean the three numbers do <b>not</b> reconcile by construction as claimed, and "one source of truth" is not achieved (the cost/margin/tier model lives outside the descriptor). B3 leaves an entire pricing unit (<code>tokens</code>) unrepresentable.</li>
+  <li><b>Unmitigated regression risk:</b> B4 (removing the <code>static-pricing.json</code> fallback re-opens the documented $0-estimate regression) and B3 (enum rejects/ misbills token caps). M1 leaves cross-language qty drift possible despite the "no-drift" invariant.</li>
+  <li><b>Correctly mitigated:</b> lv2v byte-identical carve-out, flag-default-OFF posture, transition floor, and the observe-before-enforce gates are the right regression guards for the paths they cover.</li>
+</ul>
+<p class="note">Once B1&ndash;B4 and M1&ndash;M2 are addressed, the design is capable of making pricing solved-by-construction with no material regression. The bones are good; the arithmetic and the source-of-truth story need to match the code before execution.</p>
+
 </div>
 </body>
 </html>
