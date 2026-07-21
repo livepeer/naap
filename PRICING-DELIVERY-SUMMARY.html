@@ -54,11 +54,11 @@
 <div class="wrap">
 
   <h1>Pricing / Billing / Perf — Delivery Summary</h1>
-  <p class="sub">Verified against live <code>gh</code> PR/issue state on 2026-07-21 · repos: <code>livepeer/naap</code>, <code>livepeer/storyboard</code>, <code>livepeer/simple-infra</code>. Status reflects the real repo state, not intent.</p>
+  <p class="sub">Verified against live <code>gh</code> PR/issue state + Vercel production deployments on 2026-07-21 · repos: <code>livepeer/naap</code>, <code>livepeer/storyboard</code>, <code>livepeer/simple-infra</code>. Status reflects the real repo + prod-deploy state, not intent.</p>
 
   <div class="bottomline">
     <b>Bottom line — is pricing solved yet?</b>
-    Not end-to-end, but the foundation is in and the full plan is approved. The Storyboard-side descriptor work (the lossless <code>unit_kind</code> + <code>quantity_source</code> source of truth) and the perf/reliability fix are done, and the complete upstream execution plan is written and agreed. True per-unit billing — where the agent's USD quote equals the on-chain settled fee equals the pymthouse metered amount — still depends on the upstream owners' PRs (Josh in go-livepeer, Rick in python-gateway, John in pymthouse) plus the two simple-infra infra gates. So: <b>Storyboard foundation shipped + plan locked; end-to-end per-unit billing pending upstream.</b>
+    Not end-to-end, but the entire Section-1 foundation is now <b>merged to <code>main</code> and live in PRODUCTION</b>, and the full upstream plan is approved. The Storyboard-side descriptor work (the lossless <code>unit_kind</code> + <code>quantity_source</code> source of truth, #687 + #688), the perf/reliability re-route (#685), and the billed-path signer auth fix (#430) all shipped and prod-deployed (Vercel READY/success — evidence below). True per-unit billing — where the agent's USD quote equals the on-chain settled fee equals the pymthouse metered amount — still depends on the upstream owners' PRs (Josh in go-livepeer, Rick in python-gateway, John in pymthouse) plus the two simple-infra infra gates (#106, #107). So: <b>Storyboard + signer foundation shipped &amp; deployed; end-to-end per-unit billing pending upstream.</b>
   </div>
 
   <!-- ============================ SECTION 1 ============================ -->
@@ -72,36 +72,43 @@
         <td><b>Signer composite-bearer fix</b><br><span class="note">remove dead user-JWT signer mint + correct opaque-session doc</span></td>
         <td>livepeer/naap</td>
         <td><a href="https://github.com/livepeer/naap/pull/430">#430</a></td>
-        <td><span class="pill open">OPEN PR</span></td>
-        <td>gh: <code>state OPEN</code>, <code>mergedAt null</code>, base <code>main</code>, head <code>fix/signer-composite-bearer-forward</code>. Built and pushed; <b>not yet merged</b> (task brief assumed merged — corrected here).</td>
+        <td><span class="pill merged">MERGED</span> <span class="pill merged">PROD DEPLOYED</span></td>
+        <td><b>Self-reviewed ✓</b> — code delta is a pure dead-code removal (deletes the orphaned <code>mintUserSignerJwtForExternalUser()</code> + <code>UserSignerJwt</code>, zero non-test call sites, superseded by #421/#412/#424) + a docstring correction on <code>resolveSignerEndpoint()</code>; the composite-bearer / api-key-exchange billed path is unchanged (no-regression). <b>Checks ✓ (with 1 unrelated red)</b> — Lint&amp;TypeCheck, Build, Shell tests all PASS; the only red checks were <code>Audit</code> + its <code>Quality Gates</code> rollup, a date-based dependency-CVE advisory failure (node-tar/undici/ws/uuid/ethers) that fires on every PR today and is unrelated (this PR touches NO <code>package.json</code>/lockfile). Admin-merged over that unrelated red. <b>Merged ✓</b> gh: <code>MERGED 2026-07-21</code> → <code>main</code>, squash commit <code>99b3d39</code>. <b>Prod-deployed ✓</b> Vercel <code>naap-platform</code> deploy <code>dpl_HLWWTS3ivsGa5NAMp9qa8J1jj83u</code> = <b>READY</b> (target production, ref <code>main</code>, sha <code>99b3d39</code>, aliased to <code>operator.livepeer.org</code>).</td>
       </tr>
       <tr>
         <td><b>Seedance i2v re-route</b><br><span class="note">de-list <code>seedance-i2v-fast</code>; route fast animate → <code>pixverse-i2v</code></span></td>
         <td>livepeer/storyboard</td>
         <td><a href="https://github.com/livepeer/storyboard/pull/685">#685</a></td>
-        <td><span class="pill merged">MERGED</span> <span class="pill pending">PROD DEPLOY TO CONFIRM</span></td>
-        <td>gh: <code>MERGED 2026-07-20</code> → <code>main</code>. Live perf result: i2v success <span class="kpi">~33% → ~100%</span>, p50 latency <span class="kpi">~180s → ~48s</span> (seedance had no warm orch; 2/3 live runs aborted at the ~180s <code>/inference</code> ceiling). Merged to main; the specific prefer_fast reroute path was pending redeploy — prod deploy to confirm.</td>
+        <td><span class="pill merged">MERGED</span> <span class="pill merged">PROD DEPLOYED</span></td>
+        <td>gh: <code>MERGED 2026-07-20</code> → <code>main</code>, squash commit <code>951eb7e</code>. Live perf result: i2v success <span class="kpi">~33% → ~100%</span>, p50 latency <span class="kpi">~180s → ~48s</span> (seedance had no warm orch; 2/3 live runs aborted at the ~180s <code>/inference</code> ceiling). <b>Prod-deployed ✓ (confirmed)</b> — the prefer_fast reroute shipped: Vercel <code>Production – storyboard</code> deploy <code>5530586270</code> (sha <code>951eb7e</code>) = <b>success</b>, 2026-07-20T23:58Z. (Previously "pending redeploy" — now verified live.)</td>
       </tr>
       <tr>
         <td><b><code>storyboard-perf-mode</code> skill</b><br><span class="note">two modes (prefer-quality default / prefer-fast), remembered pref, routes around broken i2v cap</span></td>
-        <td>NaaP (workspace)</td>
-        <td>—</td>
-        <td><span class="pill built">BUILT / PRESENT</span></td>
-        <td>Present at <code>skills/storyboard-perf-mode/</code> (<code>SKILL.md</code>, <code>reference.md</code>, <code>scripts/perf_pref.py</code>). Encodes the Phase-0 route-around + Phase-1 two-mode UX.</td>
+        <td>livepeer/naap (via #430)</td>
+        <td><a href="https://github.com/livepeer/naap/pull/430">#430</a></td>
+        <td><span class="pill merged">MERGED</span> <span class="pill merged">ON MAIN</span></td>
+        <td>Rode in on the #430 branch and landed on <code>main</code> via the #430 squash-merge (<code>99b3d39</code>). Confirmed present on <code>origin/main</code> at <code>skills/storyboard-perf-mode/</code> (<code>SKILL.md</code>, <code>reference.md</code>, <code>scripts/perf_pref.py</code>). Encodes the Phase-0 route-around + Phase-1 two-mode UX. (Skill files are agent config, not part of the deployed web app bundle.)</td>
       </tr>
       <tr>
         <td><b>Storyboard pricing PR1</b><br><span class="note">add optional <code>unit_kind</code> + <code>quantity_source</code> to <code>PriceSchema</code> (lossless descriptor)</span></td>
         <td>livepeer/storyboard</td>
         <td><a href="https://github.com/livepeer/storyboard/pull/687">#687</a></td>
-        <td><span class="pill open">OPEN PR</span></td>
-        <td>gh: <code>state OPEN</code>, base <code>main</code>. No-regression evidence: fields <code>.optional()</code>, schema stays <code>.strict()</code>, existing descriptors + golden fixtures validate byte-unchanged; <span class="kpi">3213 tests passed</span> (3 skipped); <span class="kpi">0 new typecheck errors</span> vs pristine main.</td>
+        <td><span class="pill merged">MERGED</span> <span class="pill merged">PROD DEPLOYED</span></td>
+        <td><b>Self-reviewed ✓</b> — additive-only: two <code>.optional()</code> closed-enum fields on <code>PriceSchema</code>, schema stays <code>.strict()</code>; explicit no-regression test proves existing descriptors validate byte-unchanged. <b>Checks ✓</b> — vitest, Node 20, Bun, zero-regression gate, bench all green. <b>Merged ✓</b> gh: <code>MERGED 2026-07-21</code> → <code>main</code>, squash commit <code>fc78484</code>. <b>Prod-deployed ✓</b> Vercel <code>Production – storyboard</code> deploy <code>5546578511</code> (sha <code>fc78484</code>) = <b>success</b> (superseded live by the #688 deploy, which contains #687 + #688).</td>
       </tr>
       <tr>
         <td><b>Storyboard pricing PR2</b><br><span class="note">read real <code>unit_kind</code> from descriptor; reconcile both registry paths (M2)</span></td>
         <td>livepeer/storyboard</td>
         <td><a href="https://github.com/livepeer/storyboard/pull/688">#688</a></td>
-        <td><span class="pill open">OPEN PR (stacked)</span></td>
-        <td>gh: <code>state OPEN</code>, base <code>feat/pricing-descriptor-unitkind</code> — <b>stacked on #687</b> (retargets to main once PR1 merges). Evidence: golden set unchanged, M2 parity test passes (<code>chatterbox-tts→characters</code>, <code>gemini-text→tokens</code>); <span class="kpi">3213 tests passed</span>; <span class="kpi">0 new typecheck errors</span>.</td>
+        <td><span class="pill merged">MERGED</span> <span class="pill merged">PROD DEPLOYED</span></td>
+        <td><b>Self-reviewed ✓</b> — reads real <code>price.unit_kind</code> with a byte-identical fallback to <code>display_unit</code> for pre-PR1 descriptors (no-regression), plus an M2 parity test asserting the descriptor-synced and generated-from-static paths agree (<code>chatterbox-tts→characters</code>, <code>gemini-text→tokens</code>). <b>Checks ✓</b> — vitest, Node 20, Bun, zero-regression gate all green. Base was manually retargeted from <code>feat/pricing-descriptor-unitkind</code> → <code>main</code> after #687 merged (head branch wasn't auto-deleted); verified the against-main diff added only #688's net changes. <b>Merged ✓</b> gh: <code>MERGED 2026-07-21</code> → <code>main</code>, squash commit <code>bda8eef</code> (current <code>main</code> HEAD). <b>Prod-deployed ✓</b> Vercel <code>Production – storyboard</code> deploy <code>5546608282</code> (sha <code>bda8eef</code>) = <b>success</b> — the live production build.</td>
+      </tr>
+      <tr>
+        <td><b>Billing fix — stop billing aborted jobs</b><br><span class="note">SDK <code>/inference</code> per-model SLA timeout tiering + async hand-off; STOP billing aborted/failed jobs</span></td>
+        <td>livepeer/simple-infra</td>
+        <td><a href="https://github.com/livepeer/simple-infra/issues/106">#106</a></td>
+        <td><span class="pill open">OPEN ISSUE</span> <span class="pill pending">NOT DEPLOYED</span></td>
+        <td><b>Not ours to merge — infra-owned, still pending.</b> gh: <code>#106</code> is an <code>ISSUE</code> (not a PR), <code>state OPEN</code>, <code>closedAt null</code>, no assignee. No PR closes it — the only cross-references are simple-infra #107 (warm-orch, OPEN), storyboard #686 (tracking, OPEN) and storyboard #685 (the temp reroute, CLOSED). So the billing fix (stop metering aborted/failed jobs + SLA timeout tiering) is <b>NOT merged and NOT in production</b>; it is an infra-team item (John / simple-infra per the upstream scope doc). The #685 reroute mitigates the symptom in prod, but the root-cause billing gate remains open.</td>
       </tr>
     </tbody>
   </table>
@@ -203,7 +210,7 @@
   <p class="note"><b>Plus:</b> pymthouse per-unit metering <em>enforcement</em> (PR7's <code>UNIT_COST_ENFORCE</code> flip) — flip only after the observe phase shows the reconciliation delta is ~0.</p>
 
   <div class="foot">
-    Generated 2026-07-21 · statuses verified live via <code>gh</code>. Committed on branch <code>fix/signer-composite-bearer-forward</code>.
+    Generated 2026-07-21 · statuses verified live via <code>gh</code> (PR/issue state) + the Vercel MCP / GitHub deployment records (production deploys). Section-1 code landed via naap #430 (<code>99b3d39</code>) and storyboard #685/#687/#688; this verified-status doc update follows on branch <code>docs/pricing-summary-verified</code>.
   </div>
 
 </div>
