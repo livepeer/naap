@@ -72,6 +72,8 @@
   <a href="#matrix">4. Gap-closure matrix</a>
   <a href="#rollout">5. Phased rollout &amp; E2E prod validation</a>
   <a href="#dod">6. Definition of done</a>
+  <a href="#review">7. Independent review</a>
+  <a href="#storyboard-independent">8. What Storyboard can do independently</a>
 </div>
 
 <!-- ============ 1. FINDINGS ============ -->
@@ -486,6 +488,81 @@ and    qty is produced by ONE quantity_source extractor,
   <li><b>Residual (external, non-gating):</b> two #3992 caveats tracked as risks/tasks — <code>live_payment_processor.go</code> still bills pixels (open upstream bug), and remote discovery moved to a <b>global</b> (not per-cap) max price. Neither blocks this plan.</li>
 </ul>
 <p class="note">B1&ndash;B4 and M1&ndash;M2 are resolved in-plan; the design makes pricing solved-by-construction with no material regression and the plan is <b>APPROVE-able</b>. #3992 is folded in as evidence (runner-declared decimal USD price; signer type-branched fee) and its two caveats are captured as tracked risks.</p>
+
+<!-- ============ 8. STORYBOARD-INDEPENDENT ============ -->
+<h2 id="storyboard-independent">8. What Storyboard can do independently (and the payoff once live)</h2>
+<p class="note"><b>Repo reality (verified 2026-07-21):</b> the working checkout <code>storyboard-a3</code> <em>is</em> a clone of <code>github.com/livepeer/storyboard</code>. Both the capability-descriptor layer (<code>lib/capabilities/descriptor.ts</code>, <code>discovery-sync.ts</code>, <code>generate-registry.ts</code>, <code>docs/pricing-v1/convert.py</code>, <code>docs/pricing-v1/pricing-table.json</code>, <code>lib/mcp-server/pricing/static-pricing.json</code>) <b>and</b> the MCP/agent surface (<code>lib/mcp-server/tools/get-pricing.ts</code>, <code>lib/mcp-server/pricing/estimate.ts</code>, <code>lib/mcp-server/tools/create-media.ts</code>) live in the <b>same</b> repo. So "storyboard-a3 (descriptor)" and "livepeer/storyboard (MCP/agent)" are two subtrees of one Storyboard-owned repo — every PR below is landable without touching go-livepeer, python-gateway, or pymthouse.</p>
+
+<h3>Storyboard-only PRs &mdash; repo, regression class, standalone payoff</h3>
+<table>
+  <thead><tr><th>PR</th><th>Repo (subtree)</th><th>Storyboard-only?</th><th>Regression class</th><th>What it delivers on its own</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="tag t-new">PR1</span> descriptor schema (<code>unit_kind</code>+<code>quantity_source</code>)</td>
+      <td><code>livepeer/storyboard</code> &mdash; <code>lib/capabilities/descriptor.ts</code></td>
+      <td class="tag t-good">YES &mdash; no upstream dep</td>
+      <td class="tag t-good">NO-REGRESSION</td>
+      <td>Additive/optional Zod fields on a <code>.strict()</code> schema; every existing descriptor + golden fixture parses unchanged. Makes the descriptor a <b>lossless superset</b> of <code>price.json</code> and lets a <code>tokens</code>/<code>1000_tokens</code> cap be represented (B3) &mdash; the single source of truth for pricing metadata.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR2</span> discovery/registry read real <code>unit_kind</code> (M2)</td>
+      <td><code>livepeer/storyboard</code> &mdash; <code>discovery-sync.ts</code> + <code>generate-registry.ts</code></td>
+      <td class="tag t-good">YES &mdash; depends only on PR1 (same repo)</td>
+      <td class="tag t-good">NO-REGRESSION</td>
+      <td>Pure fallback (<code>unit_kind = price.unit_kind ?? price.display_unit</code>), no flag; when a descriptor omits <code>unit_kind</code> the behavior is byte-identical to today. Stops faking <code>unit_kind</code> from <code>display_unit</code> and reconciles <b>both</b> registry paths (M2 parity) &mdash; correct unit on the cap row (incl. <code>characters</code>/<code>tokens</code>) and discovery parity.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR10</span> agent USD-only surface polish</td>
+      <td><code>livepeer/storyboard</code> &mdash; <code>lib/mcp-server/*</code> (<code>get-pricing.ts</code>, <code>estimate.ts</code>, <code>create-media.ts</code>)</td>
+      <td class="tag t-good">YES &mdash; depends only on PR2 (same repo)</td>
+      <td class="tag t-warn">HAS-RISK (low, UX/display only)</td>
+      <td>Returns <code>display_price_usd</code>/<code>unit_kind</code> (incl. <code>tokens</code>) and an estimate = <code>per_unit_usd &times; estimateUnits(payload)</code> via the shared extractor (M1). <b>Risk is display-only:</b> it deliberately changes agent estimate math and removes a lingering agent&rarr;pymthouse usage write &mdash; no billing/settlement effect, but pre-flight quote values can shift, so it is not purely additive. Guard with the snapshot rate-card test.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR9</span> remove authoring duplication (keep generated fallback)</td>
+      <td><code>livepeer/storyboard</code> &mdash; <code>docs/pricing-v1/convert.py</code>, <code>pricing-table.json</code>, <code>static-pricing.json</code></td>
+      <td class="tag t-warn">Code is Storyboard-only, but prod cutover is gated by <b>PR3 (go-livepeer)</b></td>
+      <td class="tag t-warn">HAS-RISK (deletion; upstream-gated)</td>
+      <td>Collapses to one runtime source of truth. The <em>build-time generator</em> refactor (keep <code>convert.py</code>+<code>pricing-table.json</code> as generator only) can land in-repo, but removing runtime authoring is <b>gated by PR2+PR3 in prod</b> and carries the 2026-07-04 "$0 estimate" regression risk if the <code>static-pricing.json</code> fallback is disturbed (B4). <b>Do not treat as independent</b> for the prod cutover.</td>
+    </tr>
+  </tbody>
+</table>
+<p class="note"><b>Fully Storyboard-independent &amp; NO-REGRESSION:</b> <span class="tag t-new">PR1</span> and <span class="tag t-new">PR2</span>. <span class="tag t-new">PR10</span> is Storyboard-independent but carries a low, display-only risk (no billing impact). <span class="tag t-new">PR9</span> lives in the Storyboard repo but its prod cutover depends on the upstream <span class="tag t-new">PR3</span>, so it is <b>not</b> shippable-to-done independently. PR3&ndash;PR8 are owned by others (go-livepeer / python-gateway / pymthouse).</p>
+
+<h3>What you GET by shipping the Storyboard-only PRs before go-livepeer/gateway land</h3>
+<div class="box">
+<p style="margin-top:0">Shipping <b>PR1 + PR2 (+ PR10)</b> ahead of the upstream work is <b>immediately valuable and self-contained</b>: the descriptor becomes a <b>lossless single source of truth</b> for pricing metadata (correct <code>unit_kind</code> incl. <code>tokens</code>/<code>characters</code>, plus <code>quantity_source</code>), the <b>fake <code>unit_kind = display_unit</code> alias is removed</b> and <b>both registry paths are reconciled</b> (M2) so there is no second divergent pricing source, <b>discovery parity</b> holds across <code>/capabilities</code> and the registry, and the <b>agent's USD estimates are aligned</b> to the same shared quantity extractor the signer/gateway will later use (M1) with the agent&rarr;pymthouse write removed (Model-A discipline). None of this waits on anyone else, and none of it changes billing.</p>
+<p style="margin-bottom:0"><b>What still requires the upstream PRs to fully realize:</b> the correct metadata and aligned quotes are <em>pre-flight only</em> until (a) <b>go-livepeer</b> lands <span class="tag t-new">PR3</span> (orch aggregates runner per-cap descriptor prices into <code>GetCapabilitiesPrices</code>), <span class="tag t-new">PR5</span> (signer stamps <code>billing_unit_kind</code>/<code>quantity</code>) and <span class="tag t-new">PR8</span> (on-chain <b>per-unit settlement</b>: <code>fee = per_unit &times; qty</code>), and <b>python-gateway</b> lands <span class="tag t-new">PR4</span> (payload&rarr;quantity), and (b) <b>pymthouse</b> lands <span class="tag t-new">PR6</span>/<span class="tag t-new">PR7</span> (<b>per-unit metering</b> + <code>cost = quantity &times; per_unit_usd</code>). Until then, on-chain fees and pymthouse cost stay on today's pixel/second/fee basis &mdash; Storyboard makes the <em>data</em> correct and the <em>quote</em> right; upstream makes the <em>money</em> match.</p>
+</div>
+
+<h3>Upstream (go-livepeer / gateway) &mdash; already-exists vs still-needed</h3>
+<p class="note"><b>Recon basis (verified 2026-07-21, read-only):</b> branches on <code>github.com/livepeer/go-livepeer</code> &mdash; <code>ja/live-runner</code> = <b>PR #3938</b> "Live Runner" (base <code>master</code>, OPEN; <b>deployed as <code>lr-orch</code></b> via image <code>livepeer/go-livepeer:ja-live-runner</code>, gateway pinned <code>jm/live-runner-session-payments</code>); <code>ja/live-pricing</code> = <b>PR #3992</b> "Ja/live pricing" (base <code>ja/live-runner</code>, OPEN <b>draft</b>, <b>not deployed</b>). <code>byoc-staging-1</code> runs <code>feat/remote-signer-byoc-v2</code> @ <code>be5a669e</code> (= PR #3896). Separate <code>feat/byoc-per-cap-pricing-and-usage-labels</code> branch exists (usage-label plumbing) but is <b>not</b> the deployed byoc image. Confirmed: <code>core/orchestrator.go GetCapabilitiesPrices</code> is <b>untouched</b> on <code>ja/live-runner</code>, <code>ja/live-pricing</code>, and the per-cap-pricing branch; grep for <code>billing_unit_kind</code>/<code>billing_unit_quantity</code>/<code>unit_kind</code> across <code>ja/live-pricing</code> server/core/ai returns <b>zero</b> hits.</p>
+<table>
+  <thead><tr><th>Plan PR (upstream owner)</th><th>Already exists upstream (branch / file / commit)</th><th>Still needed (genuinely left for the owner)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="tag t-new">PR3</span> Orch aggregation &rarr; <code>GetCapabilitiesPrices</code> (G1) <span class="repo">go-livepeer</span></td>
+      <td><b>#3992</b> wires the runner <b>decimal-USD price schema</b> (<code>ai/runner/live_runner.go</code> <code>LiveRunnerPriceInfo{price, currency:usd, unit:hour|720p}</code> &rarr; wei) and bridges it to a <b>per-session</b> <code>net.PriceInfo</code> via <code>server/ai_http.go runnerOrchInfo()</code> + <code>DiscoverLiveRunners()</code>. This is the exact price shape PR3 must adopt. <b>#3938</b> (deployed as <code>lr-orch</code>) ships the runner/discovery surface.</td>
+      <td><b>Yes &mdash; not done.</b> <code>GetCapabilitiesPrices</code> (<code>core/orchestrator.go:266</code>) is <b>unchanged</b> on every branch &mdash; it still aggregates only default/gateway/BYOC-external prices, <b>not</b> Live-Runner per-cap descriptor prices (G1 open). Still need: the <code>-aggregateRunnerPrices</code> merge, the overhead split fix (<code>ExpectedPrice == RecipientRandHash</code>), and parsing #3992's decimal-<code>price</code> shape (not the old <code>price_per_unit/pixels_per_unit</code>).</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR4</span> Gateway payload&rarr;quantity <span class="repo">python-gateway</span></td>
+      <td>Gateway pin <code>jm/live-runner-session-payments</code> already sends the live-runner session payment and the <code>type</code> discriminator (<code>live</code>/<code>lv2v</code>); #3992 gives the <code>second</code> (elapsed-seconds) basis "for free".</td>
+      <td><b>Yes &mdash; not done.</b> No per-<code>quantity_source</code> extractor (megapixel/image/characters/<b>tokens</b>/call), no <code>SEND_UNIT_METERING</code> flag, and no <code>{billing_unit_kind, billing_unit_quantity}</code> on <code>/generate-live-payment</code>. #3992 covers <b>only</b> <code>second</code>; image/call/characters/tokens are entirely PR4.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR5</span> Signer stamp <code>billing_unit_kind/quantity</code> (observe) <span class="repo">go-livepeer</span></td>
+      <td><b>#3992 is a near-template:</b> adds <code>RemoteType_Live</code>, a <code>Type</code> field on <code>RemotePaymentState</code>, session-locks it (<code>job type mismatch</code> guard) and branches billing on <code>type</code> (<code>server/remote_signer.go</code>). <code>sanitizeUsageLabel</code> (trim+128-rune, <code>~:383</code>) + <code>resolveUsageLabels</code> already exist on <code>feat/byoc-per-cap-pricing-and-usage-labels</code>. <b>Watch:</b> #3992 renames emitted <code>cost_per_pixel</code>&rarr;<code>cost</code>.</td>
+      <td><b>Yes &mdash; not done.</b> The two fields <code>BillingUnitKind</code>/<code>BillingUnitQuantity</code> do <b>not</b> exist anywhere on <code>ja/live-pricing</code> (grep = 0) and are not stamped on <code>create_signed_ticket</code>. Still need to add + sanitize/clamp + stamp them, extending (not forking) the #3992 <code>type</code> discriminator.</td>
+    </tr>
+    <tr>
+      <td><span class="tag t-new">PR8</span> Signer fee-from-quantity ENFORCE <span class="repo">go-livepeer</span></td>
+      <td><b>Pattern exists:</b> #3992's <code>calculateFee(billableUnits, initialPrice)</code> with type-branched <code>billableUnits</code> (elapsed seconds for <code>live</code>, pixels for <code>lv2v</code>, 10s minimum) is the precedent PR8 mirrors.</td>
+      <td><b>Yes &mdash; not done.</b> #3992 bills <b>elapsed seconds only</b>; there is no <code>fee = (price_per_unit/price_scaling) &times; pixels_per_unit &times; qty</code> for image/image-flat/video/TTS/tool/<b>tokens</b>, no <code>UNIT_FEE_ENFORCE</code> flag, and no <code>pixels_per_unit</code> carry-through. <b>Caveat:</b> #3992's <code>live_payment_processor.go processOne</code> still bills <b>pixels</b> (open upstream bug) &mdash; PR8 must not inherit it.</td>
+    </tr>
+  </tbody>
+</table>
+<p class="note"><b>Bottom line for the owners:</b> the runner-side <b>decimal-USD price schema, USD&rarr;wei conversion, the session <code>type</code> discriminator, and <code>sanitizeUsageLabel</code></b> already exist (#3992 / byoc branches) &mdash; do <b>not</b> rebuild them. What is genuinely left is: <b>orch per-cap aggregation into <code>GetCapabilitiesPrices</code></b> (PR3), the <b>gateway quantity extractors</b> for non-second units incl. tokens (PR4), the <b>two billing-unit fields on the signer</b> (PR5), and the <b>general <code>fee = per_unit &times; qty</code> enforce path</b> (PR8) &mdash; none of which is present on <code>ja/live-runner</code>, <code>ja/live-pricing</code>, <code>byoc-staging-1</code>, or <code>lr-orch</code> today.</p>
 
 </div>
 </body>
