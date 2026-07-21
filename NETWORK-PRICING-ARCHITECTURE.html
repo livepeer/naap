@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Network Pricing / Metering / Billing Architecture &mdash; Agent, Signer, Live-Runner</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --border:#2b3441;
+    --ink:#e6edf3; --mut:#9aa7b4; --accent:#4fa3ff; --accent2:#7ee787;
+    --warn:#f0b429; --bad:#ff6b6b; --ok:#4fd08a; --mid:#ffb454;
+    --chip:#222b38;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1160px;margin:0 auto;padding:40px 28px 96px}
+  header.hero{
+    background:linear-gradient(135deg,#12203a,#1a1030 60%,#0e1116);
+    border:1px solid var(--border); border-radius:16px; padding:32px 34px; margin-bottom:28px;
+  }
+  header.hero h1{margin:0 0 6px; font-size:27px; letter-spacing:-.4px}
+  header.hero .sub{color:var(--mut); font-size:15px}
+  header.hero .meta{margin-top:16px; display:flex; flex-wrap:wrap; gap:8px}
+  .chip{background:var(--chip); border:1px solid var(--border); color:var(--mut);
+    border-radius:999px; padding:4px 12px; font-size:12.5px}
+  .chip b{color:var(--ink); font-weight:600}
+  h2{font-size:21px; margin:44px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+  h3{font-size:16.5px; margin:24px 0 8px; color:#cbd6e2}
+  h4.part{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);margin:44px 0 -8px}
+  p{margin:10px 0}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:#0b0f14; border:1px solid var(--border); border-radius:5px;
+    padding:1px 6px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.6px; color:#e3b341}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin:16px 0}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px}
+  .card h4{margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--mut)}
+  .card .big{font-size:22px; font-weight:700}
+  .card .flabel{font-size:11.5px;color:var(--mut)}
+  .verdict{border-left:4px solid var(--accent); background:var(--panel2); border-radius:0 10px 10px 0;
+    padding:14px 18px; margin:16px 0}
+  .verdict.no{border-left-color:var(--bad)}
+  .verdict.yes{border-left-color:var(--ok)}
+  .verdict.cond{border-left-color:var(--warn)}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.4px; background:var(--panel); border-radius:10px; overflow:hidden}
+  th,td{padding:9px 11px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top}
+  th{background:var(--panel2); color:#cbd6e2; font-weight:600; font-size:12.4px; text-transform:uppercase; letter-spacing:.4px}
+  tr:last-child td{border-bottom:none}
+  td.mono,th.mono{font-family:ui-monospace,Menlo,monospace; font-size:12.2px}
+  .tag{display:inline-block; padding:2px 8px; border-radius:6px; font-size:11.5px; font-weight:600; white-space:nowrap}
+  .t-yes{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  .t-no{background:#3a1418; color:var(--bad); border:1px solid #63232a}
+  .t-part{background:#3a2e12; color:var(--mid); border:1px solid #6b5320}
+  .t-keep{background:#122a33; color:#5ad1e0; border:1px solid #1e4f5c}
+  .t-new{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  .risk-hi{color:var(--bad); font-weight:700}
+  .risk-md{color:var(--mid); font-weight:700}
+  .risk-lo{color:var(--ok); font-weight:700}
+  ul.clean{margin:8px 0; padding-left:22px}
+  ul.clean li{margin:5px 0}
+  .do-dont{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0}
+  @media(max-width:760px){.do-dont{grid-template-columns:1fr}}
+  .do{background:#0f1f16; border:1px solid #1e5637; border-radius:12px; padding:16px 18px}
+  .dont{background:#1f1113; border:1px solid #63232a; border-radius:12px; padding:16px 18px}
+  .do h3{color:var(--ok); margin-top:0} .dont h3{color:var(--bad); margin-top:0}
+  .note{background:#1a2436; border:1px dashed #365; border-radius:10px; padding:12px 16px; margin:14px 0; color:#bcd}
+  .note.warn{background:#2a2312; border-color:#6b5320; color:#f2d999}
+  .note.bad{background:#231314; border-color:#63232a; color:#f2b8b8}
+  .toc{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 20px; margin:20px 0; columns:2; column-gap:30px}
+  .toc a{display:block; padding:3px 0; color:var(--mut)}
+  .toc a:hover{color:var(--accent)}
+  .foot{margin-top:56px; padding-top:18px; border-top:1px solid var(--border); color:var(--mut); font-size:12.5px}
+  .phase{border-left:3px solid var(--accent); padding:4px 0 4px 18px; margin:14px 0}
+  .phase h3{margin:0 0 4px}
+  .gate{font-size:12.5px; color:var(--accent2)}
+  .pill{display:inline-block;background:var(--chip);border:1px solid var(--border);border-radius:6px;padding:1px 7px;font-size:12px;color:var(--mut);margin:0 2px}
+  pre.diagram{background:#0b0f14; border:1px solid var(--border); border-radius:10px; padding:16px 18px;
+    overflow-x:auto; font-family:ui-monospace,Menlo,monospace; font-size:12.1px; line-height:1.5; color:#cbd6e2}
+  pre.code{background:#0b0f14; border:1px solid var(--border); border-radius:10px; padding:14px 16px;
+    overflow-x:auto; font-family:ui-monospace,Menlo,monospace; font-size:12.2px; line-height:1.5; color:#c9d4e0}
+  pre.code .k{color:#e3b341} pre.code .s{color:#7ee787} pre.code .c{color:#6b7684} pre.code .n{color:#79c0ff}
+  .flabel{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+  .ev{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8fb4d8}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Network Pricing / Metering / Billing Architecture</h1>
+  <div class="sub">A systematic, code-grounded examination of pricing across three layers &mdash; the <b>agent</b> (user-facing USD), the <b>byoc-staging-1 signer</b> (on-chain tickets), and the <b>live-runner orchestrator</b> &mdash; and an extensible design for the target <b>one-orch &rarr; many-runners</b> model where every cap configures how it is priced and metered.</div>
+  <div class="meta">
+    <span class="chip">Deploy branch: <b class="mono">fix/signer-composite-bearer-forward</b></span>
+    <span class="chip">Builds on: <b class="mono">PYMTHOUSE-PER-UNIT-METERING-DESIGN.html</b> &middot; <b class="mono">BYOC-TO-LIVERUNNER-MIGRATION.html</b> &middot; <b class="mono">STORYBOARD-SIGNER-ROUTING.md</b></span>
+    <span class="chip">Runs 50&ndash;57 &middot; <b class="mono">BILLED-E2E-BLOCKER-AUDIT.md</b></span>
+    <span class="chip">Read-only investigation &middot; evidence-based</span>
+  </div>
+</header>
+
+<div class="toc">
+  <a href="#tldr">0. Direct answers (the crux)</a>
+  <a href="#p1">Part 1 &mdash; Agent-level pricing (user-facing)</a>
+  <a href="#p2">Part 2 &mdash; byoc-staging-1 signer pricing</a>
+  <a href="#p3">Part 3 &mdash; Live-runner orch pricing</a>
+  <a href="#p4">Part 4 &mdash; Target design (one-orch &rarr; many-runners)</a>
+  <a href="#p4gap">4a. Gap analysis</a>
+  <a href="#p4design">4b. Proposed design + config schema</a>
+  <a href="#p5">Part 5 &mdash; Agent vs on-chain (does it "just work"?)</a>
+  <a href="#dodont">6. DO / DON'T / risks + phasing</a>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="tldr">0. Direct answers &mdash; the crux question</h2>
+
+<div class="verdict cond">
+  <b>Q &mdash; If the USD&harr;ETH conversion is bridged (the <code>eth_usd</code> bridge in the collector), does this "just work" &mdash; user gets agent pricing and inferencing gets billed on-chain &mdash; OR must the agent report usage directly to pymthouse?</b><br><br>
+  <b>Today: it does NOT "just work," and the fix is NOT the bridge.</b> The <code>eth_usd</code> bridge already exists and converts wei&nbsp;&rarr;&nbsp;USD correctly. The reason bridged USD does not equal the agent's quoted USD is <b>upstream of the bridge</b>: the on-chain signer event meters the wrong <em>quantity</em> in the wrong <em>unit</em> (<code>pixels = ceil(billable_secs)</code>, "seconds-as-flat-unit"), then the collector clamps it to a <b>~1&nbsp;&micro;USD fee-floor</b>. So a 4-MP image, a 6-s video and a 2&nbsp;000-char TTS call all bridge to the same blip &mdash; nothing like the agent's per-unit quote.
+</div>
+
+<div class="verdict yes">
+  <b>Recommendation &mdash; keep ONE source of truth (Model A), don't dual-report.</b><br>
+  Make the <b>on-chain signer event the single source of truth</b> and give it the two fields it lacks &mdash; <code>billing_unit_kind</code> + <code>billing_unit_quantity</code> (the design already scoped in <span class="mono">PYMTHOUSE-PER-UNIT-METERING-DESIGN.html</span>). Once the signer computes the fee from <code>quantity &times; per-unit price</code> (sourced from the <em>same</em> capability price row the agent quotes from) and stamps the true unit+quantity, the bridged on-chain USD <b>converges to</b> the agent's quote by construction. At that point the agent should <b>NOT</b> report usage directly to pymthouse for billing &mdash; the agent quote stays a <b>pre-flight UX estimate</b> only. Direct agent reporting (Model&nbsp;B) creates two truths, double-counting risk, a trust boundary on an untrusted client, and reconciliation drift &mdash; strictly worse and harder to extend.
+</div>
+
+<div class="grid">
+  <div class="card"><h4>Agent quote source</h4><div class="big">display_price_usd</div><div class="flabel">&times; estimated units &mdash; storyboard-wave-c</div></div>
+  <div class="card"><h4>Signer bills</h4><div class="big">wei / sec</div><div class="flabel">pixels = ceil(billable_secs)</div></div>
+  <div class="card"><h4>Live-runner price</h4><div class="big">0 (offchain)</div><div class="flabel">400 "missing or zero priceInfo"</div></div>
+  <div class="card"><h4>Fix = fields, not code</h4><div class="big">2</div><div class="flabel">unit_kind + quantity on the event</div></div>
+</div>
+
+<div class="note">
+  <b>Top gaps (headline).</b>
+  (1) The signer meters <b>seconds-as-flat-unit</b> for every non-live cap and the collector applies a <b>fee-floor</b>, so on-chain USD is decoupled from the true unit &mdash; the agent's USD quote and the billed USD do not reconcile.
+  (2) Live-runner prices live on <code>GET /discovery</code> only and <b>never enter <code>GetCapabilitiesPrices</code></b>; offchain staging suppresses them entirely &rarr; <code>400 missing or zero priceInfo</code> &mdash; there is no per-cap price surface for a one-orch&rarr;many-runners model to aggregate.
+  (3) There is <b>no per-cap "how am I priced" declaration</b> that flows runner&nbsp;&rarr;&nbsp;orch&nbsp;&rarr;&nbsp;signer&nbsp;&rarr;&nbsp;meter; unit+quantity are dropped at every hop, so adding a new cap/pricing model is code, not config.
+</div>
+
+<!-- ============================================================= PART 1 -->
+<h4 class="part">Part 1</h4>
+<h2 id="p1">Agent-level pricing (user-facing) &mdash; TODAY</h2>
+<p>The agent layer is the Storyboard MCP server (<span class="ev">canonical: storyboard-wave-c</span> &mdash; <span class="mono">storyboard-a3</span> mirrors the same tools; the <span class="mono">plugins/storyboard</span> trees are packaging-only). Everything the user sees is USD in an industry-standard unit, and every USD figure derives from one field: <code>display_price_usd</code>.</p>
+
+<h3>1.1 &nbsp;The agent pricing flow (diagram)</h3>
+<pre class="diagram">
+  DEPLOY SOURCE OF TRUTH                              AGENT / MCP RUNTIME
+  ┌──────────────────────────────┐
+  │ pricing-table-deploy.json     │   convert.py      ┌──────────────────────────────┐
+  │  name, unit_kind,             │──── paste ───────▶│ CAPABILITIES_JSON on each      │
+  │  pixels_per_unit,             │                   │ BYOC / tool adapter            │
+  │  display_price_usd,           │                   └──────────────┬─────────────────┘
+  │  display_unit,                │                                  │ aggregated
+  │  price_per_unit, price_scaling│                                  ▼
+  └──────────────────────────────┘                   ┌──────────────────────────────┐
+             │ generated                              │ Orchestrator  GET /capabilities│
+             ▼ (static fallback)                      │  (display + wire fields)       │
+  ┌──────────────────────────────┐                   └──────────────┬─────────────────┘
+  │ static-pricing.json           │                                  │ SDK  (cached 60s)
+  │ (capabilityStaticPrice)        │◀── overlay if display_price_usd  │
+  └──────────────────────────────┘        missing                    ▼
+                                            ┌──────────────────────────────────────────┐
+                                            │ get_pricing  →  rate card (USD/unit)       │
+                                            │ estimateCost →  display_price_usd × units  │
+                                            │   ├─ max_cost_usd  (pre-flight reject)     │
+                                            │   ├─ spend_cap     (24h, default $50)      │
+                                            │   └─ job.cost_usd_estimated (persisted)    │
+                                            │ get_cost_report → Σ cost_usd_estimated     │
+                                            └────────────────────────────────────────────┘
+   NOTE: the agent NEVER sees wei. It quotes/tallies in USD. The wire (price_per_unit,
+   pixels_per_unit, price_scaling → wei/pixel) is a SEPARATE, parallel surface used only
+   by the orchestrator to bill on-chain (Part 2).
+</pre>
+
+<h3>1.2 &nbsp;Where each thing lives (file:line evidence)</h3>
+<table>
+  <thead><tr><th>#</th><th>Concern</th><th>What it does</th><th>Evidence (file:line)</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><b>get_pricing</b></td><td>Reads live <code>/capabilities</code> (cached 60s; <code>?bypass_cache</code> supported); overlays <code>capabilityStaticPrice()</code> when a cap lacks <code>display_price_usd</code>; returns a rate card + <code>structuredContent.capabilities[]</code> with <code>display_price_usd / display_unit / unit_kind</code>.</td><td class="mono">storyboard-wave-c/lib/mcp-server/tools/get-pricing.ts:62-74, 89-104, 153-177</td></tr>
+    <tr><td>2</td><td><b>capabilities cache / SDK</b></td><td><code>getCapabilitiesCached</code> &rarr; <code>sdkGet("/capabilities", auth)</code>.</td><td class="mono">lib/mcp-server/capabilities-cache.ts:24-33</td></tr>
+    <tr><td>3</td><td><b>Cost estimate</b></td><td><code>estimated_usd = display_price_usd &times; estimated_units</code>; <code>estimateUnits()</code> counts natural units per unit kind.</td><td class="mono">lib/mcp-server/pricing/estimate.ts:19-21, 67-107, 278-294</td></tr>
+    <tr><td>4</td><td><b>max_cost_usd</b> guard</td><td>Pre-flight <code>estimateCost</code>; reject with <code>cost_exceeded</code> if over the caller's cap.</td><td class="mono">lib/mcp-server/tools/create-media.ts:1300-1323</td></tr>
+    <tr><td>5</td><td><b>spend_cap</b> (24h)</td><td><code>checkAndReserveSpend</code> &rarr; <code>spendLast24h</code>+<code>recordSpend</code>; default <code>DEFAULT_SPEND_CAP_USD = $50</code>; read/set/reset via the <code>spend_cap</code> tool.</td><td class="mono">create-media.ts:1326-1349; storage.ts:799-812, 2787; tools/spend-cap.ts:25-118</td></tr>
+    <tr><td>6</td><td><b>Per-gen tally</b></td><td>Jobs persist <code>cost_usd_estimated / cost_unit_kind / cost_units</code>.</td><td class="mono">create-media.ts:~1642; storage.ts:~864-872</td></tr>
+    <tr><td>7</td><td><b>get_cost_report</b></td><td>Sums <code>job.cost_usd_estimated</code> across media-job blobs (an <b>estimate</b> tally, not OpenMeter).</td><td class="mono">tools/get-cost-report.ts:173-179</td></tr>
+    <tr><td>8</td><td><b>Deploy table</b></td><td>Authoritative rows; <code>convert.py</code> derives <code>price_per_unit</code> from ETH spot; <code>display_price_usd</code> is the human source of truth.</td><td class="mono">docs/pricing-v1/pricing-table-deploy.json; convert.py:11-21</td></tr>
+    <tr><td>9</td><td><b>Adapter display vs wire</b></td><td><code>unit_kind / pixels_per_unit / display_price_usd / display_unit</code> are <span class="tag t-part">display-only</span>; only <code>name / price_per_unit / price_scaling</code> go to the orch on register.</td><td class="mono">tool-adapter/config.py:37-42, 60-62, 155-162, 191-196; registrar.py:66-76</td></tr>
+    <tr><td>10</td><td><b>NaaP spend dashboard</b></td><td><code>GET /api/v1/metrics/usage</code> (BFF). With <code>usage_pull</code> ON &rarr; <code>pullSpend()</code> &rarr; adapter <code>getSpend()</code> (pymthouse/OpenMeter) aggregating <code>networkFeeUsdMicros</code>; OFF &rarr; Postgres <code>ProviderUsageRecord</code>. Gated by <code>usage_ingest</code>.</td><td class="mono">NaaP/apps/web-next/.../metrics/usage/route.ts:25-26,107-118,164-174,214; lib/billing/pymthouse-adapter.ts:168-177, 215-216</td></tr>
+  </tbody>
+</table>
+
+<h3>1.3 &nbsp;Per-capability-class capture (unit + price + source of truth)</h3>
+<p>Values are actual rows from <span class="mono">pricing-table-deploy.json</span> (line refs given). The agent multiplies <code>display_price_usd</code> by <code>estimateUnits()</code> for the class.</p>
+<table>
+  <thead><tr><th>Capability class</th><th>Example caps</th><th><code>unit_kind</code> / <code>display_unit</code></th><th>Agent unit &amp; price (actual)</th><th>Quantity logic (estimate.ts)</th><th>Source of truth</th></tr></thead>
+  <tbody>
+    <tr><td>Image (diffusion, per-MP)</td><td class="mono">flux-schnell, flux-dev</td><td><span class="tag t-keep">megapixel</span></td><td><code>$0.00315</code>/MP; <code>pixels_per_unit=1048576</code></td><td><code>w&times;h/2<sup>20</sup></code> or default <b>1&nbsp;MP</b></td><td class="mono">deploy.json:57-62</td></tr>
+    <tr><td>Image (flat, per-image)</td><td class="mono">nano-banana, recraft-v4, gpt-image, flux-pro</td><td><span class="tag t-keep">image</span></td><td><code>$0.042</code>/image (nano-banana, recraft-v4)</td><td>default <b>1</b> per image</td><td class="mono">deploy.json:219-224, 147-152</td></tr>
+    <tr><td>Video (t2v / i2v, per-sec)</td><td class="mono">ltx-i2v, veo-t2v</td><td><span class="tag t-keep">second</span></td><td><code>$0.042</code>/s (ltx-i2v), <code>$0.42</code>/s (veo-t2v); <code>pixels_per_unit=8294400</code></td><td>requested <code>duration</code> or default <b>5&nbsp;s</b></td><td class="mono">deploy.json:489-494, 381-386</td></tr>
+    <tr><td>TTS (per-1000-chars)</td><td class="mono">chatterbox-tts</td><td><span class="tag t-keep">characters</span> / <code>1000_characters</code></td><td><code>$0.02625</code>/1K chars; <code>pixels_per_unit=100000</code></td><td><code>len(text)/1000</code></td><td class="mono">deploy.json:669-674</td></tr>
+    <tr><td>Tool / MCP (per-call)</td><td class="mono">ffmpeg-concat, tools</td><td><span class="tag t-keep">call</span></td><td><code>$0.00013</code>/call (ffmpeg-concat); <code>pixels_per_unit=1000000</code></td><td>default <b>1</b> call</td><td class="mono">deploy.json:907-912; config.py defaults 60-62</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <b>Global wire protocol (deploy.json:41-44):</b> billing unit <code>"pixel"</code>, <code>price_scaling = 1000000</code>. So <code>wei_per_pixel = price_per_unit / price_scaling</code>, and <code>USD_per_unit = wei_per_pixel &times; pixels_per_unit &times; eth_usd</code> is internally consistent with the advertised <code>display_price_usd</code>. This is the shared anchor that lets the agent's USD quote and the on-chain fee reconcile <em>in principle</em> &mdash; Part 5.
+</div>
+
+<!-- ============================================================= PART 2 -->
+<h4 class="part">Part 2</h4>
+<h2 id="p2">byoc-staging-1 signer pricing &mdash; the ticket-pricing flow</h2>
+<p>byoc-staging-1 is an <b>on-chain</b> orchestrator (<span class="mono">eth_addr 0x180859c3&hellip;</span>). When the gateway asks the signer for a payment, the signer chooses a billing basis, resolves a price, computes a fee, mints a ticket, and fires a telemetry event. Evidence is from <span class="ev">golivepeer/glp-combine @ fix/byoc-e2e-v1-and-type-byoc (8ddd08ea)</span>.</p>
+
+<h3>2.1 &nbsp;Ticket-pricing flow (diagram)</h3>
+<pre class="diagram">
+  GATEWAY  livepeer-python-gateway/byoc.py :: _create_byoc_payment
+    POST {signer}/generate-live-payment
+      body = { orchestrator: &lt;b64 OrchestratorInfo&gt;, type: "byoc"|"lv2v",
+               capabilities: &lt;b64 BYOC proto&gt; (byoc)  |  capability: &lt;str&gt; (lv2v) }
+      ── NO quantity, NO unit, NO request payload ──                (byoc.py:219-234)
+                              │
+                              ▼
+  SIGNER  server/remote_signer.go :: GenerateLivePayment           (488-521)
+    ┌───────────────────────────────────────────────────────────────────────┐
+    │ 1. decode req + unmarshal oInfo (OrchestratorInfo)          (516-521)   │
+    │ 2. price:                                                              │
+    │    if ByocPerCapPricing && cap!="" && isByocBillingType:               │
+    │       priceInfo = resolveByocPrice(cap, oInfo.CapabilitiesPrices)      │
+    │       → {PricePerUnit, PixelsPerUnit} for {Capability_BYOC, cap}        │
+    │       ELSE priceInfo = oInfo.PriceInfo (base)              (548-557)   │
+    │    if priceInfo nil/0 → 400 "missing or zero priceInfo"    (559-562)   │
+    │ 3. lock InitialPrice on FIRST request into session state   (596-602)   │
+    │ 4. BILLING BASIS (unit = "pixels"):                                    │
+    │    byoc: pixels = ceil(billable_secs);  1st call → 60s     (684-713)   │
+    │    lv2v: pixels = 720×1280×30 × billable_secs                          │
+    │    ── unit_kind from the cap row is NEVER consulted ──                 │
+    │ 5. fee = calculateFee(pixels, initialPrice)               (730-731)   │
+    │      = (PricePerUnit/PixelsPerUnit) × pixels   ← wei/sec × seconds     │
+    │ 6. genPayment(sess, numTickets)  → on-chain ticket        (765)       │
+    │ 7. SendQueueEventAsync("create_signed_ticket", {...})     (848-877)   │
+    │      pipeline, model_id, pixels, computed_fee, billable_secs,          │
+    │      cost_per_pixel, ...  ── NO unit_kind, NO natural quantity ──      │
+    └───────────────────────────────────────────────────────────────────────┘
+</pre>
+
+<h3>2.2 &nbsp;Unit, unit-price, and quantity (evidence)</h3>
+<table>
+  <thead><tr><th>Element</th><th>Behavior</th><th>Evidence</th></tr></thead>
+  <tbody>
+    <tr><td><b>Unit (quantity dimension)</b></td><td>Always <code>pixels</code>. For <code>type:"byoc"</code>, <code>pixels = int64(ceil(billableSecs))</code> &mdash; <b>seconds-as-flat-unit</b>. First call preloads <code>billableSecs = 60</code>. The catalog <code>unit_kind</code> (MP/image/chars/call) is never read here.</td><td class="mono">remote_signer.go:684-713</td></tr>
+    <tr><td><b>Unit price</b></td><td><code>resolveByocPrice</code> scans <code>oInfo.CapabilitiesPrices</code> for <code>{Capability_BYOC, Constraint==cap}</code> with positive <code>PricePerUnit/PixelsPerUnit</code>; interpreted as a <b>wei/second</b> rational (comment: "denominated per compute-second").</td><td class="mono">remote_signer.go:447-485, 691-695</td></tr>
+    <tr><td><b>Fee (volume)</b></td><td><code>calculateFee(pixels, price) = (PricePerUnit/PixelsPerUnit) &times; pixels</code>. With <code>pixels=ceil(secs)</code> &rArr; <code>fee = weiPerSec &times; seconds</code>.</td><td class="mono">live_payment.go:339-342; remote_signer.go:730-731</td></tr>
+    <tr><td><b>Per-cap pricing flag</b></td><td><code>-byocPerCapPricing</code>, default <b>OFF</b>. Wires to <code>n.ByocPerCapPricing</code>.</td><td class="mono">starter.go:328,1884-1886; flags.go:151; livepeernode.go:161</td></tr>
+    <tr><td><b>ExpectedPrice / ticket</b></td><td>After a per-cap override the signer sets <code>oInfo.PriceInfo = capPrice</code>; the minted payment's <code>ExpectedPrice = sess.OrchestratorInfo.PriceInfo</code>. Signer trusts the embedded <code>TicketParams</code> (does not recompute). Orch later validates via <code>payment.GetExpectedPrice()</code>.</td><td class="mono">remote_signer.go:522-557,629; segment_rpc.go:827-830; orchestrator.go:139-161</td></tr>
+    <tr><td><b>Metering event</b></td><td><code>create_signed_ticket</code> carries <code>pixels, computed_fee, billable_secs, cost_per_pixel, pipeline, model_id</code> &mdash; no <code>unit_kind</code>, no natural quantity, no <code>use_byoc_pricing</code>.</td><td class="mono">remote_signer.go:848-877</td></tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <b>Correction &amp; reconciliation vs prior artifacts.</b>
+  (a) <b><code>type:"byoc"</code> ALWAYS uses the seconds path</b> (<code>pixels=ceil(secs)</code>) &mdash; even when <code>-byocPerCapPricing</code> is OFF. The flag changes only the <b>rate</b> (per-cap <code>CapabilitiesPrices</code> vs base <code>oInfo.PriceInfo</code>), not the unit. When OFF with a base wei/pixel price, fees are tiny.
+  (b) There is <b>no <code>applyAutoAdjustOverhead</code> inside <code>GetCapabilitiesPrices</code></b> in this tree (the name does not exist here). The ~1% tx-overhead is applied in <code>priceInfo()</code> / <code>jobPriceInfo()</code> via <code>AutoAdjustPrice</code> (<span class="mono">core/orchestrator.go:440-463</span>; <span class="mono">ai_orchestrator.go:1222-1242</span>). Net effect the prior audit described (advertised price should equal the price the ticket is minted against, avoiding an <code>ExpectedPrice</code> vs <code>RecipientRandHash</code> mismatch) still holds; only the <em>location</em> of the overhead differs. This is a genuine alignment edge: per-cap <code>CapabilitiesPrices</code> come from <code>GetPriceForJob</code> (no overhead) while discovery <code>PriceInfo</code> gets overhead &mdash; verify at cutover.
+</div>
+
+<!-- ============================================================= PART 3 -->
+<h4 class="part">Part 3</h4>
+<h2 id="p3">Live-runner orchestrator pricing &mdash; TODAY</h2>
+<p>The live-runner (LR) subsystem is a <em>different</em> pricing surface from BYOC. Runners heartbeat a price to the orch; the orch exposes it on an HTTP <code>GET /discovery</code>. Crucially, LR prices <b>never enter <code>GetCapabilitiesPrices</code></b>, and staging runs <code>-network=offchain</code>, which suppresses price entirely.</p>
+
+<h3>3.1 &nbsp;Live-runner pricing flow (diagram)</h3>
+<pre class="diagram">
+  RUNNER (one per model)  fal-app/app.py / tool-runner/base.py
+    --price default 0  (offchain free)                         (fal-app/app.py:90-92)
+        │ heartbeat  LiveRunnerPriceInfo{PricePerUnit, PixelsPerUnit, Unit}
+        ▼                                                       (live_runner.go:79-83)
+  ORCH  ai/runner/live_runner.go  +  server/ai_http.go
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │ registry stores price; USD/hr → wei/pixel via 1280×720×30×3600           │
+    │                                                    (live_runner.go:1366) │
+    │ GET /discovery → runners[].price_info                (ai_http.go:708-724)│
+    │   if runner.offchain OR price==0 → price_info OMITTED  (live_runner:1301)│
+    │   PaymentInfo(runnerID): offchain → returns nil       (live_runner:722)  │
+    │                                                                          │
+    │ ✗ NOT fed into GetCapabilitiesPrices (only default/gateway/BYOC caps)    │
+    │                                                    (orchestrator.go:266) │
+    └────────────────────────────────────────────────────────────────────────┘
+        │                                        │
+        ▼ persistent session                     ▼ single-shot
+  POST /apps/{id}/session                   /apps/{id}/app/{path}
+    priceInfo,_ = PaymentInfo(id)             ProxyLiveRunnerSingleShot:
+    paymentRequired = priceInfo != nil          reserve → proxy → release
+    if required & no payment header →            NO ProcessPayment, NO 402
+       402 challenge (runnerChallenge)         (ai_http.go:624-658)
+    ProcessPayment + metering loop
+       (ai_http.go:214-277)
+    ── offchain: PaymentInfo nil → paymentRequired=false → NO billing at all ──
+
+  BILLED BYOC path pointed at LR  →  GenerateLivePayment finds oInfo.PriceInfo 0
+        →  400 "missing or zero priceInfo"                (remote_signer.go:559-562)
+</pre>
+
+<h3>3.2 &nbsp;Evidence &amp; contrast with BYOC</h3>
+<table>
+  <thead><tr><th>Aspect</th><th>Live-runner (today / staging)</th><th>BYOC (byoc-staging-1)</th><th>Evidence</th></tr></thead>
+  <tbody>
+    <tr><td>Price surface</td><td><code>LiveRunnerPriceInfo</code> on <code>GET /discovery</code> only</td><td><code>OrchestratorInfo.CapabilitiesPrices</code> over gRPC</td><td class="mono">live_runner.go:79-83, 1301-1324; rpc.go:591-639</td></tr>
+    <tr><td>Enters <code>GetCapabilitiesPrices</code>?</td><td><span class="tag t-no">No</span> &mdash; only default/gateway/model + BYOC externals</td><td><span class="tag t-yes">Yes</span> &mdash; BYOC externals appended with <code>Constraint=cap</code></td><td class="mono">orchestrator.go:266-343</td></tr>
+    <tr><td>On/off-chain</td><td><code>-network=offchain</code> &rarr; <code>PaymentInfo</code>=nil, discovery price omitted, runners default <code>--price 0</code></td><td>On-chain; mints real tickets</td><td class="mono">simple-infra/live-runner/docker-compose.yml:17-29; fal-app/app.py:90-92; live_runner.go:639-641,722-733</td></tr>
+    <tr><td>Pricing model</td><td>USD/hour &rarr; wei/pixel via synthetic <code>1280&times;720&times;30&times;3600</code></td><td>Per-cap wei/sec (<code>pixels=ceil(secs)</code>)</td><td class="mono">live_runner.go:1366-1369; remote_signer.go:691-700</td></tr>
+    <tr><td>Single-shot billing</td><td><span class="tag t-no">None</span> &mdash; reserve/proxy/release, no <code>ProcessPayment</code>, no 402</td><td>One-shot payment via signer</td><td class="mono">ai_http.go:624-658</td></tr>
+    <tr><td>Persistent-session billing</td><td>402 challenge + <code>ProcessPayment</code> + metering loop &mdash; <b>only when on-chain</b> (else <code>paymentRequired=false</code>)</td><td>n/a (BYOC uses signer)</td><td class="mono">ai_http.go:214-277, 307-325</td></tr>
+    <tr><td>The 400 blocker</td><td><code>missing or zero priceInfo</code> when <code>priceInfo==nil || PricePerUnit==0 || PixelsPerUnit==0</code></td><td>Passes (has per-cap price)</td><td class="mono">remote_signer.go:559-562</td></tr>
+  </tbody>
+</table>
+<div class="note bad">
+  <b>Structural, not config (Runs 55/57).</b> Pointing the billed BYOC path at <code>liverunner-staging-1</code> returns <code>400 "missing or zero priceInfo"</code> because (i) LR prices never populate <code>CapabilitiesPrices</code>, and (ii) offchain mode nils <code>PaymentInfo</code> and omits discovery price. Composite-bearer <em>auth</em> passes (Run 57); the <em>pricing block</em> is unchanged. "Add pricing" means redeploy LR on-chain with non-zero per-cap prices <b>and</b> feed those prices into the orch's advertised price surface &mdash; not flip a flag.
+</div>
+
+<!-- ============================================================= PART 4 -->
+<h4 class="part">Part 4</h4>
+<h2 id="p4">Target design &mdash; one orchestrator, many runners, one runner per model</h2>
+<p><b>Target context (from the user):</b> a Live-Runner orchestrator with <b>one runner per model</b> and <b>one orch &rarr; many runners</b>. Goals: (a) let <b>each cap (model/tool) configure how it is priced</b>, and (b) have it <b>metered correctly in pymthouse upstream</b> for billing. The design must be <em>consistent</em> and <em>extensible</em> (a new cap/tool/pricing approach is <b>config, not code</b>) without over-engineering.</p>
+
+<h3 id="p4gap">4a. Gap analysis &mdash; what's missing under one-orch&rarr;many-runners</h3>
+<table>
+  <thead><tr><th>#</th><th>Gap</th><th>Why it blocks the target</th><th>Ties to</th></tr></thead>
+  <tbody>
+    <tr><td>G1</td><td><b>No per-runner price advertisement into the orch's authoritative price surface</b></td><td>Runner prices sit on <code>GET /discovery</code> and never reach <code>GetCapabilitiesPrices</code> / <code>OrchestratorInfo.CapabilitiesPrices</code>, so the billed signer path (which reads <code>CapabilitiesPrices</code>) sees zero &rarr; 400. One-orch&rarr;many-runners needs the orch to <b>aggregate each runner's price into the advertised per-cap price map</b>.</td><td class="mono">orchestrator.go:266-343; remote_signer.go:447-485,559-562</td></tr>
+    <tr><td>G2</td><td><b>No per-cap unit+price config at the runner/cap level</b></td><td>A runner advertises only a scalar <code>price_per_unit/pixels_per_unit</code>; it cannot declare <em>which natural unit</em> it bills in (MP vs image vs second vs chars vs call) or <em>where the quantity comes from</em>. The catalog knows this (<code>unit_kind</code>) but it is display-only and stripped on register.</td><td class="mono">config.py:37-42; registrar.py:66-76</td></tr>
+    <tr><td>G3</td><td><b>Unit+quantity dropped at every metering hop</b></td><td>Signer meters <code>pixels=ceil(secs)</code>; collector clamps to a fee-floor; OpenMeter only <code>SUM</code>s the fee. There is no dimension to bill "how many MP / seconds / chars" &mdash; so on-chain USD cannot equal the agent's per-unit quote.</td><td class="mono">remote_signer.go:684-713,848-877; PYMTHOUSE-...html §2</td></tr>
+    <tr><td>G4</td><td><b>Fee derived from wall-clock, not the requested quantity</b></td><td>The signer never receives the request payload, so it cannot compute <code>quantity &times; per_unit_price</code>. It bills time. Correct per-unit billing requires the quantity to reach the signer.</td><td class="mono">byoc.py:219-234; remote_signer.go:730-731</td></tr>
+    <tr><td>G5</td><td><b>Two divergent pricing models</b> (BYOC per-cap USD/sec vs LR USD/hr&rarr;wei/pixel)</td><td>The same cap can price differently across paths. A one-orch model needs a <b>single canonical per-cap price representation</b> that both the agent quote and the on-chain fee derive from.</td><td class="mono">live_runner.go:1366-1369; remote_signer.go:691-700</td></tr>
+    <tr><td>G6</td><td><b>Live-runner single-shot has no billing</b></td><td>Most fal/tool caps are one-shot, but <code>ProxyLiveRunnerSingleShot</code> reserve/proxy/release does not charge. Per-cap billing needs a metered single-shot path (per-call unit).</td><td class="mono">ai_http.go:624-658</td></tr>
+  </tbody>
+</table>
+
+<h3 id="p4design">4b. Proposed design &mdash; a per-cap pricing declaration that flows end-to-end</h3>
+<p>The core idea is <b>one declarative price object per cap</b> that the runner owns, the orch aggregates and advertises, the signer stamps, and pymthouse meters. It reuses the existing <code>billing_unit_kind</code> / <code>billing_unit_quantity</code> plumbing (already designed in <span class="mono">PYMTHOUSE-PER-UNIT-METERING-DESIGN.html</span>) so we add <b>fields, not subsystems</b>.</p>
+
+<pre class="diagram">
+  ┌─ RUNNER (one per model) ────────────────────────────────────────────────┐
+  │ declares pricing.json (per cap):                                          │
+  │   { unit_kind, per_unit_usd, quantity_source, min_units, ... }            │
+  │ heartbeat → orch  (adds unit_kind + quantity_source to LiveRunnerPriceInfo)│
+  └───────────────────────────────┬───────────────────────────────────────────┘
+                                   ▼  AGGREGATE
+  ┌─ ORCH (one → many) ─────────────────────────────────────────────────────┐
+  │ registry keys price by cap name (= runner/model)                          │
+  │ GetCapabilitiesPrices() ALSO emits a Capability_BYOC-style entry per LR    │
+  │   cap: {Constraint: cap, PricePerUnit, PixelsPerUnit, unit_kind}          │  ← G1
+  │ advertises on OrchestratorInfo.CapabilitiesPrices (billed path sees it)    │
+  └───────────────────────────────┬───────────────────────────────────────────┘
+                                   ▼
+  ┌─ GATEWAY ───────────────────────────────────────────────────────────────┐
+  │ computes billing_unit_quantity from the request payload per quantity_source│  ← G4
+  │ POST /generate-live-payment  { ..., billing_unit_kind, billing_unit_qty } │
+  └───────────────────────────────┬───────────────────────────────────────────┘
+                                   ▼
+  ┌─ SIGNER ────────────────────────────────────────────────────────────────┐
+  │ fee = per_unit_price × quantity   (not wall-clock)                        │  ← G3/G4
+  │ create_signed_ticket += { billing_unit_kind, billing_unit_quantity }      │
+  └───────────────────────────────┬───────────────────────────────────────────┘
+                                   ▼  eth_usd bridge (unchanged)
+  ┌─ COLLECTOR → OPENMETER → PYMTHOUSE ─────────────────────────────────────┐
+  │ passthrough unit_kind + unit_quantity; new meter usage_units SUM(qty)      │
+  │ cost_usd = Σ (unit_quantity × per_unit_usd[cap]); reconcile vs fee_floor  │
+  └────────────────────────────────────────────────────────────────────────────┘
+</pre>
+
+<h4>Config schema example &mdash; a cap's pricing declaration (owned by the runner)</h4>
+<p>One object per cap. Adding a new cap or a new pricing approach is <b>a new row/file</b>, not new code. The <code>quantity_source</code> is a small, closed enum of extractors the gateway already knows how to evaluate against the request payload.</p>
+<pre class="code"><span class="c">// runner pricing.json — one entry per capability the runner serves</span>
+{
+  <span class="k">"capability"</span>: <span class="s">"flux-schnell"</span>,
+  <span class="k">"pricing"</span>: {
+    <span class="k">"unit_kind"</span>:       <span class="s">"megapixel"</span>,        <span class="c">// megapixel|image|second|characters|tokens|call</span>
+    <span class="k">"per_unit_usd"</span>:    <span class="n">0.00315</span>,            <span class="c">// canonical price — same number the agent quotes</span>
+    <span class="k">"quantity_source"</span>: <span class="s">"image_megapixels"</span>, <span class="c">// closed enum → gateway extractor</span>
+    <span class="k">"min_units"</span>:       <span class="n">0.25</span>,               <span class="c">// optional floor (protects against dust)</span>
+    <span class="k">"reconcile"</span>:       <span class="s">"none"</span>              <span class="c">// none|on_completion (video/LLM only)</span>
+  }
+}
+
+<span class="c">// quantity_source enum → how the gateway derives billing_unit_quantity</span>
+<span class="c">//   image_megapixels : width*height*num_images / 2^20</span>
+<span class="c">//   image_count      : num_images (default 1)</span>
+<span class="c">//   video_seconds    : duration || num_frames/fps  (reconcile: on_completion)</span>
+<span class="c">//   text_kchars      : len(input_text) / 1000</span>
+<span class="c">//   llm_ktokens      : input_tokens / 1000        (reconcile: on_completion)</span>
+<span class="c">//   call             : 1</span>
+</pre>
+<div class="note">
+  <b>Why this is consistent + extensible without over-engineering.</b>
+  &bull; <b>One canonical price</b> (<code>per_unit_usd</code>) is the single number the agent quotes AND the orch/signer bill from &mdash; kills the two-model divergence (G5).
+  &bull; <b>One meter</b> (<code>usage_units</code>) grouped by <code>unit_kind</code> serves every modality &mdash; no meter-per-cap explosion.
+  &bull; <b>Closed enums</b> for <code>unit_kind</code> and <code>quantity_source</code> keep the extractor set small and reviewable; a new pricing approach that fits an existing extractor is pure config.
+  &bull; <b>Additive & flag-gated</b>: absent fields = today's behavior, so rollout is a dual-write, not a rewrite.
+  &bull; We do <b>not</b> build a rules engine or per-cap code paths &mdash; the only genuinely new code is the orch aggregation of runner prices (G1) and the gateway quantity extractors, both bounded.
+</div>
+
+<!-- ============================================================= PART 5 -->
+<h4 class="part">Part 5</h4>
+<h2 id="p5">Agent (user-facing) vs on-chain pricing &mdash; the crux</h2>
+
+<h3>5.1 &nbsp;The two prices and the bridge</h3>
+<table>
+  <thead><tr><th></th><th>Agent / user-facing price</th><th>On-chain price</th></tr></thead>
+  <tbody>
+    <tr><td><b>Denomination</b></td><td>USD (<code>display_price_usd</code> &times; units)</td><td>wei / ETH (ticket EV settled on the Livepeer PM ledger)</td></tr>
+    <tr><td><b>Where</b></td><td>Storyboard MCP: <code>get_pricing</code>, <code>estimateCost</code>, <code>get_cost_report</code></td><td>Signer <code>calculateFee</code> &rarr; ticket; collector telemetry &rarr; OpenMeter</td></tr>
+    <tr><td><b>Purpose</b></td><td>Quote, cap (<code>max_cost_usd</code>/<code>spend_cap</code>), show the user what a gen costs</td><td>Pay the orchestrator/network for compute; the money that actually moves</td></tr>
+    <tr><td><b>Bridge</b></td><td colspan="2" class="mono">collector: network_fee_usd_micros = ceil(fee_wei &times; eth_usd / 1e12)  &mdash; the eth_usd bridge already exists</td></tr>
+  </tbody>
+</table>
+
+<h3>5.2 &nbsp;Does the eth_usd bridge make it "just work"? &mdash; Model A vs Model B</h3>
+<table>
+  <thead><tr><th></th><th>Model A &mdash; on-chain event is the single source of truth</th><th>Model B &mdash; agent reports usage directly to pymthouse</th></tr></thead>
+  <tbody>
+    <tr><td><b>Where truth lives</b></td><td>The signer's <code>create_signed_ticket</code> event (backed by a real ticket). pymthouse meters it, bridging wei&rarr;USD.</td><td>Two places: the on-chain ticket <em>and</em> an out-of-band agent report. Neither is canonical without a tie-breaker.</td></tr>
+    <tr><td><b>Reconciliation</b></td><td>None needed once the fee is quantity-based: bridged USD converges to the agent quote because both derive from the same <code>per_unit_usd</code>.</td><td>Continuous: must match agent report to on-chain tickets per request, resolve mismatches, decide which wins.</td></tr>
+    <tr><td><b>Drift</b></td><td>Only <code>eth_usd</code> timing (bounded, already handled by the bridge).</td><td>Agent estimate vs actual output vs on-chain fee &mdash; three-way drift, per request.</td></tr>
+    <tr><td><b>Trust</b></td><td>Truth is the orchestrator/signer (server-side, already trusted to mint tickets).</td><td>Billing depends on a report from the <b>agent/client</b> &mdash; a new trust boundary and abuse surface on untrusted input.</td></tr>
+    <tr><td><b>Double-counting</b></td><td>Impossible &mdash; one event per ticket.</td><td>Real risk &mdash; a gen can be counted by both the ticket and the agent report unless carefully de-duplicated.</td></tr>
+    <tr><td><b>Simplicity / extensibility</b></td><td><span class="tag t-yes">Simplest</span> &mdash; add 2 fields to an existing event; new caps are config.</td><td><span class="tag t-no">Heavier</span> &mdash; a second ingestion API, auth, idempotency, and a reconciliation engine to maintain forever.</td></tr>
+  </tbody>
+</table>
+
+<div class="verdict yes">
+  <b>Recommendation: Model A.</b> The bridge is <b>not</b> the missing piece &mdash; it already works. What's missing is that the on-chain event must carry the <b>true unit + quantity</b> and the fee must be <b>computed from quantity &times; per-unit price</b> (Part 4). Do that, and the on-chain signer event is a <b>single source of truth</b> whose bridged USD equals the agent's quote by construction &mdash; so the agent does <b>NOT</b> need to report usage directly to pymthouse for billing. Keep the agent's USD figure as a <b>pre-flight estimate / spend-cap gate / UX</b> only. This favors one source of truth, avoids the double-counting and trust problems of Model B, and is the more extensible path for many future caps/tools/pricing approaches.
+</div>
+<div class="note warn">
+  <b>Caveat where a bounded reconciliation is still healthy:</b> for <code>video</code> / <code>llm</code> caps the <em>requested</em> quantity at sign-time can differ from the <em>actual</em> output. Model A handles this with an <b>optional completion-time reconcile event</b> (orch has actuals) for those two modalities only &mdash; not a general second reporting channel. And keep <code>billedUsd = max(unitCostUsd, feeUsd)</code> during transition so we never under-bill the real on-chain fee. Emit a delta metric to catch unit/price drift.
+</div>
+
+<!-- ============================================================= DO/DONT -->
+<h2 id="dodont">6. DO / DON'T / risks + phased extensibility</h2>
+<div class="do-dont">
+  <div class="do">
+    <h3>DO</h3>
+    <ul class="clean">
+      <li>Make the <b>on-chain signer event the single source of truth</b>; bridge wei&rarr;USD with the existing <code>eth_usd</code>.</li>
+      <li>Add <b><code>billing_unit_kind</code> + <code>billing_unit_quantity</code></b> to the event; compute the fee from <code>quantity &times; per_unit_usd</code>.</li>
+      <li>Declare pricing <b>per cap in config</b> (<code>unit_kind</code>, <code>per_unit_usd</code>, <code>quantity_source</code>) owned by the runner.</li>
+      <li><b>Aggregate runner prices into the orch's advertised price surface</b> so the billed path stops returning zero (G1).</li>
+      <li>Use <b>one meter grouped by <code>unit_kind</code></b>; keep the fee meter forever as the reconciliation floor.</li>
+      <li>Keep one <b>canonical <code>per_unit_usd</code></b> shared by agent quote and on-chain fee.</li>
+      <li>Roll out <b>additive & flag-gated</b> with a dual-write compare window.</li>
+    </ul>
+  </div>
+  <div class="dont">
+    <h3>DON'T</h3>
+    <ul class="clean">
+      <li>Don't make the <b>agent report usage directly</b> as billing truth (Model B) &mdash; double-counting, trust, drift.</li>
+      <li>Don't keep <b><code>pixels = ceil(billable_secs)</code></b> as the quantity for non-live caps.</li>
+      <li>Don't bill the <b>fee-floor as "cost"</b> &mdash; it hides the unit.</li>
+      <li>Don't route billed traffic to <b>offchain / zero-priced live-runners</b> (400 "missing or zero priceInfo").</li>
+      <li>Don't build a <b>rules engine</b> or per-cap code paths &mdash; closed enums + config.</li>
+      <li>Don't create a <b>meter per cap/modality</b> (cardinality blow-up).</li>
+      <li>Don't touch the <b>lv2v seconds path</b> &mdash; seconds is the correct unit there.</li>
+    </ul>
+  </div>
+</div>
+
+<h3>Risks</h3>
+<table>
+  <thead><tr><th>Risk</th><th>Likelihood &times; impact</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr><td>Requested qty &ne; actual output (video/LLM)</td><td class="risk-md">MED &times; MED</td><td>Meter requested qty; optional completion-time reconcile for those two modalities only.</td></tr>
+    <tr><td>Runner advertises wrong/zero price under one-orch model</td><td class="risk-md">MED &times; HIGH</td><td>Orch rejects zero-price caps from the advertised map; alert on <code>unit_kind=unknown</code>; never single-home a cap the orch can't price.</td></tr>
+    <tr><td>Per-cap <code>CapabilitiesPrices</code> vs discovery <code>PriceInfo</code> overhead mismatch</td><td class="risk-lo">LOW &times; MED</td><td>Apply the same <code>AutoAdjustPrice</code> overhead on both surfaces; assert advertised == minted price at cutover.</td></tr>
+    <tr><td>Agent quote and bridged USD still diverge during transition</td><td class="risk-md">MED &times; MED</td><td><code>max(unitCost, fee)</code> floor + per-cap delta metric; enforce fee-from-quantity only after dual-write proves parity.</td></tr>
+    <tr><td>New field cardinality / abuse</td><td class="risk-lo">LOW &times; LOW</td><td>Sanitize/length-cap <code>unit_kind</code>; clamp <code>quantity</code> range (mirror existing label guards).</td></tr>
+  </tbody>
+</table>
+
+<h3>Phased extensibility</h3>
+<div class="phase">
+  <h3>Phase 0 &mdash; Price surface for live-runner (unblock the 400)</h3>
+  <p>Redeploy LR on-chain with non-zero per-cap prices; aggregate runner prices into <code>GetCapabilitiesPrices</code> so the billed path resolves a price. <span class="gate">Gate: a billed LR call mints a payment (no 400) and produces an OpenMeter row.</span></p>
+</div>
+<div class="phase">
+  <h3>Phase 1 &mdash; Per-cap pricing config + passthrough (no behavior change)</h3>
+  <p>Add the per-cap pricing declaration (<code>unit_kind</code>, <code>per_unit_usd</code>, <code>quantity_source</code>); collector passthrough + <code>usage_units</code> meter provisioned (reads 0). <span class="gate">Gate: meter exists; fee meter unchanged.</span></p>
+</div>
+<div class="phase">
+  <h3>Phase 2 &mdash; Producer dual-write (observe)</h3>
+  <p>Gateway computes quantity; signer stamps <code>billing_unit_kind/quantity</code> but keeps current fee math. pymthouse computes <code>unitCostUsd</code> for comparison only. <span class="gate">Gate: qty correct per class; delta vs bridged fee within tolerance.</span></p>
+</div>
+<div class="phase">
+  <h3>Phase 3 &mdash; Fee from quantity, then bill on unit cost</h3>
+  <p>Signer computes <code>fee = per_unit_usd &times; quantity</code> (non-lv2v); pymthouse settles <code>max(unitCostUsd, feeUsd)</code>. Optional completion reconcile for video/LLM. <span class="gate">Gate: invoices reconcile to advertised prices; per-unit dashboards live.</span></p>
+</div>
+<div class="phase">
+  <h3>Phase 4 &mdash; Add caps as config</h3>
+  <p>New model/tool/pricing approach = a new pricing declaration row + (if needed) one new <code>quantity_source</code> extractor. No new metering code. <span class="gate">Gate: a brand-new cap prices, bills, and reconciles with zero go-livepeer/pymthouse changes.</span></p>
+</div>
+
+<div class="foot">
+  Network Pricing / Metering / Billing Architecture &middot; read-only investigation, no product code changed.
+  Builds on and reconciles: <span class="mono">PYMTHOUSE-PER-UNIT-METERING-DESIGN.html</span>, <span class="mono">BYOC-TO-LIVERUNNER-MIGRATION.html</span>, <span class="mono">STORYBOARD-SIGNER-ROUTING.md</span>, <span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span> / <span class="mono">USER-E2E-DEMO-RESULTS.md</span> (Runs 50&ndash;57).
+  Evidence: <span class="mono">storyboard-wave-c/lib/mcp-server/*</span>, <span class="mono">docs/pricing-v1/pricing-table-deploy.json</span>, <span class="mono">tool-adapter/config.py</span> + <span class="mono">registrar.py</span>,
+  <span class="mono">glp-combine/server/remote_signer.go</span>, <span class="mono">server/ai_http.go</span>, <span class="mono">ai/runner/live_runner.go</span>, <span class="mono">server/live_payment.go</span>, <span class="mono">core/orchestrator.go</span>, <span class="mono">cmd/livepeer/starter/*</span>,
+  <span class="mono">livepeer-python-gateway/src/livepeer_gateway/byoc.py</span>, <span class="mono">simple-infra/live-runner/*</span>, <span class="mono">NaaP/apps/web-next/.../metrics/usage</span>.
+  Correction vs prior audit: <code>applyAutoAdjustOverhead</code> is not inside <code>GetCapabilitiesPrices</code> in this tree (overhead lives in <code>priceInfo()</code>/<code>jobPriceInfo()</code>); <code>type:"byoc"</code> always meters seconds regardless of <code>-byocPerCapPricing</code>.
+</div>
+
+</div>
+</body>
+</html>
