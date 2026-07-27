@@ -46,7 +46,7 @@
     "ipaddr.js": "^2.3.0",
     "lucide-react": "^0.575.0",
     "mime-types": "^3.0.2",
-    "next": "^15.5.18",
+    "next": "^15.5.21",
     "next-mdx-remote": "^6.0.0",
     "postal-mime": "2.7.3",
     "react": "^19.0.0",
