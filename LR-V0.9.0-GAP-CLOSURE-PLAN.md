@@ -1,6 +1,10 @@
 # LR v0.9.0 Gap-Closure Plan — clean, BYOC-free, one-orch-many-runners
 
-**Status:** PLAN ONLY — approve-then-execute. **Nothing in this doc has been executed.**
+**Status:** ✅ EXECUTED 2026-07-28 — see [`LR-V0.9.0-EXECUTION-REPORT.md`](./LR-V0.9.0-EXECUTION-REPORT.md).
+Orch live on `:8936` (v0.9.0, 8 per-cap runners, on-chain active). pymthouse e2e green through the
+native 402 challenge; generation blocked on a 1-line signer `manifestId` bug (Gap #1). SDK native
+dispatch blocked on Gap B (`call_runner` absent in deployed image). daydream gen PASS on the daydream
+plane. Reserve already funded — no spend. v1 `:8935` removal GATED (carries distinct tool caps).
 **Date:** 2026-07-28 · **Branch:** `docs/pricing-scope-simplified` · **Author:** seanhanca
 **Read-only sources:** `LR-MULTIRUNNER-GOLIVE-E2E.md` §6 (root cause), `live-runner-v2/`,
 go-livepeer `v0.9.0` tag (`ai/runner/live_runner.go` — verified this pass:

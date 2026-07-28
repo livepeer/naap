@@ -1,0 +1,50 @@
+# live-runner-v2/docker-compose.v09.yml
+# Clean upstream livepeer/go-livepeer:v0.9.0 live-runner orchestrator.
+#
+#   - joins the existing `live-runner-v2_default` network (external) so it resolves the
+#     shared `fal-app:8990` proxy that the 8 static runners point at.
+#   - own container name `liverunner-v09-orch`, own compose service alias `orchestrator-v09`
+#     (does NOT reuse the `orchestrator` alias).
+#   - reuses the funded/registered wallet 0x180859…a6a252 read-only (keystore mount);
+#     boot does NOT write the on-chain serviceURI (starter.go in-memory only).
+#
+# NOTE: v0.9.0 self-probes its own `-serviceAddr` over the public IP at boot and shuts
+# down if it is unreachable, so serviceAddr MUST be a firewalled port. Canonical port is
+# :8936 (firewall simple-infra-allow-byoc allows tcp:8936). This REPLACES the byoc-derived
+# orch on :8936 — reversible: `docker compose -f docker-compose.deployed.yml up -d orchestrator`.
+services:
+  orchestrator-v09:
+    image: livepeer/go-livepeer:v0.9.0
+    container_name: liverunner-v09-orch
+    command:
+      - -orchestrator
+      - -useLiveRunners
+      - -liveRunnerConfig=/etc/livepeer/runners.json
+      - -serviceAddr=136.66.21.17:8936
+      - -httpAddr=0.0.0.0:8935
+      - -liveRunnerAddr=https://orchestrator-v09:8935
+      - -orchSecret=${LR_ORCH_SECRET:-abcdef}
+      - -network=arbitrum-one-mainnet
+      - -ethUrl=https://arb1.arbitrum.io/rpc
+      - -ethKeystorePath=/keystore
+      - -ethAcctAddr=0x180859c337d14edf588c685f3f7ab4472ab6a252
+      - -ethOrchAddr=0x180859c337d14edf588c685f3f7ab4472ab6a252
+      - -ethPassword=/keystore/orchpw
+      - -priceFeedAddr=0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612
+      - -pricePerUnit=100
+      - -ticketEV=1000000000000
+      - -monitor=false
+      - -v=6
+    ports:
+      - "8936:8935"
+    restart: "no"
+    volumes:
+      - ../live-runner/keystore:/keystore:ro
+      - ./runners.json:/etc/livepeer/runners.json:ro
+    networks:
+      - lrnet
+
+networks:
+  lrnet:
+    external: true
+    name: live-runner-v2_default

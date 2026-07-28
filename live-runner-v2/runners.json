@@ -1,36 +1,255 @@
 {
   "runners": [
-    { "label": "fal-flux-schnell", "app": "storyboard/fal-flux-schnell",
-      "runner_url": "http://fal-app:8990", "health_url": "http://fal-app:8990/health", "healthy_status_code": 200,
-      "mode": "single-shot", "capacity": 4,
-      "price_info": { "price_per_unit": 1284088677165, "pixels_per_unit": 1048576, "unit": "WEI" } },
-    { "label": "fal-flux-dev", "app": "storyboard/fal-flux-dev",
-      "runner_url": "http://fal-app:8990", "health_url": "http://fal-app:8990/health", "healthy_status_code": 200,
-      "mode": "single-shot", "capacity": 4,
-      "price_info": { "price_per_unit": 10700738976372, "pixels_per_unit": 1048576, "unit": "WEI" } },
-    { "label": "fal-gpt-image", "app": "storyboard/fal-gpt-image",
-      "runner_url": "http://fal-app:8990", "health_url": "http://fal-app:8990/health", "healthy_status_code": 200,
-      "mode": "single-shot", "capacity": 4,
-      "price_info": { "price_per_unit": 898862074015, "pixels_per_unit": 1048576, "unit": "WEI" } },
-    { "label": "fal-kontext-edit", "app": "storyboard/fal-kontext-edit",
-      "runner_url": "http://fal-app:8990", "health_url": "http://fal-app:8990/health", "healthy_status_code": 200,
-      "mode": "single-shot", "capacity": 4,
-      "price_info": { "price_per_unit": 17121182362196, "pixels_per_unit": 1048576, "unit": "WEI" } },
-    { "label": "fal-pixverse-i2v", "app": "storyboard/fal-pixverse-i2v",
-      "runner_url": "http://fal-app:8990", "health_url": "http://fal-app:8990/health", "healthy_status_code": 200,
-      "mode": "single-shot", "capacity": 4,
-      "price_info": { "price_per_unit": 3246683470165, "pixels_per_unit": 8294400, "unit": "WEI" } },
-    { "label": "fal-veo-t2v", "app": "storyboard/fal-veo-t2v",
-      "runner_url": "http://fal-app:8990", "health_url": "http://fal-app:8990/health", "healthy_status_code": 200,
-      "mode": "single-shot", "capacity": 4,
-      "price_info": { "price_per_unit": 21644556467764, "pixels_per_unit": 8294400, "unit": "WEI" } },
-    { "label": "fal-chatterbox-tts", "app": "storyboard/fal-chatterbox-tts",
-      "runner_url": "http://fal-app:8990", "health_url": "http://fal-app:8990/health", "healthy_status_code": 200,
-      "mode": "single-shot", "capacity": 4,
-      "price_info": { "price_per_unit": 112205380728886, "pixels_per_unit": 100000, "unit": "WEI" } },
-    { "label": "fal-seedance-mini-i2v", "app": "storyboard/fal-seedance-mini-i2v",
-      "runner_url": "http://fal-app:8990", "health_url": "http://fal-app:8990/health", "healthy_status_code": 200,
-      "mode": "single-shot", "capacity": 4,
-      "price_info": { "price_per_unit": 2030465535310, "pixels_per_unit": 8294400, "unit": "WEI" } }
+    {
+      "label": "fal-flux-schnell",
+      "app": "storyboard/fal-flux-schnell",
+      "runner_url": "http://fal-app:8990",
+      "health_url": "http://fal-app:8990/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 4,
+      "price_info": { "price": "0.00315", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "flux-schnell",
+        "family": "flux", "modality": "t2i", "variant": "schnell",
+        "semantic_key": "ai:t2i:flux:schnell",
+        "good_for": "fast text-to-image drafts",
+        "io": {
+          "endpoint": "/generate",
+          "inputs": {
+            "prompt": { "wire": "prompt", "from": "prompt", "required": true, "type": "string" }
+          },
+          "output": { "kind": "image", "fields": ["image_url"], "primary": "image_url" }
+        },
+        "offering": {
+          "app": "storyboard/fal-flux-schnell", "mode": "single-shot", "capacity": 4,
+          "price": {
+            "price_per_unit": 1284088677165, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.00315, "display_unit": "megapixel",
+            "unit_kind": "megapixel", "quantity_source": "megapixels_wh_n"
+          }
+        }
+      }
+    },
+    {
+      "label": "fal-flux-dev",
+      "app": "storyboard/fal-flux-dev",
+      "runner_url": "http://fal-app:8990",
+      "health_url": "http://fal-app:8990/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 4,
+      "price_info": { "price": "0.02625", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "flux-dev",
+        "family": "flux", "modality": "t2i", "variant": "dev",
+        "semantic_key": "ai:t2i:flux:dev",
+        "good_for": "higher-quality text-to-image",
+        "io": {
+          "endpoint": "/generate",
+          "inputs": {
+            "prompt": { "wire": "prompt", "from": "prompt", "required": true, "type": "string" }
+          },
+          "output": { "kind": "image", "fields": ["image_url"], "primary": "image_url" }
+        },
+        "offering": {
+          "app": "storyboard/fal-flux-dev", "mode": "single-shot", "capacity": 4,
+          "price": {
+            "price_per_unit": 10700738976372, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.02625, "display_unit": "megapixel",
+            "unit_kind": "megapixel", "quantity_source": "megapixels_wh_n"
+          }
+        }
+      }
+    },
+    {
+      "label": "fal-gpt-image",
+      "app": "storyboard/fal-gpt-image",
+      "runner_url": "http://fal-app:8990",
+      "health_url": "http://fal-app:8990/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 4,
+      "price_info": { "price": "0.0022", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "gpt-image",
+        "family": "gpt", "modality": "t2i", "variant": "image",
+        "semantic_key": "ai:t2i:gpt:image",
+        "good_for": "instruction-following text-to-image",
+        "io": {
+          "endpoint": "/generate",
+          "inputs": {
+            "prompt": { "wire": "prompt", "from": "prompt", "required": true, "type": "string" }
+          },
+          "output": { "kind": "image", "fields": ["image_url"], "primary": "image_url" }
+        },
+        "offering": {
+          "app": "storyboard/fal-gpt-image", "mode": "single-shot", "capacity": 4,
+          "price": {
+            "price_per_unit": 898862074015, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.0022, "display_unit": "image",
+            "unit_kind": "image", "quantity_source": "num_images"
+          }
+        }
+      }
+    },
+    {
+      "label": "fal-kontext-edit",
+      "app": "storyboard/fal-kontext-edit",
+      "runner_url": "http://fal-app:8990",
+      "health_url": "http://fal-app:8990/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 4,
+      "price_info": { "price": "0.042", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "kontext-edit",
+        "family": "kontext", "modality": "edit", "variant": null,
+        "semantic_key": "ai:edit:kontext:-",
+        "good_for": "instruction-based image editing",
+        "io": {
+          "endpoint": "/generate",
+          "inputs": {
+            "prompt": { "wire": "prompt", "from": "prompt", "required": true, "type": "string" },
+            "image_url": { "wire": "image_url", "from": "source_url", "required": true, "type": "string" }
+          },
+          "output": { "kind": "image", "fields": ["image_url"], "primary": "image_url" }
+        },
+        "offering": {
+          "app": "storyboard/fal-kontext-edit", "mode": "single-shot", "capacity": 4,
+          "price": {
+            "price_per_unit": 17121182362196, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.042, "display_unit": "image",
+            "unit_kind": "image", "quantity_source": "num_images"
+          }
+        }
+      }
+    },
+    {
+      "label": "fal-pixverse-i2v",
+      "app": "storyboard/fal-pixverse-i2v",
+      "runner_url": "http://fal-app:8990",
+      "health_url": "http://fal-app:8990/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 4,
+      "price_info": { "price": "0.063", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "pixverse-i2v",
+        "family": "pixverse", "modality": "i2v", "variant": null,
+        "semantic_key": "ai:i2v:pixverse:-",
+        "good_for": "image-to-video animation",
+        "io": {
+          "endpoint": "/generate",
+          "inputs": {
+            "image_url": { "wire": "image_url", "from": "source_url", "required": true, "type": "string" },
+            "prompt": { "wire": "prompt", "from": "prompt", "required": false, "type": "string" }
+          },
+          "output": { "kind": "video", "fields": ["video_url"], "primary": "video_url" }
+        },
+        "offering": {
+          "app": "storyboard/fal-pixverse-i2v", "mode": "single-shot", "capacity": 4,
+          "price": {
+            "price_per_unit": 3246683470165, "pixels_per_unit": 8294400, "unit": "WEI",
+            "display_usd": 0.063, "display_unit": "second",
+            "unit_kind": "second", "quantity_source": "duration_seconds"
+          }
+        }
+      }
+    },
+    {
+      "label": "fal-veo-t2v",
+      "app": "storyboard/fal-veo-t2v",
+      "runner_url": "http://fal-app:8990",
+      "health_url": "http://fal-app:8990/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 4,
+      "price_info": { "price": "0.42", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "veo-t2v",
+        "family": "veo", "modality": "t2v", "variant": null,
+        "semantic_key": "ai:t2v:veo:-",
+        "good_for": "text-to-video generation",
+        "io": {
+          "endpoint": "/generate",
+          "inputs": {
+            "prompt": { "wire": "prompt", "from": "prompt", "required": true, "type": "string" }
+          },
+          "output": { "kind": "video", "fields": ["video_url"], "primary": "video_url" }
+        },
+        "offering": {
+          "app": "storyboard/fal-veo-t2v", "mode": "single-shot", "capacity": 4,
+          "price": {
+            "price_per_unit": 21644556467764, "pixels_per_unit": 8294400, "unit": "WEI",
+            "display_usd": 0.42, "display_unit": "second",
+            "unit_kind": "second", "quantity_source": "duration_seconds"
+          }
+        }
+      }
+    },
+    {
+      "label": "fal-chatterbox-tts",
+      "app": "storyboard/fal-chatterbox-tts",
+      "runner_url": "http://fal-app:8990",
+      "health_url": "http://fal-app:8990/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 4,
+      "price_info": { "price": "0.02625", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "chatterbox-tts",
+        "family": "chatterbox", "modality": "tts", "variant": null,
+        "semantic_key": "ai:tts:chatterbox:-",
+        "good_for": "expressive text-to-speech",
+        "io": {
+          "endpoint": "/generate",
+          "inputs": {
+            "text": { "wire": "text", "from": "text", "required": true, "type": "string" }
+          },
+          "output": { "kind": "audio", "fields": ["audio_url"], "primary": "audio_url" }
+        },
+        "offering": {
+          "app": "storyboard/fal-chatterbox-tts", "mode": "single-shot", "capacity": 4,
+          "price": {
+            "price_per_unit": 112205380728886, "pixels_per_unit": 100000, "unit": "WEI",
+            "display_usd": 0.02625, "display_unit": "1000_characters",
+            "unit_kind": "characters", "quantity_source": "text_length"
+          }
+        }
+      }
+    },
+    {
+      "label": "fal-seedance-mini-i2v",
+      "app": "storyboard/fal-seedance-mini-i2v",
+      "runner_url": "http://fal-app:8990",
+      "health_url": "http://fal-app:8990/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 4,
+      "price_info": { "price": "0.0394", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "seedance-mini-i2v",
+        "family": "seedance", "modality": "i2v", "variant": "mini",
+        "semantic_key": "ai:i2v:seedance:mini",
+        "good_for": "image-to-video animation (PROVISIONAL price — gap H)",
+        "io": {
+          "endpoint": "/generate",
+          "inputs": {
+            "image_url": { "wire": "image_url", "from": "source_url", "required": true, "type": "string" },
+            "prompt": { "wire": "prompt", "from": "prompt", "required": false, "type": "string" }
+          },
+          "output": { "kind": "video", "fields": ["video_url"], "primary": "video_url" }
+        },
+        "offering": {
+          "app": "storyboard/fal-seedance-mini-i2v", "mode": "single-shot", "capacity": 4,
+          "price": {
+            "price_per_unit": 2030465535310, "pixels_per_unit": 8294400, "unit": "WEI",
+            "display_usd": 0.0394, "display_unit": "second",
+            "unit_kind": "second", "quantity_source": "duration_seconds"
+          }
+        }
+      }
+    }
   ]
 }
