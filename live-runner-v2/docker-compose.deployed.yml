@@ -1,0 +1,60 @@
+# live-runner-v2/docker-compose.deployed.yml
+# ACTUAL deployed variant used to bring up the NEW onchain multi-runner LR orchestrator
+# ADDITIVELY on the existing liverunner-staging-1 VM (us-west1-b), alongside the existing
+# :8935 orch — WITHOUT mutating it.
+#
+# - Reuses the EXISTING funded/registered BYOC orch wallet 0x180859c337d14edf588c685f3f7ab4472ab6a252
+#   (keystore mounted read-only from ../live-runner/keystore). NO new wallet, NO new funding.
+#   Booting does NOT write the on-chain serviceURI (starter.go in-memory only), so the existing
+#   orchs' on-chain identity is untouched.
+# - Uses the proven single-shot LiveRunner image go-livepeer:3975-singleshot (same family as the
+#   existing LR orch), which supports -liveRunnerConfig static per-cap registration.
+# - Host port 8936 (firewall simple-infra-allow-byoc already allows tcp:8936) so it does NOT
+#   collide with the existing orch on :8935.
+# - -pricePerUnit=100 (non-zero) => gRPC OrchestratorInfo.PriceInfo is non-zero (fixes the
+#   "400 missing or zero priceInfo" payment failure that the existing -pricePerUnit=0 orch has).
+# - runners.json registers 8 per-cap runners each advertising its own price_info => /discovery
+#   shows 8 distinct non-zero per-cap prices.
+services:
+  orchestrator:
+    image: go-livepeer:3975-singleshot
+    container_name: liverunner-v2-orch
+    command:
+      - -orchestrator
+      - -useLiveRunners
+      - -liveRunnerConfig=/etc/livepeer/runners.json
+      - -serviceAddr=136.66.21.17:8936
+      - -httpAddr=0.0.0.0:8935
+      - -liveRunnerAddr=https://orchestrator:8935
+      - -orchSecret=${LR_ORCH_SECRET:-abcdef}
+      - -network=arbitrum-one-mainnet
+      - -ethUrl=https://arb1.arbitrum.io/rpc
+      - -ethKeystorePath=/keystore
+      - -ethAcctAddr=0x180859c337d14edf588c685f3f7ab4472ab6a252
+      - -ethOrchAddr=0x180859c337d14edf588c685f3f7ab4472ab6a252
+      - -ethPassword=/keystore/orchpw
+      - -pricePerUnit=100
+      - -ticketEV=1000000000000
+      - -monitor=false
+      - -v=6
+    ports:
+      - "8936:8935"
+    restart: "no"
+    volumes:
+      - ../live-runner/keystore:/keystore:ro
+      - ./runners.json:/etc/livepeer/runners.json:ro
+
+  # Shared fal proxy for job forwarding (generation phase). All 8 static runners point their
+  # runner_url here. Started separately AFTER discovery verification so it does not add a 9th
+  # dynamic runner to the discovery evidence.
+  fal-app:
+    image: live-runner-fal-app:latest
+    container_name: liverunner-v2-fal-app
+    environment:
+      - FAL_KEY=${FAL_KEY:?set FAL_KEY in live-runner-v2/.env}
+      - ORCH_SECRET=${LR_ORCH_SECRET:-abcdef}
+    command:
+      - --orchestrator=https://orchestrator:8935
+      - --orchSecret=${LR_ORCH_SECRET:-abcdef}
+      - --runner-url=http://fal-app:8990
+    restart: always

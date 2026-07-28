@@ -7,11 +7,21 @@ that statically registers **8 per-cap runners** via `-liveRunnerConfig runners.j
 each advertising its **own** per-cap `price_info` so `/discovery` shows a distinct
 non-zero price per capability.
 
-> **STATUS: BLOCKED-pending-infra.** These artifacts are complete and ready to
-> deploy, but the go-live requires infra-only capabilities (amd64 GCP VM, the
-> funded/registered orch wallet from GCP Secret Manager, arbitrum RPC, DNS) that
-> are **not** available from the authoring workspace (gcloud token needs
-> interactive reauth; no VM/keystore access). Owner: **John / orch-infra**.
+> **STATUS: LIVE (2026-07-28).** Deployed **additively** on the existing
+> `liverunner-staging-1` VM (us-west1-b, `136.66.21.17`) at host port **`:8936`**
+> via **`docker-compose.deployed.yml`** (image `go-livepeer:3975-singleshot`,
+> reusing the funded BYOC wallet `0x180859…a6a252` already on the VM — no new
+> wallet/fund/Secret-Manager-pull; existing `:8935` orch untouched). `/discovery`
+> shows **8 distinct non-zero per-cap prices**; the naap-key path now mints a real
+> `net.Payment` (gRPC `PriceInfo=101/1`), so the `400 zero priceInfo` is gone.
+> Full billed *generation* is blocked one step later by an orch-image job-cred
+> sig-verify gap (see `../LR-MULTIRUNNER-GOLIVE-E2E.md` §4). Owner: **John / orch-infra**.
+>
+> **FIX in `runners.json`:** each entry now carries `health_url` +
+> `healthy_status_code` — the image's `buildStaticRunner` `glog.Exitf`s without a
+> `health_url`, so the original 8-entry file would not have booted.
+> The `docker-compose.yml` here is the original v0.9.0 authoring template;
+> `docker-compose.deployed.yml` is what actually shipped.
 
 ## Files
 
