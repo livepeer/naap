@@ -5,21 +5,38 @@
 per-cap pricing, then run an e2e test with BOTH the pymthouse naap key and a Daydream API key.
 **Authoring workspace:** `/Users/qiang.han/Documents/mycodespace/NaaP` (branch `docs/pricing-scope-simplified`).
 
-> **TL;DR (2026-07-28 re-run, gcloud re-authed)** — The new onchain multi-runner
-> orch is now **LIVE + ONCHAIN + PER-CAP-PRICED**. It was deployed **additively**
-> on the existing `liverunner-staging-1` VM at host **`:8936`** (reusing the funded
-> BYOC wallet `0x180859…a6a252`, NO new wallet/fund, existing `:8935` orch
-> untouched). `/discovery` shows **8 distinct non-zero per-cap prices** (§3). The
-> **`400 missing/zero priceInfo` failure is GONE**: against the new orch the naap-key
-> path now returns gRPC `PriceInfo=101/1` (non-zero) and `/generate-live-payment`
-> mints a real `net.Payment` (HTTP 200). Remaining blockers: **(a)** full asset
-> *generation* fails at the orch job-cred sig check (`Sig check failed`) — the
-> `3975-singleshot` image's byoc job-cred verify predates the pymthouse signer
-> format that the newer `byoc-cap-capacity-canary` image accepts, and that newer
-> image lacks `-liveRunnerConfig`; needs a **combined image** (live-runner static
-> config + current byoc job-cred verify) → **John / orch-infra**; **(b)** per-cap
-> *metering* still flat (gap F); **(c)** intermittent signer **HTTP 500** on
-> `/generate-live-payment` (~1/5); **(d)** Daydream `sk_…` key path still needs a key.
+> **TL;DR (2026-07-28 ROOT-CAUSE re-investigation — corrected direction: NO byoc,
+> clean v0.9.0 only).** The prior `Sig check failed` was a **TEST-PATH MISTAKE, not
+> a v0.9.0 defect**. The e2e drove the **BYOC job path** (`submit_byoc_job` →
+> `POST /process/request` with a `FlattenBYOCJob` job-cred signature), which hits
+> `byoc/job_orchestrator.go:verifyJobCreds` → `Sig check failed`. But the
+> live-runner is a **NATIVE single-shot / direct-post inference path** that **never
+> runs a job-cred sig check** — it is a *payment-gated* path
+> (`/apps/{runner_id}/app/{app_path}` → `402` challenge with per-cap `PriceInfo` +
+> `TicketParams` + `AuthToken` → `net.Payment` + `Livepeer-Segment` → `ProcessPayment`
+> → proxy to runner). **Proven empirically on the running `:8936` orch** (§6): the
+> native endpoint returns **`402` / `insufficient sender reserve`** (payment layer),
+> the byoc endpoint returns the **job-cred** error. **No byoc-branch merge / combined
+> "Frankenstein" image is needed — that approach is abandoned.**
+>
+> **Clean `livepeer/go-livepeer:v0.9.0` fully supports native per-cap-priced
+> single-shot live-runner** (has `-useLiveRunners`/`-liveRunnerConfig`,
+> `ReserveLiveRunnerSession`, `ProxyLiveRunnerSingleShot`, `reservePaidLiveRunnerSession`;
+> the 402 challenge prices *per-cap from the runner registry*, not from the flat
+> byoc gRPC base — so **gap G is a byoc-gRPC-path artifact, not a native-path
+> limitation**). Two **BYOC-free** gaps remain before a green native e2e: **(A,
+> config)** the deployed `runners.json` uses a byoc-fork price schema
+> (`price_per_unit`/`pixels_per_unit`/`unit:"WEI"`) that **clean v0.9.0 rejects at
+> registration** — v0.9.0 wants `{price:<usd>, currency:"usd", unit:hour|720p|fixed}`
+> (USD→wei auto-converted, needs a price-feed oracle); **(B, client)** the naap e2e
+> must call the native `/apps/…/app/…` dispatch (via
+> `livepeer_gateway.live_runner.call_runner`, used by the SDK service's flag-gated
+> `_dispatch_lr`), **not** `submit_byoc_job` — that native client is **not** in the
+> python-gateway checkout and there is **no** native `/apps/` probe in this repo.
+> Per the guardrails (no read-only gateway/SDK changes, stop-and-report), the clean
+> v0.9.0 redeploy + full native paid generation was **NOT executed** — the exact
+> owners/fix are in §6. Existing `:8935` + `byoc-staging-1` orchs untouched; both
+> orchs verified healthy (HTTP 200 `/discovery`) at hand-off.
 
 ---
 
@@ -217,3 +234,156 @@ the otherwise-hardcoded gRPC discovery port at `:8936`).
 | 4 | **Per-unit / per-cap USD metering** on the byoc path (charge by MP/s/1000-chars) | Today flat base price | **John / pymthouse (gap F)** |
 | 5 | **Intermittent signer HTTP 500** on `/generate-live-payment` (~1/5) | Flaky billed payments | **John / pymthouse signer** |
 | 6 | **`type=live` session payment** (gateway sends `byoc` today) | LR-native single-shot per-cap billing not exercised | **John (signer image) + gateway owner (gap E)** |
+
+> ⚠️ **Superseded by §6.** Gap #1 above (the "combined byoc image") is **withdrawn** —
+> the direction changed to **NO byoc / clean v0.9.0 only**, and root-cause (§6) shows
+> the sig-check was a **test-path mistake**, so no combined image is needed. Read §6.
+
+---
+
+## 6. ROOT CAUSE (2026-07-28 re-investigation) — byoc-path vs native live-runner path
+
+**Corrected direction (user):** *deprecate the BYOC path entirely; use ONLY clean
+upstream `livepeer/go-livepeer:v0.9.0` for the live-runner orch; do NOT merge byoc
+branches or build a combined image.* This section supersedes the "combined image"
+conclusion in the earlier TL;DR / §4 / §5.
+
+### 6.1 The `Sig check failed` was a TEST-PATH MISTAKE, not a v0.9.0 defect
+
+The e2e drove the **BYOC job-submission path**, which is a *different orchestrator
+surface* from the native live-runner path:
+
+| | BYOC job path (what the e2e used) | Native live-runner path (v0.9.0) |
+|---|---|---|
+| Gateway call | `submit_byoc_job` (`byoc.py`) | `_dispatch_lr` → `livepeer_gateway.live_runner.call_runner` |
+| Orch endpoint | `POST /process/request/{cap}` | `POST /apps/{runner_id}/app/{app_path}` (single-shot) / `/apps/{runner_id}/session` (persistent) |
+| Auth/verify | `byoc/job_orchestrator.go:verifyJobCreds` → `FlattenBYOCJob` binary sig → **`Sig check failed`** | **payment-gated**: `runnerChallenge` → `402` w/ per-cap `PriceInfo` + `TicketParams` + `AuthToken` → `Livepeer-Payment` (`net.Payment`) + `Livepeer-Segment` → `processPaymentAndSegmentHeaders` → `ProcessPayment` → proxy to runner |
+| Job-cred sig? | **YES** (this is what failed) | **NO — never runs a job-cred sig check** |
+
+So `Sig check failed` came from `verifyJobCreds` on the **byoc** path. The native
+live-runner path (the actual v0.9.0 single-shot inference dispatch) does not call
+that code at all.
+
+### 6.2 Empirical proof on the running `:8936` orch (no redeploy, additive, read-only)
+
+`/discovery` on `:8936` exposes each single-shot runner at
+`https://136.66.21.17:8936/apps/{runner_id}/app` (e.g. flux-schnell →
+`runner_7rboknln`). Probing it directly:
+
+```
+# NATIVE single-shot, no payer header:
+POST /apps/runner_7rboknln/app/generate            -> HTTP 402  {"error":{"message":"invalid live runner payment signer address"}}
+# NATIVE single-shot, with Livepeer-Payer-Address (unfunded/dummy):
+POST /apps/runner_7rboknln/app/generate            -> HTTP 500  "insufficient sender reserve"
+# BYOC path (contrast):
+POST /process/request/flux-schnell (job header)    -> HTTP 400  job-cred path ("Sig check failed" with a real pymthouse job)
+```
+
+The native path lands in the **payment/reserve** layer (`402` → challenge; `500`
+insufficient reserve), **never** in job-cred verification. That is the decisive
+evidence: **the failure was the wrong client path, not a broken orchestrator.**
+(Probed on `3975-singleshot`, whose `/apps/*` handlers are the same live-runner code
+as clean v0.9.0.)
+
+### 6.3 Does clean v0.9.0 support `-liveRunnerConfig` + native per-cap pricing? **YES**
+
+From the `v0.9.0` tag (`golivepeer/go-livepeer`, tag `df527c3`):
+
+- `cmd/livepeer/starter/flags.go`: `-useLiveRunners`, `-liveRunnerConfig` present;
+  `starter.go` reads the config and logs `Registered N static live runners…`.
+- `server/ai_http.go`: `ReserveLiveRunnerSession`, `PaymentForLiveRunnerSession`,
+  `ProxyLiveRunnerSingleShot`, `reservePaidLiveRunnerSession`, `runnerChallenge`,
+  `runnerOrchInfo`, `GET /discovery`.
+- **Per-cap pricing is native**: `runnerOrchInfo` builds the `402` challenge
+  `PriceInfo` from `manager.PaymentInfo(runnerID)` — i.e. the **runner's own
+  registered price**, per cap. So **gap G ("LR prices don't feed pricing") is a
+  byoc-gRPC-path artifact** (the flat `-pricePerUnit` base only feeds the byoc
+  `OrchestratorInfo.PriceInfo`); the **native path prices per-cap correctly** with
+  no byoc code.
+
+### 6.4 The two BYOC-free gaps to a green native e2e (and owners)
+
+**Gap A — `runners.json` schema is byoc-fork, not v0.9.0 (config; blocks boot on clean v0.9.0).**
+The deployed `runners.json` entries use
+`"price_info": { "price_per_unit": …, "pixels_per_unit": …, "unit": "WEI" }`
+(a per-cap **wei** schema added in the byoc/singleshot fork so it needs no oracle).
+Clean v0.9.0's `ai/runner/live_runner.go:normalizeLiveRunnerPriceInfo` requires
+`{ "price": <usd-decimal>, "currency": "usd", "unit": "hour"|"720p"|"fixed" }` and
+auto-converts USD→wei at runtime (`AutoConvertedPrice`, needs a price-feed oracle,
+e.g. `-priceFeedAddr`). Given `unit:"WEI"` + missing `price`, clean v0.9.0 would
+`glog.Exit("error registering -liveRunnerConfig")` and **not boot**.
+→ **Fix (config only, BYOC-free):** rewrite `runners.json` to the v0.9.0 schema
+(single-shot image caps → `unit:"fixed"` USD/req; video/time caps → `720p`/`hour`),
+set the price-feed oracle flag, redeploy. **Owner: orch-infra (John) + storyboard
+pricing** (USD table already exists; `fixed` per-request USD is the natural fit).
+
+**Gap B — the naap e2e must use the NATIVE dispatch client, not `submit_byoc_job` (client).**
+The native `/apps/…/app/…` flow (402 challenge → `PaymentSession` payment bound to
+the challenge `OrchestratorInfo` → `Livepeer-Payment`+`Livepeer-Segment` → proxy) is
+implemented by `livepeer_gateway.live_runner.call_runner`, which the SDK service's
+flag-gated `_dispatch_lr`/`_dispatch_lr_v2` call
+(`SDK_MULTI_ORCH_ENABLED` + `SELECT_PROVIDER_LR_CAPS`/`LR_DESCRIPTOR_DISPATCH`). But
+`live_runner.py` is **absent** from the `livepeer-python-gateway` checkout
+(branch `fix/byoc-e2e-inference-type-byoc`) and every known branch, and there is
+**no native `/apps/` probe** in this repo (run50/53/55/57/58 are all byoc/lv2v). So a
+native paid generation can only be exercised via the **deployed SDK service**
+(naap-key → validate → per-key signer → `_dispatch_lr`) or by writing a new native
+probe. → **Owner: gateway/SDK owner (John)** to (i) confirm the SDK image ships
+`live_runner.call_runner`, (ii) run the naap-key native path through the SDK service
+with `SDK_MULTI_ORCH_ENABLED=1` + `SELECT_PROVIDER_LR_CAPS=flux-schnell` pointed at
+the v0.9.0 orch, and the sender wallet **funded with an on-chain reserve** (the `500
+insufficient sender reserve` above).
+
+**Also relevant — payment binding & signer `type`.** The native challenge issues its
+own `TicketParams`/`AuthToken`; the payment must be minted against *that*
+`OrchestratorInfo` (the gateway's `PaymentSession` does exactly this for `type:lv2v`
+/`type:scope`). The pymthouse `/generate-live-payment` already mints a `net.Payment`;
+whoever wires `call_runner` must pass the challenge's `OrchestratorInfo` and a signer
+`type` the DMZ accepts for the LR path (today `byoc`/`lv2v`). This is gap **E** and
+is BYOC-free (it's the native session/payment shape, not job-cred sig).
+
+### 6.5 Decision & why the redeploy was not executed
+
+Per the guardrails (*additive only; reuse funded wallet; no byoc reintroduction;
+stop-and-report on any real blocker rather than looping or hacking*), the clean
+v0.9.0 redeploy + full native paid generation was **NOT run**, because it is not
+"clearly correct & read-only": it requires **(A)** a `runners.json` rewrite + a
+price-feed oracle config (a real unknown that can break boot) **and (B)** a native
+dispatch client that is not available read-only (no `live_runner.py` in the gateway,
+no native probe). Both are the "gateway/SDK changes we can't do read-only" the brief
+says to stop on. The in-progress combined byoc image build was **aborted** and the
+pushed combine branch `fix/byoc-e2e-v1-and-type-byoc` was **deleted** from origin.
+Existing orchs untouched and healthy (`:8935` + `:8936` both HTTP 200 on `/discovery`).
+
+### 6.6 Minimal path to a green, BYOC-free native e2e (recommended)
+
+1. **Rewrite `runners.json`** to v0.9.0 schema (per-cap USD, `unit:"fixed"` for the
+   8 single-shot fal caps) + set the price-feed oracle flag. *(config — orch-infra + storyboard pricing)*
+2. **Redeploy `:8936` on clean `livepeer/go-livepeer:v0.9.0`** (image already on the
+   VM), additive, reuse wallet `0x180859…a6a252`; confirm boot + onchain + `/discovery`
+   per-cap prices. *(orch-infra)*
+3. **Fund the gateway/sender wallet's on-chain reserve** on arbitrum-one so
+   `ProcessPayment` clears (the `500 insufficient sender reserve`). *(orch-infra)*
+4. **Drive the naap-key path through the deployed SDK service** with
+   `SDK_MULTI_ORCH_ENABLED=1` + `SELECT_PROVIDER_LR_CAPS=flux-schnell` +
+   `LR_ORCH_DISCOVERY` pointed at `:8936` (so `_dispatch_lr` → `call_runner` hits
+   `/apps/…/app/generate`); verify a real fal asset + on-chain debit. *(gateway/SDK owner)*
+
+No step reintroduces byoc; no combined image is required.
+
+### 6.7 Updated gaps + owners (native path)
+
+| # | Gap | Impact | Owner |
+|---|-----|--------|-------|
+| A | `runners.json` uses byoc-fork wei schema; clean v0.9.0 needs USD + `unit:hour/720p/fixed` + price-feed oracle | Clean v0.9.0 won't register runners / boot | **orch-infra (John) + storyboard pricing** |
+| B | Native `/apps/…/app` dispatch (`live_runner.call_runner`) absent from gateway checkout; no native probe in repo | naap native e2e can't be run read-only | **gateway/SDK owner (John)** |
+| C | Sender/gateway wallet has no on-chain reserve on the LR orch (`500 insufficient sender reserve`) | Native payment can't clear | **orch-infra (John)** |
+| E | Signer `type` + payment must bind to the native 402 challenge `OrchestratorInfo` | Native billing shape not exercised | **John (signer) + gateway owner** |
+| — | **Daydream `sk_…` key** absent | Daydream-key path can't run | **Daydream / product** |
+
+**Bottom line:** live-runner generation failed because the test used the **byoc job
+path** against a **native live-runner** orch — a client/path mismatch, **not** a
+v0.9.0 limitation and **not** something a combined byoc image should fix. Clean
+v0.9.0 supports native per-cap-priced single-shot inference; the remaining work is a
+`runners.json` USD rewrite + native `/apps/` dispatch + a funded sender reserve, all
+BYOC-free, owned by orch-infra + the gateway/SDK owner.
