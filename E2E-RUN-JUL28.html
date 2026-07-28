@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pymthouse billed E2E — Jul 28, 2026</title>
+<style>
+  :root { --ok:#137333; --bad:#c5221f; --warn:#b06000; --na:#5f6368; --bg:#f7f8fa; --line:#e0e3e8; }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color:#1a1a1a; max-width: 980px; margin: 0 auto; padding: 28px 20px 64px; background:#fff; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 34px 0 10px; padding-top: 14px; border-top: 2px solid var(--line); }
+  .sub { color:#5f6368; margin: 0 0 18px; }
+  .bottomline { background:#f0f6ff; border:1px solid #c7ddff; border-left:5px solid #1a73e8;
+                padding:14px 16px; border-radius:8px; margin: 14px 0 8px; }
+  .bottomline b { font-size: 15px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 6px; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--bg); font-weight: 600; }
+  td.c, th.c { text-align: center; white-space: nowrap; }
+  .pass { color: var(--ok); font-weight: 700; }
+  .fail { color: var(--bad); font-weight: 700; }
+  .warn { color: var(--warn); font-weight: 700; }
+  .na   { color: var(--na); font-weight: 600; }
+  code { background:#f2f3f5; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .note { color:#5f6368; font-size: 13px; }
+  ul { margin: 6px 0 6px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .owner { display:inline-block; background:#fce8e6; color:#a50e0e; border-radius:4px; padding:0 6px; font-size:12px; font-weight:600; }
+  .owner.infra { background:#fef7e0; color:#8c5800; }
+  .tag { font-size:12px; color:#5f6368; }
+</style>
+</head>
+<body>
+
+<h1>pymthouse billed E2E — verification report</h1>
+<p class="sub">
+  <b>Date:</b> 2026-07-28 &nbsp;·&nbsp;
+  <b>Path:</b> naap_ key → NaaP validate → signer composite bearer → get_orch_info → /generate-live-payment → submit_byoc_job → OpenMeter &nbsp;·&nbsp;
+  <b>Credential path:</b> A (naap_ key → validate → composite bearer) &nbsp;·&nbsp;
+  <b>Total metered spend this run:</b> +2 µUSD (~$0.000002)
+</p>
+
+<div class="bottomline">
+  <b>Bottom line:</b> ✅ <b>byoc-staging-1</b> works fully end-to-end (real fal.media image). ❌ <b>liverunner-staging-1</b>
+  is still 100% blocked on its own <b>zero-pricing</b> config (not an auth/NaaP bug — PR&nbsp;#430 auth holds).
+  <b>Metering is still only partially correct:</b> label + request-count are correct on byoc, but the <b>USD amount is
+  the flat ~1&nbsp;µUSD floor</b> for every cap — <b>per-unit metering is NOT deployed yet</b>. <b>Nothing changed since last week.</b>
+</div>
+
+<h2>1 · Per-orchestrator PASS / FAIL</h2>
+
+<p><b>byoc-staging-1</b> (priced BYOC control) — cap: <code>flux-schnell</code> · 512×512</p>
+<table>
+  <tr><th>Stage</th><th>Probe / endpoint</th><th class="c">Result</th><th>Evidence</th></tr>
+  <tr><td>0 · validate (front door)</td><td><code>POST /api/v1/keys/validate</code></td><td class="c pass">PASS</td><td><code>valid:true</code>; <code>signerSession {url,headers}</code>; composite <code>Bearer app_985758…_pmth_…</code></td></tr>
+  <tr><td>1 · signer auth</td><td><code>/sign-orchestrator-info</code></td><td class="c pass">PASS</td><td>composite ACCEPTED; recipient <code>0x180859c337d1…</code>; ticket_params present</td></tr>
+  <tr><td>2 · payment (billed)</td><td><code>/generate-live-payment</code></td><td class="c pass">PASS</td><td>HTTP 200; <code>ExpectedPrice 1060500/1</code> == orch PriceInfo; #3993 adv×1.01 match</td></tr>
+  <tr><td>3 · generation</td><td><code>submit_byoc_job</code></td><td class="c pass">PASS</td><td>HTTP 200 (4.2s); <code>image_url = v3b.fal.media/…/sGLALDjgq0roBagOnJm8R.jpg</code></td></tr>
+  <tr><td>4 · metering</td><td>OpenMeter <code>byoc/flux-schnell</code></td><td class="c warn">PARTIAL</td><td>label ✅ count ✅ (+2 req); <b>USD ❌</b> — flat ~1&nbsp;µUSD floor (not per-MP)</td></tr>
+</table>
+
+<p><b>liverunner-staging-1</b> (live-runner orch) — cap: <code>flux-schnell</code> (also checked flux-dev, gpt-image, kontext-edit)</p>
+<table>
+  <tr><th>Stage</th><th>Probe / endpoint</th><th class="c">Result</th><th>Evidence</th></tr>
+  <tr><td>0 · validate (front door)</td><td><code>POST /api/v1/keys/validate</code></td><td class="c pass">PASS</td><td>same front door; <code>valid:true</code>; composite bearer emitted</td></tr>
+  <tr><td>1 · signer auth</td><td><code>/sign-orchestrator-info</code></td><td class="c pass">PASS</td><td>composite ACCEPTED; recipient <code>0x180859c337d1…</code>; ticket_params present — <b>NOT</b> <code>401 not a JWT</code></td></tr>
+  <tr><td>2 · payment (billed)</td><td><code>/generate-live-payment</code></td><td class="c fail">FAIL</td><td>HTTP 400 <code>{"error":{"message":"missing or zero priceInfo"}}</code> — LR advertises <code>PriceInfo 0/1</code>, <code>capsPrices=0</code></td></tr>
+  <tr><td>3 · generation</td><td><code>submit_byoc_job</code></td><td class="c fail">FAIL</td><td>HTTP 400 <code>Could not verify job creds</code> (0.8s) — downstream of zero price (gateway skips payment on face_value==0)</td></tr>
+  <tr><td>4 · metering</td><td>OpenMeter</td><td class="c na">$0 / N/A</td><td>no payment minted → no OpenMeter delta (correct — nothing to meter)</td></tr>
+</table>
+<p class="note">Same composite bearer, same signer, same code — only the orch differs. byoc succeeds; LR fails on price. Signature of an LR-orch config gap, not a client/auth regression.</p>
+
+<h2>2 · Metering correctness — EXPECTED vs NOW</h2>
+<table>
+  <tr>
+    <th>Cap (orch)</th><th class="c">Work</th><th class="c">Price</th>
+    <th class="c">EXPECTED (per-unit)</th><th class="c">NOW metered (OpenMeter USD)</th>
+    <th class="c">Label</th><th class="c">Count</th><th class="c">Per-unit USD?</th>
+  </tr>
+  <tr>
+    <td>byoc / <b>flux-schnell</b></td><td class="c">512×512 = 0.262 MP</td><td class="c">$0.00315/MP</td>
+    <td class="c">~$0.000826 (≈826 µUSD)</td>
+    <td class="c">~1 µUSD (<code>retailRateUsd 0.000001</code>)</td>
+    <td class="c pass">✅</td><td class="c pass">✅ +2</td><td class="c fail">❌</td>
+  </tr>
+  <tr>
+    <td>byoc / <b>flux-dev</b></td><td class="c">512×512 = 0.262 MP</td><td class="c">$0.02625/MP</td>
+    <td class="c">~$0.006881 (≈6881 µUSD)</td>
+    <td class="c">~1–2 µUSD (<code>retailRateUsd 0.000001</code>)</td>
+    <td class="c pass">✅</td><td class="c pass">✅ +1</td><td class="c fail">❌</td>
+  </tr>
+  <tr>
+    <td>LR / <b>flux-schnell</b></td><td class="c na">n/a</td><td class="c na">0 (advertised)</td>
+    <td class="c na">no payment minted</td>
+    <td class="c na">$0 (no OpenMeter row)</td>
+    <td class="c na">—</td><td class="c na">—</td><td class="c na">n/a</td>
+  </tr>
+</table>
+<p class="note">
+  <b>Two seams, two answers.</b> On the <b>on-chain / wei seam</b> the price <b>IS</b> per-unit correct and differentiated:
+  flux-schnell <code>ExpectedPrice 1060500/1</code> vs flux-dev <code>8837500/1</code> = <b>8.33×</b>, matching the
+  $0.02625 / $0.00315 = 8.33× display ratio, and both == orch bound price × 1.01 (#3993). But on the
+  <b>OpenMeter / USD seam</b> (<code>networkFeeUsdMicros</code>) every cap meters at the same flat ~1 µUSD floor
+  (<code>retailRateUsd = 0.000001</code> for all rows) — megapixels are not carried onto the USD seam, so the
+  metered dollar amount is off by roughly <b>800×</b> (flux-schnell) to <b>~4000–6000×</b> (flux-dev).
+  OpenMeter totals delta this run: requestCount <b>367 → 370 (+3)</b>, fee <b>683751 → 683753 (+2 µUSD)</b> —
+  the +3 requests equal exactly the 3 payments minted (1 real byoc gen + 2 paygen-only decode probes).
+</p>
+
+<h2>3 · Gaps identified</h2>
+<ul>
+  <li><b>Per-unit USD metering not deployed.</b> OpenMeter meters a flat ~1 µUSD/request floor
+      (<code>retailRateUsd 0.000001</code>) for every cap; megapixels / seconds / characters / tokens are never
+      carried onto the USD seam (<code>unit_kind</code> is display-only, dropped before transport). The metered dollar
+      amount does not reflect the work done. <span class="owner">Owner: John / pymthouse metering</span></li>
+  <li><b>Metering fires at payment-gen (<code>platform_ingest</code>), not orch success.</b> 2 of the 3 metered events
+      this run were paygen-only decode probes that produced <b>no image</b>, yet were still billed. Billing should be
+      gated on orch acceptance, not on payment mint. <span class="owner">Owner: John / pymthouse metering</span></li>
+  <li><b>LR-orch zero-pricing (unchanged since last week).</b> <code>liverunner-staging-1</code> advertises
+      <code>PriceInfo 0/1</code> and empty <code>capabilities_prices</code> for every cap (flux-schnell, flux-dev,
+      gpt-image, kontext-edit), so <code>/generate-live-payment</code> → 400 and generation never runs. byoc-staging-1
+      advertises 137 priced caps for comparison. <span class="owner infra">Owner: John / orch-infra</span></li>
+  <li><b>LR path labels as <code>live-video-to-video / unknown</code> in OpenMeter</b> (122 accumulated reqs) — an
+      attribution gap on the live-runner path, separate from the byoc labels which are correct.
+      <span class="owner">Owner: John / pymthouse metering</span></li>
+</ul>
+
+<h2>4 · What changed since last week</h2>
+<ul>
+  <li><b>Nothing material.</b> LR still zero-priced; byoc still per-unit correct on the wei seam and flat-floor on the USD seam.</li>
+  <li>byoc now advertises <b>137</b> priced caps (was 136) — one cap added; no effect on the flows tested.</li>
+  <li>No sign of a per-unit-metering deploy or an LR zero-pricing fix.</li>
+</ul>
+
+<h2>5 · Evidence (probe stdout, this run)</h2>
+<table>
+  <tr><th>Probe</th><th>Key output</th></tr>
+  <tr><td><code>run50</code> byoc flux-schnell</td><td><code>submit_byoc_job: PASS (4.2s) HTTP 200</code> · image v3b.fal.media JPEG · balance 799998939500</td></tr>
+  <tr><td><code>run53</code> byoc multicap</td><td>flux-schnell <code>ExpectedPrice 1060500/1</code> match=True paygen 200 · flux-dev <code>8837500/1</code> match=True paygen 200</td></tr>
+  <tr><td><code>run57</code> LR auth-vs-pay</td><td>signer-auth PASS 200 (composite ACCEPTED, recipient 0x180859c337d1, PriceInfo 0/1) · payment HTTP 400 "missing or zero priceInfo"</td></tr>
+  <tr><td><code>run55</code> LR vs byoc</td><td>LR: all caps PriceInfo 0/1, capsPrices 0 · byoc: 137 capsPrices, flux-schnell 1060500/1, flux-dev 8837500/1</td></tr>
+  <tr><td><code>run50</code> LR flux-schnell</td><td><code>submit_byoc_job: FAIL (0.8s)</code> HTTP 400 "Could not verify job creds"</td></tr>
+  <tr><td>OpenMeter (M2M read)</td><td>totals 367→370 req (+3), 683751→683753 µUSD (+2); byoc/flux-schnell +2, byoc/flux-dev +1; retailRateUsd 0.000001 all rows</td></tr>
+</table>
+
+<p class="note tag">All secrets (naap_ key, composite bearer, M2M secret) were supplied via environment only and are not present in this report or in git.</p>
+
+</body>
+</html>
