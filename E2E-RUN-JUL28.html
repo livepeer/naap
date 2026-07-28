@@ -147,5 +147,79 @@
 
 <p class="note tag">All secrets (naap_ key, composite bearer, M2M secret) were supplied via environment only and are not present in this report or in git.</p>
 
+<h2>6 · How to enable non-zero LR pricing (now vs needs-deploy)</h2>
+
+<div class="bottomline">
+  <b>Config alone, right now, no code, no redeploy? NO.</b> Correct non-zero <em>per-cap</em> LR pricing
+  requires <b>code (go-livepeer #3992 <code>runnerOrchInfo</code> bridge, or PR3 orch aggregation) + a new image deploy</b>.
+  A weaker <b>flat</b> price can unblock billing, but only after converting <code>liverunner-staging-1</code>
+  from <code>-network=offchain</code> to on-chain — which is a container restart with new flags <em>plus</em> an
+  on-chain orchestrator bring-up (wallet + registration + reserve), not a live flag flip.
+  <span class="owner">Owner: go-livepeer (rickstaa / j0sh) for #3992</span>
+  <span class="owner infra">Owner: John / orch-infra for the on-chain LR deploy</span>
+</div>
+
+<h3 style="font-size:15px;margin:16px 0 4px">What the deployed image (<code>ja-live-runner</code> / #3938) can and cannot do</h3>
+<table>
+  <tr><th>Surface</th><th>On #3938 (deployed)?</th><th class="c">Gate</th><th>Verdict for non-zero price</th></tr>
+  <tr>
+    <td>LR-native <code>/discovery</code> + reserve path (<code>PaymentInfo</code>, <code>discoveryRunner</code>) — reads <code>LiveRunnerPriceInfo{price_per_unit,pixels_per_unit,unit∈USD|WEI}</code> from runner heartbeat or <code>-liveRunnerConfig</code> static JSON</td>
+    <td class="pass">PRESENT</td>
+    <td class="c"><code>!offchain</code></td>
+    <td>Fully suppressed while <code>-network=offchain</code>: <code>normalizeHeartbeat</code> returns before the price check (<code>live_runner.go:830</code>), <code>PaymentInfo→nil</code> (<code>:923</code>), <code>discoveryRunner</code> drops <code>PriceInfo</code> (<code>:1590</code>). Needs on-chain to emit any price.</td>
+  </tr>
+  <tr>
+    <td>gRPC <code>OrchestratorInfo.PriceInfo</code> (base per-pixel) — what "missing or zero priceInfo" checks first</td>
+    <td class="warn">PRESENT but nil</td>
+    <td class="c">Recipient≠nil</td>
+    <td>Returns <code>nil</code> (→ advertised <code>0/1</code>) because offchain has no <code>Recipient</code> (<code>orchestrator.go:346-349</code>). On-chain + <code>-pricePerUnit&gt;0</code> makes it non-zero.</td>
+  </tr>
+  <tr>
+    <td>gRPC <code>OrchestratorInfo.capabilities_prices[]</code> — per-cap USD, what the BYOC signer path reads for fal caps</td>
+    <td class="fail">NO LR SOURCE</td>
+    <td class="c">n/a</td>
+    <td><b>The G1 gap.</b> <code>GetCapabilitiesPrices</code> builds only from <code>modelPrices</code> + BYOC <code>ExternalCapabilities</code> (<code>orchestrator.go:266-345</code>); it never reads the LiveRunner registry. <b>No flag/env/values-yaml/static-config can populate LR caps here on #3938.</b></td>
+  </tr>
+</table>
+
+<p class="note">
+  Evidence: the LR orch is deployed offchain — <code>simple-infra/live-runner/docker-compose.yml:29</code>
+  <code>-network=offchain</code>, image <code>ja-live-runner</code> (README: "on-chain lands in a later PR").
+  On-chain flag wiring: <code>Onchain = *cfg.Network != "offchain"</code> (<code>starter.go:2043</code>).
+  #3992's runner-price→orch-info bridge (<code>runnerOrchInfo</code>, <code>normalizeLiveRunnerPriceInfo</code>) is
+  <b>not on any fetched branch and not on the deployed image</b> (draft <code>ja/live-pricing</code>).
+</p>
+
+<h3 style="font-size:15px;margin:16px 0 4px">Path 1 — flat price to UNBLOCK billing (same image, restart + on-chain bring-up)</h3>
+<p class="note">Yields non-zero <code>PriceInfo</code> (lv2v/base), clears the "missing or zero priceInfo" gate at a flat floor rate (~636 µUSD, labeled <code>live-video-to-video/unknown</code>). Does <b>not</b> give per-cap correctness. Owner: John / orch-infra.</p>
+<ol>
+  <li>In <code>simple-infra/live-runner/docker-compose.yml</code>, mirror the on-chain BYOC pattern in <code>pulumi/__main__.py:173-180</code>: replace <code>-network=offchain</code> with <code>-network=arbitrum-one-mainnet</code>, add <code>-ethUrl=$ARB_RPC</code>, wallet keystore/<code>-ethAcctAddr</code>+<code>-ethPassword</code>, <code>-pricePerUnit=100</code> (wei), and ticket/reserve flags.</li>
+  <li>Fund + register the LR orch wallet on-chain (active orchestrator + reserve/deposit). This is real on-chain setup, not config.</li>
+  <li><code>docker compose up -d</code> on <code>liverunner-staging-1</code> to restart with the new flags (same image sha).</li>
+  <li>Caveat: this reliably unblocks the base/lv2v <code>PriceInfo</code> path only. Per-cap fal caps still see empty <code>capabilities_prices</code> → use Path 2 for those.</li>
+</ol>
+
+<h3 style="font-size:15px;margin:16px 0 4px">Path 2 — correct per-cap non-zero pricing (needs code + deploy)</h3>
+<ol>
+  <li>Land go-livepeer <b>#3992</b> (<code>ja/live-pricing</code>): <code>runnerOrchInfo()</code> reads the runner's decimal-USD <code>price</code> and sets <code>net.PriceInfo</code>/<code>TicketParams</code>; <code>DiscoverLiveRunners()</code> advertises wei; signer <code>type=live</code>. (Currently OPEN draft.) Alternatively/additionally land the PR3 orch-aggregation that folds LR runner prices into <code>GetCapabilitiesPrices</code>. Owner: rickstaa / j0sh.</li>
+  <li>Build a new <code>go-livepeer</code> image from that branch and re-pin <code>simple-infra/pulumi/Pulumi.staging.yaml:15</code> (<code>orchImage</code>) / the LR compose image sha. Owner: orch-infra.</li>
+  <li>Deploy the LR orch <b>on-chain</b> (Path 1 network/wallet steps still required — pricing code alone does nothing while offchain). Runners then declare <code>price/currency/unit</code> in their heartbeat (gateway <code>ja/live-runner</code> registration API already takes <code>price/currency/unit</code>).</li>
+</ol>
+
+<h3 style="font-size:15px;margin:16px 0 4px">Interaction with per-unit metering</h3>
+<p>
+  A flat/time price (Path 1 <code>-pricePerUnit</code>, or #3992's <code>type=live</code> per-hour/720p once deployed) is enough to make the orch
+  advertise a <b>non-zero</b> price and <b>unblock generation + billing</b> — the payment mints and OpenMeter records a row.
+  But it bills at a flat floor, not the differentiated per-cap USD tariff. <b>Per-unit-USD correctness stays a separate
+  downstream gap</b> (per-cap aggregation + <code>billing_unit_kind</code>/<code>quantity</code> metering), independent of simply making the price non-zero.
+</p>
+
+<h3 style="font-size:15px;margin:16px 0 4px">If you need to verify beyond this repo</h3>
+<ul>
+  <li>Confirm the running flags on the VM: <code>gcloud compute ssh liverunner-staging-1 --zone &lt;zone&gt; --command "sudo docker inspect &lt;orch&gt; --format '{{.Args}}'"</code> (expect <code>-network=offchain</code>).</li>
+  <li>Confirm no runner is posting a price today: <code>curl https://&lt;lr-orch&gt;/discovery</code> and check for <code>price_info</code> (expect absent while offchain).</li>
+  <li>Confirm #3992 status/branch: <code>gh pr view 3992 --repo livepeer/go-livepeer --json state,isDraft,headRefName</code>.</li>
+</ul>
+
 </body>
 </html>
