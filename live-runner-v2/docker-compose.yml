@@ -1,0 +1,59 @@
+# live-runner-v2/docker-compose.yml
+# NEW onchain Live-Runner orchestrator — one-orch -> many-runner (one runner per fal cap).
+# amd64-only image; the VM MUST be amd64. Front :443 with the standalone Caddy container (see README 3.4).
+#
+# Deploy target (canonical): copy this directory to `simple-infra/live-runner-v2/` on an amd64 GCP VM
+# in project `livepeer-simple-infra`, supply the infra-owned secrets (keystore/, password.txt, .env),
+# then `sudo docker compose up -d --build`. See README.md.
+services:
+  orchestrator:
+    image: livepeer/go-livepeer:v0.9.0        # re-confirm digest sha256:27464aa2... at deploy
+    container_name: liverunner-v2-orch
+    command:
+      - -orchestrator
+      - -useLiveRunners
+      - -liveRunnerConfig=/etc/livepeer/runners.json   # the 8 per-cap runners (runners.json)
+      # onchain identity (same wallet mechanism as byoc)
+      - -network=arbitrum-one-mainnet
+      - -ethUrl=${ARB_RPC_URL}                 # infra secret
+      - -ethPassword=/pw.txt                   # mounted below
+      - -ethOrchAddr=${ETH_ORCH_ADDR}          # infra secret (orch on-chain address)
+      - -pricePerUnit=100                      # orch base price (wei); per-cap prices come from runners.json
+      - -ticketEV=800000000000
+      # discovery / addressing (serviceAddr is self-probed at boot — use the orch's own public :8935)
+      - -serviceAddr=${LR_HOSTNAME:-liverunner-v2-staging-1.daydream.monster}:8935
+      - -httpAddr=0.0.0.0:8935
+      - -liveRunnerAddr=https://orchestrator:8935
+      - -orchSecret=${LR_ORCH_SECRET}
+      - -monitor=true
+      - -v=6
+    ports:
+      - "8935:8935"
+    restart: always
+    volumes:
+      - ./keystore:/root/.lpData/arbitrum-one-mainnet/keystore:ro   # wallet JSON (infra-supplied)
+      - ./password.txt:/pw.txt:ro                                   # passphrase (infra-supplied)
+      - ./runners.json:/etc/livepeer/runners.json:ro
+    healthcheck:
+      test: printf 'GET /healthz HTTP/1.0\r\n\r\n' | openssl s_client -connect 127.0.0.1:8935 -quiet 2>/dev/null | grep -q '200 OK'
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+
+  # ONE shared fal proxy; the 8 runners in runners.json all point their runner_url here.
+  # (Per-cap containers are optional — see README Path B; not required for static registration.)
+  fal-app:
+    build: ../live-runner/fal-app
+    container_name: liverunner-v2-fal-app
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+    environment:
+      - FAL_KEY=${FAL_KEY:?set FAL_KEY in live-runner-v2/.env (same value as BYOC FAL_API_KEY)}
+      - ORCH_SECRET=${LR_ORCH_SECRET}
+    command:
+      - --orchestrator=https://orchestrator:8935
+      - --orchSecret=${LR_ORCH_SECRET}
+      - --runner-url=http://fal-app:8990
+    restart: always
