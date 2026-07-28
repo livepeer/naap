@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dual-Key Side-by-Side Design — Daydream + pymthouse (NaaP)</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #161d2e;
+    --panel-2: #1d2740;
+    --ink: #e8edf7;
+    --muted: #9aa7c2;
+    --line: #2a3654;
+    --day: #63a4ff;      /* daydream blue */
+    --day-bg: #12233d;
+    --pmt: #ff8a8a;      /* pymthouse red */
+    --pmt-bg: #351a1f;
+    --ok: #63d78a;
+    --warn: #ffcf6b;
+    --accent: #ffd479;
+    --code: #cfe3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 0 0 80px;
+  }
+  header {
+    background: linear-gradient(135deg, #16233f, #1c1230);
+    border-bottom: 1px solid var(--line);
+    padding: 34px 40px 28px;
+  }
+  header h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: .2px; }
+  header p { margin: 4px 0 0; color: var(--muted); max-width: 900px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 40px; }
+  h2 {
+    margin: 46px 0 14px; font-size: 20px; border-left: 4px solid var(--accent);
+    padding-left: 12px;
+  }
+  h3 { margin: 26px 0 8px; font-size: 16px; color: #cfe0ff; }
+  p { margin: 10px 0; }
+  code {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 13px;
+    background: #0b1120; color: var(--code); padding: 1px 6px; border-radius: 5px;
+    border: 1px solid var(--line);
+  }
+  pre {
+    background: #0b1120; border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.55;
+    color: var(--code);
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px 24px; margin: 16px 0;
+  }
+  .tldr {
+    background: linear-gradient(135deg, #14263f, #241733);
+    border: 1px solid #38507e; border-radius: 12px; padding: 20px 24px; margin: 22px 0;
+  }
+  .tldr strong { color: var(--accent); }
+  .verdict-yes { color: var(--ok); font-weight: 700; }
+  .verdict-no { color: var(--pmt); font-weight: 700; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel-2); color: #dbe6ff; }
+  td code { font-size: 12px; }
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px;
+    font-weight: 600; border: 1px solid;
+  }
+  .pill.day { color: var(--day); border-color: #34547f; background: var(--day-bg); }
+  .pill.pmt { color: var(--pmt); border-color: #6d3339; background: var(--pmt-bg); }
+  .pill.rec { color: #0f1420; background: var(--ok); border-color: var(--ok); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px){ .grid2 { grid-template-columns: 1fr; } }
+  ul, ol { margin: 8px 0 8px 4px; padding-left: 22px; }
+  li { margin: 5px 0; }
+  .muted { color: var(--muted); }
+  .flow {
+    background: #0b1120; border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px; margin: 16px 0; text-align: center; line-height: 1.4;
+  }
+  .node {
+    display: inline-block; border-radius: 10px; padding: 10px 14px; margin: 6px;
+    font-size: 13px; border: 1px solid; vertical-align: middle; text-align: left;
+  }
+  .node.decide { background: #3a3211; border-color: var(--accent); color: #ffe6a6; }
+  .node.day { background: var(--day-bg); border-color: #34547f; color: #cfe2ff; }
+  .node.pmt { background: var(--pmt-bg); border-color: #6d3339; color: #ffd8d8; }
+  .node.in { background: var(--panel-2); border-color: var(--line); color: var(--ink); }
+  .arrow { color: var(--muted); font-size: 20px; margin: 0 4px; }
+  .lbl { font-size: 11px; color: var(--muted); display: block; margin-top: 2px; }
+  .risk { border-left: 4px solid var(--warn); background: #241f10; }
+  .risk.high { border-left-color: var(--pmt); background: #2a1518; }
+  .foot { margin-top: 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 18px; }
+  kbd { background:#0b1120; border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:1px 6px; font-size:12px; }
+  .file { color: #a9c6ff; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Dual-Key Side-by-Side: Daydream + pymthouse (NaaP)</h1>
+    <p>Can the <strong>Daydream key path</strong> (<code>signer.daydream.live</code>, <code>type:lv2v</code>)
+    and the <strong>pymthouse / NaaP key path</strong> (per-key DMZ signer, <code>type:byoc</code>) run
+    <strong>side by side against one SDK-service instance</strong> — selected by SDK-service config,
+    by an agent/MCP per-request config, or by the key format itself? Feasibility, desirability, and the how-to.</p>
+    <p class="muted">Read-only analysis. Grounded in <span class="file">STORYBOARD-SIGNER-ROUTING.md</span>,
+    <span class="file">pymthouse-e2e.md</span>, <span class="file">BPP-VALIDATE-V2-NAAP-DISCOVERY.md</span>, and
+    <span class="file">apps/web-next/src/app/api/v1/keys/validate/route.ts</span>. The signer-routing code
+    (<span class="file">simple-infra/sdk-service-build/app.py</span>, Storyboard <span class="file">lib/sdk/*</span>)
+    lives in sibling repos; citations use the line numbers recorded in the investigation doc.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="tldr">
+    <p style="margin-top:0"><strong>TL;DR —</strong> <span class="verdict-yes">Yes, side-by-side is possible</span>,
+    and it is <strong>mostly already built</strong>. The decision node
+    (<code>_effective_signer</code> in the SDK service) <em>already inspects the bearer per-request</em>:
+    a <code>naap_</code> key that resolves a <code>signerSession</code> goes pymthouse; anything else
+    (a Daydream <code>sk_</code> key) falls back to the static <code>signer.daydream.live</code>. Today it is
+    "either/or" <strong>only because the enabling flags are process-wide env gates that are unset in
+    production</strong>. Flip <code>SIGNER_FROM_VALIDATE=1</code> + set <code>AUTH_VALIDATE_URL</code> on a
+    <em>single</em> instance and both keys route correctly on the same box.</p>
+    <p style="margin-bottom:0"><strong>Recommendation:</strong> route by <strong>key format automatically</strong>
+    (Option A, already latent) — the simplest robust path — and harden one gap: <em>fail-closed</em> for a
+    <code>naap_</code> key that can't resolve a session (don't silently bill Daydream's shared wallet).
+    Add an <strong>optional explicit override</strong> (Option B) later only if a caller needs to force a path.
+    An agent/MCP config is <strong>not required</strong> for MVP because the key format is already an
+    unambiguous discriminator.</p>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>1. Current state — the decision node (and why it's "either/or" today)</h2>
+
+  <p>Three layers touch the choice; only the middle one is authoritative:</p>
+  <table>
+    <tr><th>Layer</th><th>What it picks</th><th>Where</th><th>Real switch?</th></tr>
+    <tr>
+      <td>Storyboard (Next.js)</td>
+      <td>Which SDK-service <em>base URL</em> to call</td>
+      <td><code>lib/sdk/provider-core.ts</code>, <code>lib/mcp-server/sdk-call.ts</code></td>
+      <td>No — prod flag OFF ⇒ always <code>sdk.daydream.monster</code></td>
+    </tr>
+    <tr style="background:#1a2136">
+      <td><strong>SDK service</strong> (<code>app.py</code>)</td>
+      <td>Which <strong>signer URL</strong> (static Daydream vs per-key pymthouse DMZ)</td>
+      <td><code>_effective_signer</code> — <span class="file">app.py:1072-1091</span></td>
+      <td><strong>YES — decision node</strong></td>
+    </tr>
+    <tr>
+      <td>SDK library (python-gateway)</td>
+      <td>Payment <em>type</em>, derived from signer hostname</td>
+      <td><code>_payment_type_for_signer</code> — <span class="file">byoc.py:151-161</span></td>
+      <td>No — pure function of the URL handed to it</td>
+    </tr>
+  </table>
+
+  <h3>The decision node already branches on the key — per request</h3>
+  <p><code>_effective_signer</code> does <strong>not</strong> flip the whole instance to one provider.
+  Its pymthouse branch fires only when <strong>all</strong> of these hold <em>for that request</em>:</p>
+  <pre>SIGNER_FROM_VALIDATE == 1          # env (process-wide)   ── the only true "config" gate
+AND AUTH_VALIDATE_URL is set        # env (process-wide)
+AND bearer starts with "naap_"      # PER-REQUEST  ← key-format check already here
+AND POST AUTH_VALIDATE_URL returns  # PER-REQUEST  ← runtime resolution
+    signerSession {url, headers}</pre>
+  <p>If any per-request condition fails — most importantly <em>the bearer is not a <code>naap_</code> key</em>
+  — the service returns the static default:</p>
+  <pre>signer_url    = SIGNER_URL = https://signer.daydream.live   # Daydream
+signer_headers = caller Authorization                       # forwarded as-is
+→ python-gateway derives type:lv2v  (hostname == signer.daydream.live)</pre>
+  <p>So the <strong>only</strong> reason a single instance is "Daydream <em>or</em> pymthouse" today is that the
+  two enabling <strong>env gates are process-wide and unset in production</strong>
+  (<span class="file">production/byoc.values.yaml:34-41</span>). The
+  <em>per-request key discrimination is already implemented</em> — it is dormant, not absent.</p>
+
+  <div class="flow">
+    <div class="node in">Bearer <code>&lt;key&gt;</code><span class="lbl">sk_… | naap_… </span></div>
+    <span class="arrow">→</span>
+    <div class="node decide">gates ON?<br><span class="lbl">SIGNER_FROM_VALIDATE + AUTH_VALIDATE_URL (env)</span></div>
+    <span class="arrow">→</span>
+    <div class="node decide">bearer <code>naap_</code>?<br>+ validate → session?<span class="lbl">(per-request, already exists)</span></div>
+    <br><span class="arrow">↙</span> yes <span style="display:inline-block;width:120px"></span> no <span class="arrow">↘</span><br>
+    <div class="node pmt">pymthouse DMZ signer<br><span class="lbl">signerSession.url · composite bearer · type:byoc</span></div>
+    <div class="node day">static <code>signer.daydream.live</code><br><span class="lbl">caller Authorization · type:lv2v</span></div>
+  </div>
+
+  <p class="muted">Note on key shapes the SDK service actually receives from the agent: a Daydream key
+  (<code>sk_…</code>) or a NaaP native key (<code>naap_…</code>). The composite
+  <code>app_&lt;24hex&gt;_pmth_&lt;secret&gt;</code> bearer is <em>produced by</em> NaaP validate
+  (<code>signerSession.headers.Authorization</code>) and only ever travels SDK-service → DMZ signer — the
+  agent never presents it. NaaP validate accepts <code>naap_</code> native keys only
+  (<span class="file">keys/validate/route.ts:5</span>, <span class="file">validate-key.ts:24-37</span>).</p>
+
+  <!-- ============================================================= -->
+  <h2>2. Option A — SDK-service per-request routing (by key format)</h2>
+  <p>The service inspects the incoming bearer and picks the signer per-request. This is
+  <strong>what the code already does</strong>; the work is to make it safe to run permanently with the gates ON,
+  and to remove the process-wide "flip" semantics from the mental model.</p>
+
+  <h3>Decision logic (target)</h3>
+  <pre>def _effective_signer(bearer):
+    # A) Daydream key → static signer, lv2v (today's default; unchanged)
+    if not bearer.startswith("naap_"):
+        return (SIGNER_URL, caller_headers)         # signer.daydream.live → lv2v
+
+    # B) naap_ key → resolve per-key pymthouse session
+    session = _resolve_validate_session(bearer)     # POST AUTH_VALIDATE_URL
+    if session and session.url:
+        return (session.url, session.headers)       # DMZ signer → byoc
+
+    # C) naap_ key but NO session  → HARDEN: fail-closed, do NOT fall to Daydream
+    raise Reject(402, "naap_ key could not resolve a signer session")</pre>
+
+  <table>
+    <tr><th>Change</th><th>File</th><th>Backward-compatible?</th></tr>
+    <tr><td>Keep <code>bearer.startswith("naap_")</code> gate (exists)</td><td><span class="file">app.py</span> <code>_effective_signer</code> / <code>_resolve_validate_session</code></td><td>Yes — daydream keys never enter the branch</td></tr>
+    <tr><td>Add <strong>fail-closed</strong> for <code>naap_</code> + no session (new; small)</td><td><span class="file">app.py</span> <code>_effective_signer</code></td><td>Yes — only affects <code>naap_</code> keys, which don't work today anyway when a session is missing</td></tr>
+    <tr><td>Enable gates on <em>one</em> instance</td><td><span class="file">simple-infra</span> values overlay</td><td>Yes — daydream keys still get <code>SIGNER_URL</code> default</td></tr>
+  </table>
+  <p><strong>Default = today's behavior:</strong> with gates OFF, every request is Daydream/lv2v — zero regression.
+  With gates ON, a Daydream <code>sk_</code> key is byte-for-byte the same path (it never matches <code>naap_</code>).</p>
+
+  <!-- ============================================================= -->
+  <h2>3. Option B — Agent/MCP passes an explicit config per request</h2>
+  <p>Storyboard/MCP includes an explicit <code>provider</code> selector that flows to the SDK service, which
+  honors it over (or alongside) key-format inference.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Storyboard / MCP side</h3>
+      <ul>
+        <li><code>provider-core.ts</code>: extend the per-call input with <code>signerProvider?: "daydream" | "pymthouse"</code>
+        (distinct from the existing base-URL <code>NAAP_PROVIDER</code>, which only picks the service URL).</li>
+        <li><code>sdk-call.ts</code>: forward it as a header, e.g.
+        <code>X-Naap-Signer-Provider: pymthouse</code>, next to the unchanged <code>Authorization</code>.</li>
+        <li>Both key types must target the <strong>same</strong> SDK-service instance — i.e. do
+        <strong>not</strong> use <code>STORYBOARD_PROVIDER_SWITCH</code> to split base URLs, or the per-request
+        selector never reaches one box.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>SDK-service side</h3>
+      <ul>
+        <li><code>_effective_signer</code> reads <code>X-Naap-Signer-Provider</code> first.</li>
+        <li><strong>Precedence:</strong> explicit header → key-format inference → static default.</li>
+        <li>Guard rails: <code>pymthouse</code> requested with a non-<code>naap_</code> bearer ⇒ reject
+        (can't mint a session); <code>daydream</code> requested with a <code>naap_</code> key ⇒ allowed but
+        bills the shared wallet — log loudly / gate behind an allow-list.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="muted">Option B is strictly additive on top of Option A. It buys <em>override</em> power (force a
+  path regardless of key), at the cost of a new contract field on three surfaces and new mismatch cases to
+  validate. It is not needed to make the two keys coexist.</p>
+
+  <!-- ============================================================= -->
+  <h2>4. Feasibility &amp; desirability</h2>
+
+  <table>
+    <tr><th>Question</th><th>Verdict</th><th>Why</th></tr>
+    <tr>
+      <td>Possible without breaking the Daydream path?</td>
+      <td class="verdict-yes">YES</td>
+      <td>Non-<code>naap_</code> keys never enter the pymthouse branch — they hit the unchanged static
+      <code>SIGNER_URL</code> → <code>lv2v</code>. Daydream expects lv2v; pymthouse expects composite/byoc;
+      each key type deterministically lands on its own signer + payment type.</td>
+    </tr>
+    <tr>
+      <td>Achievable per-request on one instance?</td>
+      <td class="verdict-yes">YES</td>
+      <td>The per-request key check already exists in <code>_effective_signer</code>. Only the two env gates
+      are process-wide, and they're gate-conditions, not the router itself.</td>
+    </tr>
+    <tr>
+      <td>Key-format auto-routing cleaner than explicit config?</td>
+      <td class="verdict-yes">YES</td>
+      <td>The key <em>is</em> the intent: a <code>naap_</code> key <em>means</em> "bill my NaaP account";
+      a Daydream key <em>means</em> "use the shared Daydream wallet." An extra <code>provider</code> field is
+      redundant with the key and adds a mismatch surface (provider says X, key implies Y).</td>
+    </tr>
+    <tr>
+      <td>Is an agent/MCP config <em>needed</em>?</td>
+      <td class="verdict-no">NO (for MVP)</td>
+      <td>Add it later only as an <em>override</em>. Default routing needs nothing beyond the key.</td>
+    </tr>
+  </table>
+
+  <p><strong>Recommended approach:</strong> <span class="pill rec">Option A — route by key format, gates ON, fail-closed</span>
+  with <span class="pill">Option B as an optional later override</span>. Simplest robust path; avoids
+  over-engineering; no new request contract required to ship.</p>
+
+  <h3>Recommended decision logic (incoming key/config → path)</h3>
+  <div class="flow">
+    <div class="node in">Incoming request<br><span class="lbl">Authorization: Bearer &lt;key&gt;<br>[optional X-Naap-Signer-Provider]</span></div>
+    <span class="arrow">→</span>
+    <div class="node decide">1&nbsp;explicit override?<span class="lbl">Option B (optional)</span></div>
+    <span class="arrow">→</span>
+    <div class="node decide">2&nbsp;bearer <code>naap_</code>?</div>
+    <br>
+    <div class="node day">Daydream branch<br><span class="lbl">key = sk_… / no override=daydream<br>signer.daydream.live · type:lv2v · shared wallet</span></div>
+    <span class="arrow">&nbsp;</span>
+    <div class="node pmt">pymthouse branch<br><span class="lbl">key = naap_… → validate → session<br>DMZ signer · type:byoc · caller wallet</span></div>
+    <span class="arrow">&nbsp;</span>
+    <div class="node decide">naap_ &amp; no session<br><span class="lbl">→ FAIL-CLOSED 402 (harden)</span></div>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>5. Risks</h2>
+
+  <div class="card risk high">
+    <strong>R1 · Silent mis-attribution on session failure (HIGH).</strong> Today a <code>naap_</code> key whose
+    validate returns no session <em>falls back to the Daydream signer</em> → billed to the shared Daydream
+    wallet, not the caller. Fix: <strong>fail-closed</strong> (402/401) for <code>naap_</code> keys with no
+    resolvable session. This is the single most important hardening for side-by-side.
+  </div>
+  <div class="card risk">
+    <strong>R2 · Payment-type mismatch.</strong> Payment type is derived purely from the signer hostname
+    (<code>signer.daydream.live → lv2v</code>, else <code>byoc</code>). As long as the signer URL is correct,
+    the type follows automatically — no extra code. Risk only if a wrong URL is ever handed through.
+  </div>
+  <div class="card risk">
+    <strong>R3 · Base-URL split defeats side-by-side.</strong> If Storyboard uses
+    <code>STORYBOARD_PROVIDER_SWITCH</code> to send <code>naap_</code> traffic to a <em>different</em> SDK
+    service than Daydream traffic, the two keys never share an instance. For true side-by-side, point both at
+    one instance that has the gates ON.
+  </div>
+  <div class="card risk">
+    <strong>R4 · Latency + validate dependency.</strong> Every <code>naap_</code> request adds a
+    <code>/keys/validate</code> round-trip and hard-depends on that endpoint. Daydream keys skip it entirely.
+    Consider a short-TTL session cache; ensure validate availability SLO covers the pymthouse path.
+  </div>
+  <div class="card risk">
+    <strong>R5 · Env guard rail.</strong> <span class="file">simple-infra/scripts/validate-envs.sh:141-155</span>
+    rejects <code>SIGNER_FROM_VALIDATE=1</code> unless <code>AUTH_VALIDATE_URL</code> is set. Honor it — set both
+    together in the overlay.
+  </div>
+  <div class="card risk">
+    <strong>R6 · Metering attribution correctness.</strong> Daydream → shared wallet →
+    <code>api.daydream.live/webhooks/remote-signer</code>; pymthouse → caller's funded wallet → OpenMeter.
+    Verify each key type lands in the correct meter after enabling side-by-side.
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>6. How-to — phased, flag-gated</h2>
+
+  <h3>Phase 0 — Verify latent behavior (no code)</h3>
+  <ul>
+    <li>Confirm in <span class="file">app.py</span> that <code>_effective_signer</code> returns the static
+    <code>SIGNER_URL</code> for a non-<code>naap_</code> bearer even when the gates are ON (read
+    <code>_resolve_validate_session</code> + the branch, <span class="file">app.py:1001-1091</span>).</li>
+    <li>Confirm NaaP validate accepts <code>naap_</code> only (already true —
+    <span class="file">keys/validate/route.ts:5</span>).</li>
+  </ul>
+
+  <h3>Phase 1 — Harden fail-closed (small code change)</h3>
+  <ul>
+    <li>In <code>_effective_signer</code>: when bearer is <code>naap_</code> and no session resolves, return a
+    reject (HTTP 402/401) <em>instead of</em> falling through to <code>SIGNER_URL</code>. Guard behind a flag,
+    e.g. <code>NAAP_FAIL_CLOSED=1</code>, defaulting OFF so nothing changes until opted in.</li>
+    <li>Unit-test both: <code>naap_</code>+session ⇒ DMZ signer; <code>naap_</code>+no session ⇒ 402;
+    <code>sk_</code> ⇒ static signer.</li>
+  </ul>
+
+  <h3>Phase 2 — Enable side-by-side on ONE instance (config only)</h3>
+  <pre># simple-infra overlay for the shared instance
+AUTH_VALIDATE_URL:    https://operator.livepeer.org/api/v1/keys/validate
+SIGNER_FROM_VALIDATE: "1"
+SIGNER_URL:           https://signer.daydream.live   # still the daydream fallback
+NAAP_FAIL_CLOSED:     "1"                             # from Phase 1</pre>
+  <ul>
+    <li>Storyboard: point both key types at this one instance (do not split base URLs by provider).</li>
+    <li>Run <span class="file">validate-envs.sh</span> — the <code>SIGNER_FROM_VALIDATE</code>+<code>AUTH_VALIDATE_URL</code>
+    pairing must pass.</li>
+  </ul>
+
+  <h3>Phase 3 (optional) — Explicit override (Option B)</h3>
+  <ul>
+    <li>Add <code>signerProvider</code> to <code>provider-core.ts</code>; forward
+    <code>X-Naap-Signer-Provider</code> in <code>sdk-call.ts</code>.</li>
+    <li>Honor it in <code>_effective_signer</code> with precedence <em>override → key format → default</em>, and
+    reject impossible combos (<code>pymthouse</code> + non-<code>naap_</code>).</li>
+  </ul>
+
+  <!-- ============================================================= -->
+  <h2>7. Test plan — proving both keys on one instance</h2>
+  <table>
+    <tr><th>#</th><th>Input</th><th>Expected signer</th><th>Expected type</th><th>Meter</th><th>Pass criteria</th></tr>
+    <tr>
+      <td>T1</td><td>Daydream <code>sk_…</code> key</td>
+      <td><code>signer.daydream.live</code></td><td><span class="pill day">lv2v</span></td>
+      <td>shared Daydream wallet</td>
+      <td>200 + asset; validate <strong>not</strong> called; webhook → <code>api.daydream.live</code></td>
+    </tr>
+    <tr>
+      <td>T2</td><td><code>naap_…</code> key (valid seat/plan)</td>
+      <td>DMZ <code>signerSession.url</code></td><td><span class="pill pmt">byoc</span></td>
+      <td>caller wallet → OpenMeter</td>
+      <td>200 + asset; validate called once; composite <code>app_…_pmth_…</code> reaches DMZ signer; OpenMeter <code>+1 req</code></td>
+    </tr>
+    <tr>
+      <td>T3</td><td><code>naap_…</code> key, validate 503 / no session</td>
+      <td>— (reject)</td><td>—</td><td>none</td>
+      <td>With <code>NAAP_FAIL_CLOSED=1</code>: 402/401, <strong>no</strong> Daydream fallback, <strong>no</strong> spend</td>
+    </tr>
+    <tr>
+      <td>T4</td><td>Alternate T1/T2 on the <em>same</em> instance</td>
+      <td>per key</td><td>per key</td><td>per key</td>
+      <td>No cross-contamination — each request routes independently (proves per-request, not process-wide)</td>
+    </tr>
+    <tr>
+      <td>T5</td><td>Gates OFF (regression)</td>
+      <td><code>signer.daydream.live</code> for all</td><td><span class="pill day">lv2v</span></td>
+      <td>shared wallet</td>
+      <td>Byte-for-byte today's behavior — no regression when disabled</td>
+    </tr>
+    <tr>
+      <td>T6 <span class="muted">(if Phase 3)</span></td><td><code>X-Naap-Signer-Provider: pymthouse</code> + non-<code>naap_</code></td>
+      <td>— (reject)</td><td>—</td><td>none</td>
+      <td>Impossible combo rejected, not silently downgraded</td>
+    </tr>
+  </table>
+  <p class="muted">Reuse the harness in <span class="file">pymthouse-e2e.md</span> (naap_ → validate →
+  composite bearer → <code>get_orch_info</code> → <code>submit_byoc_job</code> → OpenMeter) for T2/T3, and a
+  plain Daydream key run for T1/T5.</p>
+
+  <div class="foot">
+    <p><strong>Bottom line.</strong> Side-by-side is feasible and desirable, and the router already exists —
+    it just needs its process-wide env gates turned on for one instance plus a fail-closed guard so a
+    <code>naap_</code> key never silently bills Daydream. Key-format auto-routing (Option A) is the recommended
+    default; an agent/MCP override (Option B) is a clean, optional add-on, not a prerequisite.</p>
+    <p>Code-line citations are drawn from <span class="file">STORYBOARD-SIGNER-ROUTING.md</span> (the signer
+    code lives in the <code>simple-infra</code> and Storyboard repos, not this workspace). NaaP validate
+    behavior verified directly in <span class="file">apps/web-next/src/app/api/v1/keys/validate/route.ts</span>.</p>
+  </div>
+
+</div>
+</body>
+</html>
