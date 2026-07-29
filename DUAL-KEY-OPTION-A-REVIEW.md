@@ -47,3 +47,35 @@
 ## Decision
 
 **Proceed to Phase 2.** All controls are implementable at the cited seams with zero regression when OFF. LOCKED decisions (`KEY_ROUTING_UNMATCHED=fail_closed` default; PR3 included) are preserved.
+
+## Deploy (live-lineage layered) — 2026-07-29
+
+Dual-key Option A was shipped to the LIVE SDK (`sdk.daydream.monster`, VM `sdk-staging-1`, `us-west1-b`) by **layering** the PR1/PR2/PR3 change set onto the LIVE image lineage — **not** by rebuilding from `origin/main` (which has diverged and lacks merit-selection + `CAPABILITY_ORCH_OFFERINGS`).
+
+**Method (no gateway rebuild):**
+- Extracted the exact dual-key change set from `simple-infra` main (`git diff cd07405..a5ea48f -- sdk-service-build/`): the new `key_routing.py` classifier + the `app.py` wiring hunks from PR1 (`#112`/`6abf96e`), PR2 (`#113`/`56e65d0`), PR3 (`#114`/`a5ea48f`).
+- Pulled the LIVE `app.py` (sha256 `e860dd0e…`) out of the running container (`/app/app.py`) — this build HAS merit selection (`SELECT_PROVIDER_MERIT`), `CAPABILITY_ORCH_OFFERINGS`, and `provider_selection.py`, at different line numbers than main.
+- **Ported the dual-key hooks onto the LIVE `app.py` by semantic location** (the `naap_` gate in `_resolve_validate_session`, the `_effective_signer` fall-through, the `/inference` `_lr_eligible` dispatch call site) — NOT by line number. Additive-only: an in-place diff against the pristine live `app.py` shows exactly 7 lines modified (each expanded, none deleted) and zero removals of merit/offerings/`provider_selection` code. Ported `app.py` sha256 `99104b53…`.
+- Built the new image **`FROM` the live image** `optA-lr-multi-2026-07-23` (image id `sha256:7afbf749…`) on the VM (the base tag exists only locally on `sdk-staging-1`; its registry manifest was absent), `COPY`-ing only the ported `app.py` + new `key_routing.py` into `/app`. The `file:///sdk` gateway layer and all pip deps were **reused unchanged** — no reinstall, no gateway rebuild.
+- Dual-key unit tests (`test_key_routing.py`, 20 cases) run green both locally and **inside the built image**.
+
+**Image:**
+- New: `us-docker.pkg.dev/livepeer-simple-infra/simple-infra/sdk-service:optA-lr-multi-dualkey-2026-07-29`
+  - image id `sha256:15b89da1853ad5ed880edfa9a30ac4dd18a852f4584e04b153f9c7d249894f01`
+  - registry manifest digest `sha256:a90c67cc8917070797a633a2748a4099a8f49516e6073d565e6d1caa448eba67`
+- Base reused: `optA-lr-multi-2026-07-23` (image id `sha256:7afbf749852a808ca57e828f89358127900d781304c2874fe7fb51b9dd31af2c`).
+
+**Swap (SDK-only, no `deploy-byoc.sh`):**
+- Changed **only** the `SDK_IMAGE=` tag line in `/opt/sdk/.env` (backup: `/opt/sdk/.env.bak.dualkey-20260729-225901`; `diff` confirmed exactly one line changed). All ~15 runtime vars — `SELECT_PROVIDER_MERIT=1`, `SELECT_PROVIDER_MERIT_TTL=30`, `CAPABILITY_ORCH_OFFERINGS`, `SIGNER_FROM_VALIDATE=1`, `AUTH_VALIDATE_URL`, LR/validate wiring — preserved verbatim.
+- `docker compose -f /opt/sdk/docker-compose.yaml up -d sdk-service` — recreated **only** the `sdk-service` container. `sdk-caddy`, `hermes`, `promtail` untouched. `deploy-byoc.sh` was **NOT** run; `byoc-staging-1` and the prod signers were **not** touched.
+
+**All six dual-key flags remain DEFAULT-OFF** — none of `KEY_ROUTING_FROM_ENV`, `KEY_PATTERN_PYMTHOUSE`, `KEY_PATTERN_DAYDREAM`, `KEY_ROUTING_UNMATCHED`, `ORCH_PIN_BY_PATH`, `NAAP_FAIL_CLOSED` is set in `/opt/sdk/.env` or the running container env, so behavior is byte-identical to the live baseline (legacy `naap_` routing path).
+
+**Post-deploy verification:**
+- `sdk.daydream.monster/health` → HTTP 200; `/capabilities` → **172 caps** (unchanged from baseline).
+- New code live: running image `…:optA-lr-multi-dualkey-2026-07-29`; in-container `/app/app.py` sha256 `99104b53…` (≠ live `e860dd0e…`); `/app/key_routing.py` present; `provider_selection.py` + `lr_offerings.py` present; 20 merit/offerings/provider references still in `app.py`.
+- Live features intact: startup log `LR offering-driven dispatch ACTIVE: 9 offerings`; a real `ffmpeg-colorgrade` `/inference` returned **200 OK** (signed sender + payment tickets) — merit/offerings/per-key-signer paths all working. No tracebacks at startup.
+
+**Rollback:** set `/opt/sdk/.env` `SDK_IMAGE=us-docker.pkg.dev/livepeer-simple-infra/simple-infra/sdk-service:optA-lr-multi-2026-07-23` (image id `sha256:7afbf749…`) and `docker compose up -d sdk-service`. The pre-swap `.env` is backed up at `/opt/sdk/.env.bak.dualkey-20260729-225901`.
+
+> **NOTE — lineage drift:** `origin/main` of `simple-infra` remains diverged from the deployed live lineage — main carries the dual-key commits but **lacks** merit-selection and `CAPABILITY_ORCH_OFFERINGS`, while the live image has both. This deploy layered dual-key onto the live lineage rather than reconciling the two. A separate **lineage-reconciliation follow-up** is recommended to fold merit/offerings back into `main` (or forward-port dual-key into the canonical `sdk-service-build/` source) so the repo and the running image converge.
