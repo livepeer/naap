@@ -17,7 +17,7 @@
 | Clean `livepeer/go-livepeer:v0.9.0` live? | **YES** — `liverunner-v09-orch` up on `:8936`, `/discovery` serves 8 static runners. |
 | On-chain? | **YES** — orch wallet `0x180859…` registered/active on Arbitrum One. |
 | Per-cap priced? | **YES** — 8 runners, per-cap USD→wei prices (7 distinct; 2 caps share $0.02625). |
-| In the SDK orchestrator list? | **PARTIAL / BLOCKED** — SDK env already lists all 8 caps, but `LR_ORCH_DISCOVERY` points at `:8935` (no per-cap runners) **and** the deployed SDK image lacks the native client `livepeer_gateway.live_runner.call_runner` (Gap B). Native SDK dispatch cannot work until that ships. |
+| In the SDK orchestrator list? | **RESOLVED (dispatch fix shipped)** — Gap B closed: `call_runner` is **source-present** (`livepeer-python-gateway` `feat/byoc-inference-capabilities-protobuf` @`426f019`); the deployed image merely vendored a BYOC-only gateway checkout without `live_runner.py`. Rebuilt + pushed additive image `sdk-service:lr-call-runner-2026-07-28`, repointed `LR_ORCH_DISCOVERY`→`:8936` + `LR_OFFERINGS_JSON`→per-cap apps. **Validated on an isolated instance: the NaaP key now dispatches natively to `:8936`** (402 + native mint attempted), no longer BYOC-fallback. See [Dispatch-fix addendum](#dispatch-fix-addendum-2026-07-28). |
 | Caps registered (agent-discoverable)? | **YES** — generator proves 8× ADD-CAPACITY (0 REGISTER / 0 SYNONYM); MCP `list_capabilities` shows all 8 live & priced. |
 | **pymthouse e2e** end-to-end? | **NO** — auth ✅, discovery/price ✅, payment-mint ✅, native 402 challenge ✅, reserve ✅ (already funded) — **generation FAILS** at a **1-line signer bug** (`SegData.manifestId ≠ auth_token.session_id`). Metering not reached. |
 | **daydream e2e**? | **PASS (on the daydream plane)** — key found; real flux-schnell asset generated, metered **$0.00320** (per-cap, megapixel × $0.00315). Routes via production daydream/fal infra, **not** `:8936`. |
@@ -111,7 +111,7 @@ Tried `SIGNER_TYPE ∈ {lv2v, live, scope}` to coax correct binding — all retu
 | # | Gap | Root cause | Blocked on | Owner |
 |---|---|---|---|---|
 | 1 | **pymthouse native generation → 403** | Signer `/generate-live-payment` sets `SegData.manifestId` to a fresh id instead of `auth_token.session_id`; v0.9.0 requires them equal for fixed payments. **~1-line fix.** | Signer code fix (not reserve, not pricing, not boot) | **pymthouse signer** (John) |
-| 2 | **SDK native dispatch impossible** | Deployed SDK image `optA-lr-multi-2026-07-23` lacks `livepeer_gateway.live_runner.call_runner` (Gap B); `_dispatch_lr*` ImportError → BYOC fallback. Also `LR_ORCH_DISCOVERY` omits `:8936`. | Ship `call_runner` in the gateway + add `:8936` to `LR_ORCH_DISCOVERY` | **gateway / SDK** (John) |
+| 2 | ~~**SDK native dispatch impossible**~~ **RESOLVED 2026-07-28** | `call_runner` was **source-present** all along (`feat/byoc-inference-capabilities-protobuf` @`426f019`); the deployed image just vendored a BYOC-only gateway. Rebuilt image with that ref + repointed discovery/offerings to `:8936`. Native dispatch to `:8936` proven on an isolated instance. | ~~gateway~~ — done; **config apply to shared staging** gated on owner approval | **infra** |
 | 3 | **Signer reliability** | `/generate-live-payment` intermittent HTTP 500 (~1 in 4). | Signer stability | **pymthouse signer** (John) |
 | 4 | **seedance-mini-i2v price provisional** | Registry has null scope price (Gap H); $0.0394 is a derived placeholder. | Confirm real price | **storyboard-pricing** |
 | 5 | **v1 `:8935` removal** | `:8935` carries distinct tool caps + the on-chain serviceURI target; removing is destructive + orphans serviceURI (Open-Q2). | Product decision | **user / infra** |
@@ -159,3 +159,75 @@ docker compose -f docker-compose.v09.yml down                      # stop clean 
 - **Additive + reversible:** v0.9.0 added on `:8936`; byoc `:8936` stopped-not-deleted; v1 `:8935` untouched; `byoc-staging-1` untouched.
 - **Hard-block handling:** stopped at the signer manifestId bug (native gen) and the v1-removal decision rather than looping or reintroducing BYOC.
 - **Secrets:** all env-only; redacted here and in commits.
+
+---
+
+## Dispatch-fix addendum (2026-07-28) — Gap B closed, native `:8936` dispatch proven
+
+Follow-up run to close **Gap B** (SDK native dispatch). Scope: make the NaaP-key
+path route the 8 fal caps to the clean v0.9.0 orch on `:8936` via the native
+`/apps/{runner}/app/generate` path instead of BYOC `:8935`.
+
+### 1. `call_runner` — SOURCE-PRESENT (no porting needed)
+
+`app.py` (`_dispatch_lr` / `_dispatch_lr_v2`) calls
+`from livepeer_gateway.live_runner import call_runner`. That symbol **exists in
+the gateway source** — `feat/byoc-inference-capabilities-protobuf` @`426f019`,
+`live_runner.py:624`, exported from `__init__.py`. The deployed SDK image lacked
+it only because the **vendored** gateway (`sdk-service-build/livepeer-gateway/`,
+git-ignored plain files) was a BYOC/tool checkout with **no `live_runner.py`**.
+So the fix is a **rebuild with a gateway ref that has it** — not a port.
+
+`426f019` also satisfies every other symbol `app.py` imports (`submit_byoc_job`,
+`start_lv2v`, `StartJobRequest`, `remote_signer.get_orch_info_sig`,
+`errors.SkipPaymentCycle`, `media_publish.MediaPublish`, …) — verified by a clean
+`import app` inside the rebuilt image.
+
+### 2. Image + config changed
+
+| What | Where | Safe? |
+|---|---|---|
+| Rebuilt SDK image, gateway pinned to `426f019` (has `call_runner`) | pushed **additively** as `us-docker.pkg.dev/…/sdk-service:lr-call-runner-2026-07-28` (digest `sha256:a3696cb5…`) | ✅ new tag; running staging (`merit-precise-2026-07-20`) untouched |
+| `LR_ORCH_DISCOVERY=https://136.66.21.17:8936/discovery` | env (isolated instance) | ✅ additive/reversible |
+| `LR_OFFERINGS_JSON` → per-cap apps (`storyboard/fal-flux-schnell`, …) | env (isolated instance) | ✅ additive; unset ⇒ today's `:8935` behavior |
+| Recipe committed | `simple-infra` `fix/lr-native-dispatch-call-runner` (`sdk-service-build/LR-NATIVE-DISPATCH.md`) | ✅ doc only |
+
+**Validation was done on an isolated LOCAL container** (not the shared
+`sdk-staging-1`): the two env vars above are the only delta vs. shared staging,
+and applying them to the shared service would affect other fal-cap consumers, so
+that apply is **gated on owner approval** (safety gate honored — did not mutate
+the shared service).
+
+### 3. Evidence — NaaP key now dispatches natively to `:8936`
+
+Drove the real NaaP key through `POST /inference` (`flux-schnell`) on the
+isolated instance. Server log:
+
+```
+LR offering-driven dispatch ACTIVE: 8 offerings [chatterbox-tts, flux-dev, flux-schnell, …]
+LR dispatch failed for flux-schnell (HTTP 400 from endpoint
+  (url=…pymthouse-signer…/generate-live-payment); body='numTickets 2721947758 exceeds maximum of 100')
+  — falling back to BYOC
+```
+
+Chain proven: NaaP key → `/keys/validate` (returns endpoint-form per-key signer =
+pymthouse + composite) → `_effective_signer` → `_dispatch_lr_v2` → `call_runner`
+→ discovered the `:8936` per-cap runner → **native `POST /apps/.../app/generate`
+→ 402 challenge received & parsed → native payment mint attempted** at the
+signer. (A 402 without valid `payment_params` would have raised
+"missing payment_params" before the signer call; instead the signer's
+`/generate-live-payment` was reached and returned the mint error — so a real
+`:8936` challenge was in hand.) Raw `:8936` per-cap endpoint independently
+returns `HTTP 402` (payment-gated). **Before the fix, `call_runner` ImportError'd
+→ instant BYOC fallback, never touching `:8936`.**
+
+### 4. How far it got / remaining dependency (signer fix)
+
+Reached the **native payment-mint** step, then failed **inside the pymthouse
+signer** — `HTTP 400 numTickets 2721947758 exceeds maximum of 100` on the native
+`type:"lv2v"` mint (`_get_runner_payment`). This is a **signer-side** payment
+computation bug (ticket faceValue sizing vs. the fixed per-cap price), a sibling
+of the previously-logged `SegData.manifestId ≠ auth_token.session_id` 403
+(Gap #1). **Both are owned by the separate pymthouse-signer worker**, downstream
+of dispatch. The dispatch plane is now correct end-to-end; **full green is gated
+solely on the signer fix.**
