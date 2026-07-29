@@ -250,6 +250,175 @@
           }
         }
       }
+    },
+    {
+      "label": "ffmpeg-concat",
+      "app": "storyboard/ffmpeg-app",
+      "runner_url": "http://ffmpeg-app:8991",
+      "health_url": "http://ffmpeg-app:8991/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 2,
+      "price_info": { "price": "0.00013", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "tool", "name": "ffmpeg-concat",
+        "family": "ffmpeg", "modality": "concat", "variant": null,
+        "semantic_key": "tool:concat:ffmpeg:-", "output_kind": "tool",
+        "good_for": "concatenate video clips into one (stream-copy, re-encode fallback)",
+        "io": {
+          "endpoint": "/run",
+          "inputs": {
+            "verb": { "wire": "verb", "default": "concat", "required": false, "type": "string" },
+            "inputs": { "wire": "inputs", "from": "source_urls", "required": true, "type": "array" }
+          },
+          "output": { "kind": "url", "fields": ["url"], "primary": "url" }
+        },
+        "offering": {
+          "app": "storyboard/ffmpeg-app", "mode": "single-shot", "capacity": 2,
+          "price": {
+            "price_per_unit": 52994135883, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.00013, "display_unit": "call",
+            "unit_kind": "call", "quantity_source": "const_1"
+          }
+        }
+      }
+    },
+    {
+      "label": "ffmpeg-trim",
+      "app": "storyboard/ffmpeg-app",
+      "runner_url": "http://ffmpeg-app:8991",
+      "health_url": "http://ffmpeg-app:8991/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 2,
+      "price_info": { "price": "0.00007", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "tool", "name": "ffmpeg-trim",
+        "family": "ffmpeg", "modality": "trim", "variant": null,
+        "semantic_key": "tool:trim:ffmpeg:-", "output_kind": "tool",
+        "good_for": "trim a clip to a start/duration window (stream-copy)",
+        "io": {
+          "endpoint": "/run",
+          "inputs": {
+            "verb": { "wire": "verb", "default": "trim", "required": false, "type": "string" },
+            "source_url": { "wire": "source_url", "from": "source_url", "required": true, "type": "string" },
+            "start": { "wire": "start", "from": "start", "required": false, "type": "number" },
+            "duration": { "wire": "duration", "from": "duration", "required": false, "type": "number" }
+          },
+          "output": { "kind": "url", "fields": ["url"], "primary": "url" }
+        },
+        "offering": {
+          "app": "storyboard/ffmpeg-app", "mode": "single-shot", "capacity": 2,
+          "price": {
+            "price_per_unit": 28535303937, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.00007, "display_unit": "call",
+            "unit_kind": "call", "quantity_source": "const_1"
+          }
+        }
+      }
+    },
+    {
+      "label": "ffmpeg-export",
+      "app": "storyboard/ffmpeg-app",
+      "runner_url": "http://ffmpeg-app:8991",
+      "health_url": "http://ffmpeg-app:8991/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 2,
+      "price_info": { "price": "0.00026", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "tool", "name": "ffmpeg-export",
+        "family": "ffmpeg", "modality": "export", "variant": null,
+        "semantic_key": "tool:export:ffmpeg:-", "output_kind": "tool",
+        "good_for": "re-encode/scale a clip to a target resolution (e.g. 9:16)",
+        "io": {
+          "endpoint": "/run",
+          "inputs": {
+            "verb": { "wire": "verb", "default": "export", "required": false, "type": "string" },
+            "source_url": { "wire": "source_url", "from": "source_url", "required": true, "type": "string" },
+            "width": { "wire": "width", "from": "width", "required": false, "type": "number" },
+            "height": { "wire": "height", "from": "height", "required": false, "type": "number" }
+          },
+          "output": { "kind": "url", "fields": ["url"], "primary": "url" }
+        },
+        "offering": {
+          "app": "storyboard/ffmpeg-app", "mode": "single-shot", "capacity": 2,
+          "price": {
+            "price_per_unit": 105988271766, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.00026, "display_unit": "call",
+            "unit_kind": "call", "quantity_source": "const_1"
+          }
+        }
+      }
+    },
+    {
+      "label": "hyperframes-render",
+      "app": "storyboard/hyperframes-app",
+      "runner_url": "http://hyperframes-app:8993",
+      "health_url": "http://hyperframes-app:8993/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 2,
+      "price_info": { "price": "0.0003", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "tool", "name": "hyperframes-render",
+        "family": "hyperframes", "modality": "render", "variant": null,
+        "semantic_key": "tool:render:hyperframes:-", "output_kind": "tool",
+        "good_for": "render caller-supplied HTML to an mp4 via headless Chromium (SSRF-guarded)",
+        "io": {
+          "endpoint": "/run",
+          "inputs": {
+            "verb": { "wire": "verb", "default": "render", "required": false, "type": "string" },
+            "html": { "wire": "html", "from": "html", "required": true, "type": "string" },
+            "fps": { "wire": "fps", "from": "fps", "required": false, "type": "number" },
+            "duration": { "wire": "duration", "from": "duration", "required": false, "type": "number" },
+            "width": { "wire": "width", "from": "width", "required": false, "type": "number" },
+            "height": { "wire": "height", "from": "height", "required": false, "type": "number" }
+          },
+          "output": { "kind": "url", "fields": ["url"], "primary": "url" }
+        },
+        "offering": {
+          "app": "storyboard/hyperframes-app", "mode": "single-shot", "capacity": 2,
+          "price": {
+            "price_per_unit": 122294159730, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.0003, "display_unit": "call",
+            "unit_kind": "call", "quantity_source": "const_1"
+          }
+        }
+      }
+    },
+    {
+      "label": "blender-headless",
+      "app": "storyboard/blender-app",
+      "runner_url": "http://blender-app:8992",
+      "health_url": "http://blender-app:8992/health",
+      "healthy_status_code": 200,
+      "mode": "single-shot",
+      "capacity": 2,
+      "price_info": { "price": "0.002", "currency": "usd", "unit": "fixed" },
+      "capability": {
+        "kind": "ai", "name": "blender-headless",
+        "family": "blender", "modality": "tool", "variant": "headless",
+        "semantic_key": "ai:tool:blender:headless", "output_kind": "tool",
+        "good_for": "headless Blender render of a frame from a .blend (or a procedural scene)",
+        "io": {
+          "endpoint": "/run",
+          "inputs": {
+            "verb": { "wire": "verb", "default": "render", "required": false, "type": "string" },
+            "blend_url": { "wire": "blend_url", "from": "source_url", "required": false, "type": "string" },
+            "frame": { "wire": "frame", "from": "frame", "required": false, "type": "number" }
+          },
+          "output": { "kind": "url", "fields": ["url"], "primary": "url" }
+        },
+        "offering": {
+          "app": "storyboard/blender-app", "mode": "single-shot", "capacity": 2,
+          "price": {
+            "price_per_unit": 815294398200, "pixels_per_unit": 1048576, "unit": "WEI",
+            "display_usd": 0.002, "display_unit": "call",
+            "unit_kind": "call", "quantity_source": "const_1"
+          }
+        }
+      }
     }
   ]
 }
