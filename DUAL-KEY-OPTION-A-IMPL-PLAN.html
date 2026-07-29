@@ -64,6 +64,15 @@
   "Option A" section of <span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html</span>. All new controls default to
   <strong>current production behavior</strong>; merging any PR changes nothing until an operator opts in.</p>
 
+  <div class="card good" style="border-color:rgba(91,157,255,.5);background:rgba(91,157,255,.06);">
+    <strong>Rev 2 — decisions locked.</strong> (1) <code>KEY_ROUTING_UNMATCHED=fail_closed</code> is now the FINAL
+    default (OQ-3 resolved); (2) PR&nbsp;3 (<code>NAAP_FAIL_CLOSED</code>) is promoted to a first-class PR, flag-OFF by
+    default (OQ-4 resolved); (3) all <code>_effective_signer</code> / orch-selection line numbers are VERIFIED against
+    <code>livepeer/simple-infra</code> <span class="file">sdk-service-build/app.py</span> (remote <code>main</code>,
+    byte-identical to local checkout) — the earlier <code>1072-1091</code> vs <code>904-923</code> conflict is
+    resolved to <code>904-923</code>. Zero-regression posture unchanged: everything still defaults OFF/legacy.
+  </div>
+
   <div class="card good">
     <strong>Ground truth carried in (do not re-verify):</strong> the <code>naap_</code> key → pymthouse signer →
     live-runner orch <code>type=fixed</code> path is <strong>e2e-CONFIRMED</strong> (generation run65 + metering run66,
@@ -76,7 +85,9 @@
   <!-- ============================================================ -->
   <h2>1 · What changed vs the original Option A</h2>
   <p>Original Option A (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:202-297</span>) said: the SDK service
-  already routes by key format (<code>bearer.startswith("naap_")</code> in <code>_effective_signer</code>); the only
+  already routes by key format (<code>token.startswith("naap_")</code> in <code>_resolve_validate_session</code>
+  &mdash; <span class="file">sdk-service-build/app.py:854</span>, called by <code>_effective_signer</code>
+  &nbsp;<span class="file">:904-923</span>); the only
   work is to turn the process-wide gates ON and add a fail-closed guard for a <code>naap_</code> key with no session.
   This plan keeps that spirit but adds three operator-controlled, default-off improvements:</p>
 
@@ -107,8 +118,8 @@
   <!-- ============================================================ -->
   <h2>2 · How routing works today (grounding)</h2>
   <p>There are <strong>two independent decision planes</strong> inside the one SDK service
-  (<span class="file">simple-infra/sdk-service-build/app.py</span>, not present in this repo — cited from the
-  investigation docs):</p>
+  (<span class="file">simple-infra/sdk-service-build/app.py</span> in <code>livepeer/simple-infra</code>, not present in
+  this repo — line numbers below VERIFIED against remote <code>main</code>, Rev 2):</p>
 
   <h3>Plane A — signer selection (<code>_effective_signer</code>)</h3>
   <ul>
@@ -144,9 +155,9 @@
     <tr><td>Storyboard base-URL</td><td><code>STORYBOARD_PROVIDER_SWITCH</code>, <code>NAAP_PROVIDER</code></td>
       <td><span class="file">STORYBOARD-SIGNER-ROUTING.md:195</span></td></tr>
     <tr><td>SDK service — signer</td><td><code>SIGNER_FROM_VALIDATE</code>, <code>AUTH_VALIDATE_URL</code>, <code>SIGNER_URL</code></td>
-      <td><span class="file">app.py:519,540,541</span> (per STORYBOARD-SIGNER-ROUTING.md:121-123)</td></tr>
+      <td><span class="file">sdk-service-build/app.py:373, 372, 351</span> <span class="ok">(VERIFIED, Rev 2)</span></td></tr>
     <tr><td>SDK service — LR orch</td><td><code>SDK_MULTI_ORCH_ENABLED</code>, <code>LR_DESCRIPTOR_DISPATCH</code>, <code>SELECT_PROVIDER_LR_CAPS</code>, <code>SELECT_PROVIDER_LR_PCT</code>, <code>LR_ORCH_DISCOVERY</code>, <code>LR_OFFERINGS_JSON</code></td>
-      <td><span class="file">LR-V0.9.0-EXECUTION-REPORT.md:63-65</span></td></tr>
+      <td><span class="file">app.py:97-98, 174, 149, 151, 128, 176</span> <span class="ok">(VERIFIED, Rev 2)</span></td></tr>
     <tr><td>SDK service — BYOC orch</td><td><code>ORCH_URL</code>, <code>CAPABILITY_ORCH_MAP</code></td>
       <td><span class="file">LR-JOHN-DEPLOY-RUNBOOK.md:45</span></td></tr>
     <tr><td>NaaP web feature flags (DB, default OFF)</td><td><code>per_key_remote_signer</code>, <code>provider_instances</code>, NAAP-5 gateway flag</td>
@@ -165,13 +176,15 @@
         │
         ▼
 ┌───────────────────────────────────────────────────────────────────────┐
-│ STEP 1 — KEY → PATH   (Plane A: _effective_signer)                      │
+│ STEP 1 — KEY → PATH   (Plane A: _effective_signer  app.py:904-923)      │
+│                       (naap_ match: _resolve_validate_session:854)      │
 │                                                                         │
 │   KEY_ROUTING_FROM_ENV = 0 (default)  →  legacy: startswith("naap_")    │
 │   KEY_ROUTING_FROM_ENV = 1            →  first-match glob patterns:     │
 │        match KEY_PATTERN_PYMTHOUSE (e.g. naap_* )  → pymthouse path     │
 │        match KEY_PATTERN_DAYDREAM   (e.g. sk_*    )  → daydream path     │
-│        match neither → KEY_ROUTING_UNMATCHED (fail_closed | daydream)   │
+│        match neither → KEY_ROUTING_UNMATCHED (default fail_closed;      │
+│                                               daydream = legacy opt-in) │
 └───────────────────────────────────────────────────────────────────────┘
         │                                              │
    pymthouse path                                 daydream path
@@ -183,7 +196,8 @@
         │                                              │
         ▼                                              ▼
 ┌───────────────────────────────────────────────────────────────────────┐
-│ STEP 2 — PATH → ORCH   (Plane B: _dispatch_lr_v2 / BYOC fallback)       │
+│ STEP 2 — PATH → ORCH   (Plane B: _lr_eligible:208 gate →                │
+│           _dispatch_lr_v2:290 / _dispatch_lr:222 / BYOC — call @1329-32) │
 │                                                                         │
 │   ORCH_PIN_BY_PATH = 0 (default)                                        │
 │       pymthouse: LR if cap∈SELECT_PROVIDER_LR_CAPS else BYOC (fail-open)│
@@ -203,8 +217,8 @@
     <tr><th>Env var / flag</th><th>Type</th><th>Default</th><th>Where read</th><th>Precedence / notes</th></tr>
     <tr>
       <td><code>KEY_ROUTING_FROM_ENV</code></td><td>bool (<code>0/1</code>)</td><td class="ok"><code>0</code> (legacy)</td>
-      <td><code>_effective_signer</code> <span class="assume">(app.py ~1072-1091 per STORYBOARD-SIGNER-ROUTING.md:125; LR-3ORCH-INFRA-ASSESSMENT.md:67 cites 904-923 — assumption, verify)</span></td>
-      <td>Master gate for pattern engine. OFF ⇒ hardcoded <code>startswith("naap_")</code> (byte-identical to today).</td>
+      <td><code>_effective_signer</code> <span class="file">sdk-service-build/app.py:904-923</span> <span class="ok">(VERIFIED, Rev 2)</span></td>
+      <td>Master gate for pattern engine. OFF ⇒ hardcoded <code>startswith("naap_")</code> (in <code>_resolve_validate_session:854</code>, called by <code>_effective_signer:920</code>) — byte-identical to today.</td>
     </tr>
     <tr>
       <td><code>KEY_PATTERN_PYMTHOUSE</code></td><td>CSV glob list</td><td><code>naap_*</code></td>
@@ -217,19 +231,19 @@
       <td>Evaluated <strong>second</strong>. Match ⇒ daydream/byoc path. Realistic default covers <code>sk_live_*</code>.</td>
     </tr>
     <tr>
-      <td><code>KEY_ROUTING_UNMATCHED</code></td><td>enum <code>fail_closed | daydream</code></td><td><code>fail_closed</code> <span class="muted">(recommended)</span></td>
+      <td><code>KEY_ROUTING_UNMATCHED</code></td><td>enum <code>fail_closed | daydream</code></td><td class="ok"><code>fail_closed</code> <span class="muted">(FINAL default, Rev 2 · OQ-3 resolved)</span></td>
       <td>same helper</td>
-      <td>Only consulted when <code>KEY_ROUTING_FROM_ENV=1</code>. Fail-closed rejects (401/402) rather than silently billing the Daydream shared wallet — see justification below. The outer gate being OFF by default preserves zero regression.</td>
+      <td>Only consulted when <code>KEY_ROUTING_FROM_ENV=1</code>. Fail-closed rejects (401/402) rather than silently billing the Daydream shared wallet — see justification below. <code>daydream</code> remains a configurable value for operators who want the legacy fall-through. The outer gate being OFF by default preserves zero regression.</td>
     </tr>
     <tr>
       <td><code>ORCH_PIN_BY_PATH</code></td><td>bool (<code>0/1</code>)</td><td class="ok"><code>0</code></td>
-      <td>orch-selection gate in <code>_dispatch_lr_v2</code> + BYOC fallback <span class="assume">(app.py — line n/a in docs; assumption, verify)</span></td>
+      <td><code>_lr_eligible</code> <span class="file">app.py:208-219</span> gate + orch-selection loop in <code>_dispatch_lr_v2</code> <span class="file">:290 (loop 316-329)</span> / <code>_dispatch_lr</code> <span class="file">:222 (loop 245-256)</span>; dispatch call site <span class="file">/inference :1329-1332</span> <span class="ok">(VERIFIED, Rev 2)</span></td>
       <td><strong>Single flag governs BOTH pinnings symmetrically.</strong> OFF ⇒ today's LR-select-with-BYOC-fail-open + daydream unchanged.</td>
     </tr>
     <tr>
-      <td><code>NAAP_FAIL_CLOSED</code> <span class="muted">(optional / bundled)</span></td><td>bool</td><td class="ok"><code>0</code></td>
-      <td><code>_effective_signer</code> pymthouse branch</td>
-      <td>Carried over from original Option A (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:364-366</span>): <code>naap_</code> key that matched pymthouse but resolves NO session ⇒ reject instead of falling to Daydream. Distinct from <code>KEY_ROUTING_UNMATCHED</code> (which handles keys matching no pattern).</td>
+      <td><code>NAAP_FAIL_CLOSED</code> <span class="muted">(PR&nbsp;3 — first-class, Rev 2 · OQ-4 resolved)</span></td><td>bool</td><td class="ok"><code>0</code></td>
+      <td><code>_effective_signer</code> pymthouse branch <span class="file">app.py:918-923</span> (session from <code>_resolve_validate_session:833-901</code>)</td>
+      <td>Carried over from original Option A (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:364-366</span>): <code>naap_</code> key that matched pymthouse but resolves NO session (<code>_effective_signer:921</code> falls to <code>SIGNER_URL:351</code>) ⇒ reject instead of falling to Daydream. Distinct from <code>KEY_ROUTING_UNMATCHED</code> (which handles keys matching no pattern). Flag-OFF by default ⇒ today's fall-through preserved.</td>
     </tr>
   </table>
 
@@ -244,7 +258,7 @@
       list that matches wins. Rationale: native <code>naap_</code>/composite forms are the more specific, higher-risk
       routing (they must never leak to the shared wallet), so they take priority. Patterns SHOULD be disjoint;
       <code>validate-envs.sh</code> warns if a sample key matches both lists.</li>
-    <li><strong>Fail-closed for unmatched (recommended default when the engine is enabled).</strong> An unmatched key
+    <li><strong>Fail-closed for unmatched (FINAL default when the engine is enabled — OQ-3 resolved).</strong> An unmatched key
       today falls through to the Daydream signer and <em>silently bills the shared Daydream wallet</em> — the HIGH
       risk R1 in the original design (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:317-321</span>). Rejecting
       is safer. Because the whole engine is gated OFF by default (<code>KEY_ROUTING_FROM_ENV=0</code>), defaulting the
@@ -267,9 +281,14 @@
     <p><span class="prnum">1</span><strong>Env-driven key→path pattern engine (default legacy)</strong></p>
     <ul>
       <li><strong>Scope:</strong> add <code>_match_key_path(bearer) → "pymthouse"|"daydream"|"unmatched"</code> and
-        wire it into <code>_effective_signer</code>, used only when <code>KEY_ROUTING_FROM_ENV=1</code>; otherwise the
-        existing <code>startswith("naap_")</code> branch runs unchanged.</li>
-      <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span> (<code>_effective_signer</code>);
+        wire it into <code>_effective_signer</code> <span class="file">(app.py:904-923)</span>, consulted before the
+        <code>_resolve_validate_session</code> call at <code>:920</code>, used only when <code>KEY_ROUTING_FROM_ENV=1</code>;
+        otherwise the existing <code>token.startswith("naap_")</code> branch (<code>_resolve_validate_session:854</code>)
+        runs unchanged.</li>
+      <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span>
+        (<code>_effective_signer</code> <span class="file">:904-923</span>; <code>_resolve_validate_session</code>
+        <span class="file">:833-901</span>; config statics <code>AUTH_VALIDATE_URL:372</code>,
+        <code>SIGNER_FROM_VALIDATE:373</code>, <code>SIGNER_URL:351</code>);
         <span class="file">simple-infra/scripts/validate-envs.sh</span> (validate pattern envs + disjointness warning);
         <span class="file">simple-infra/docker-compose/sdk-service.yaml</span> (document defaults).</li>
       <li><strong>Flag introduced:</strong> <code>KEY_ROUTING_FROM_ENV=0</code> (+ <code>KEY_PATTERN_PYMTHOUSE</code>,
@@ -288,7 +307,11 @@
         pinned to the live-runner orch only (remove the BYOC fail-open, reject on LR failure); daydream path pinned to
         byoc/daydream only (exclude from LR selection regardless of <code>SELECT_PROVIDER_LR_CAPS</code>).</li>
       <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span>
-        (<code>_dispatch_lr_v2</code> selection + BYOC fallback branch);
+        (<code>_lr_eligible</code> <span class="file">:208-219</span> gate; <code>_dispatch_lr_v2</code>
+        <span class="file">:290 (orch-selection loop 316-329)</span> / <code>_dispatch_lr</code>
+        <span class="file">:222 (loop 245-256)</span>; dispatch call site + BYOC fallback in <code>/inference</code>
+        <span class="file">:1329-1332</span>; discovery/allow-list statics <code>LR_ORCH_DISCOVERY:128</code>,
+        <code>SELECT_PROVIDER_LR_CAPS→LR_CAP_ALLOW:149</code>);
         <span class="file">simple-infra/scripts/validate-envs.sh</span>;
         <span class="file">simple-infra/docker-compose/sdk-service.yaml</span>.</li>
       <li><strong>Flag introduced:</strong> <code>ORCH_PIN_BY_PATH=0</code>.</li>
@@ -301,17 +324,22 @@
   </div>
 
   <div class="card">
-    <p><span class="prnum">3</span><strong>(Optional) fail-closed on unresolved naap session — R1 hardening</strong></p>
+    <p><span class="prnum">3</span><strong>Fail-closed on unresolved naap session — R1 hardening <span class="ok">(first-class, OQ-4 resolved: include now)</span></strong></p>
     <ul>
-      <li><strong>Scope:</strong> in the pymthouse branch, when a key matched pymthouse but validate returns no
-        session, reject (402/401) instead of falling to the Daydream signer, gated by <code>NAAP_FAIL_CLOSED=1</code>.</li>
-      <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span> (<code>_effective_signer</code>);
+      <li><strong>Scope:</strong> in the pymthouse branch of <code>_effective_signer</code>
+        (<span class="file">app.py:918-923</span>), when a key matched pymthouse but <code>_resolve_validate_session</code>
+        (<span class="file">:833-901</span>) returns no endpoint-form session, reject (402/401) at <code>:921</code>
+        instead of falling to <code>SIGNER_URL</code> (<span class="file">:351</span>) / the Daydream signer, gated by
+        <code>NAAP_FAIL_CLOSED=1</code>.</li>
+      <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span>
+        (<code>_effective_signer</code> <span class="file">:918-923</span>);
         <span class="file">simple-infra/scripts/validate-envs.sh</span>.</li>
-      <li><strong>Flag introduced:</strong> <code>NAAP_FAIL_CLOSED=0</code>.</li>
+      <li><strong>Flag introduced:</strong> <code>NAAP_FAIL_CLOSED=0</code> <span class="muted">(flag-OFF by default — zero regression at merge)</span>.</li>
       <li><strong>Tests:</strong> <code>naap_</code>+session→DMZ; <code>naap_</code>+no-session→402 (flag ON) / today's
         Daydream fall-through (flag OFF); <code>sk_</code>→static signer.</li>
-      <li><strong>Why separate/optional:</strong> not one of the three core asks; it closes the pre-existing R1
-        mis-attribution hole and pairs naturally with PR&nbsp;1's unmatched fail-closed. Ship only if owners want it.</li>
+      <li><strong>Why first-class now (OQ-4 resolved):</strong> it closes the pre-existing R1 mis-attribution hole and
+        pairs naturally with PR&nbsp;1's unmatched fail-closed. Promoted from "optional" to a first-class PR in the main
+        plan; still ships flag-OFF so merging changes nothing until an operator opts in.</li>
     </ul>
   </div>
 
@@ -390,24 +418,27 @@
       <td>Accepted per explicit request; split into two flags later if needed.</td></tr>
     <tr><td class="warn">Pattern collision (a key matches both lists) or over-broad glob.</td>
       <td>First-match precedence (pymthouse first) + disjointness warning in <code>validate-envs.sh</code> + glob (no regex) to prevent catastrophic matches.</td></tr>
-    <tr><td class="warn">Line-number drift — <code>_effective_signer</code> cited as <code>1072-1091</code> (STORYBOARD-SIGNER-ROUTING.md:125) vs <code>904-923</code> (LR-3ORCH-INFRA-ASSESSMENT.md:67).</td>
-      <td>Confirm exact location against deployed <code>app.py</code> before coding (OQ-1).</td></tr>
-    <tr><td class="warn">Is the Daydream path ever LR-eligible today? If <code>SELECT_PROVIDER_LR_CAPS</code> could route a daydream request to LR, pin ON changes that.</td>
-      <td><span class="assume">Assumption: daydream prod = daydream/fal plane, not <code>:8936</code> (LR-V0.9.0-EXECUTION-REPORT.md:23,93). Verify with SDK owner (OQ-2).</span></td></tr>
+    <tr><td class="ok">RESOLVED (Rev 2) — line-number drift: <code>_effective_signer</code> was cited as <code>1072-1091</code> vs <code>904-923</code>.</td>
+      <td>Verified against <code>livepeer/simple-infra</code> <span class="file">sdk-service-build/app.py</span> remote <code>main</code> (byte-identical to local checkout): <code>_effective_signer</code> = <span class="file">:904-923</span>. Confirmed <code>904-923</code>.</td></tr>
+    <tr><td class="warn">Is the Daydream path ever LR-eligible today? If <code>SELECT_PROVIDER_LR_CAPS</code> (<span class="file">app.py:149</span>) could route a daydream request to LR, pin ON changes that.</td>
+      <td><span class="assume">Assumption: daydream prod = daydream/fal plane, not the live-runner orch reached via <code>LR_ORCH_DISCOVERY</code> (<span class="file">app.py:128</span>, default <code>liverunner-staging-1…:8935/discovery</code>). Verify with SDK owner (OQ-2).</span></td></tr>
   </table>
 
   <!-- ============================================================ -->
   <h2>9 · Open questions for owners</h2>
   <ul>
-    <li><strong>OQ-1 (John — signer/orch):</strong> confirm the exact <code>_effective_signer</code> +
-      <code>_dispatch_lr_v2</code>/BYOC-fallback locations in the deployed <code>app.py</code>, and confirm the
-      pymthouse DMZ signer is <code>RemoteType_Fixed</code>-capable before <code>ORCH_PIN_BY_PATH</code> is enabled for
-      the pymthouse path (else LR-only pinning breaks fal caps).</li>
-    <li><strong>OQ-2 (SDK owner):</strong> is env the agreed consolidation point (vs the NaaP-web flag registry)?
-      Is any Daydream traffic LR-eligible today via <code>SELECT_PROVIDER_LR_CAPS</code>? Glob vs regex preference?</li>
-    <li><strong>OQ-3 (product):</strong> default <code>KEY_ROUTING_UNMATCHED</code> = <code>fail_closed</code>
-      (recommended, safe because engine is OFF by default) vs <code>daydream</code> (legacy fall-through)?</li>
-    <li><strong>OQ-4:</strong> ship PR&nbsp;3 (<code>NAAP_FAIL_CLOSED</code>) now, or defer the R1 hardening?</li>
+    <li><strong>OQ-1 (John — signer/orch) — OPEN:</strong> confirm the pymthouse DMZ signer is
+      <code>RemoteType_Fixed</code>-capable before <code>ORCH_PIN_BY_PATH</code> is enabled for the pymthouse path
+      (LR-only pin) — else LR-only pinning breaks fal caps. (Code locations are now VERIFIED, Rev 2:
+      <code>_effective_signer</code> <span class="file">app.py:904-923</span>, orch selection
+      <code>_dispatch_lr_v2:290</code> / <code>_dispatch_lr:222</code>, dispatch call site <span class="file">:1329-1332</span>.)</li>
+    <li><strong>OQ-2 (SDK owner) — OPEN:</strong> glob vs regex preference for the key-pattern engine? And is any Daydream
+      traffic LR-eligible today via <code>SELECT_PROVIDER_LR_CAPS</code> (<span class="file">app.py:149</span>)?</li>
+    <li><strong>OQ-3 (product) — <span class="ok">RESOLVED = fail_closed</span>:</strong> <code>KEY_ROUTING_UNMATCHED</code>
+      defaults to <code>fail_closed</code> (safe because the engine is OFF by default). <code>daydream</code> remains a
+      configurable value for operators wanting the legacy fall-through.</li>
+    <li><strong>OQ-4 — <span class="ok">RESOLVED = include now</span>:</strong> PR&nbsp;3 (<code>NAAP_FAIL_CLOSED</code>)
+      is promoted to a first-class PR in the main plan, shipped flag-OFF by default.</li>
   </ul>
 
   <div class="foot">
@@ -417,10 +448,11 @@
     naap→pymthouse→live-runner <code>type=fixed</code>) stay green until an operator opts in per instance.</p>
     <p>Citations from the read-only investigation docs (<span class="file">STORYBOARD-SIGNER-ROUTING.md</span>,
     <span class="file">LR-V0.9.0-EXECUTION-REPORT.md</span>, <span class="file">LR-3ORCH-INFRA-ASSESSMENT.md</span>,
-    <span class="file">LR-JOHN-DEPLOY-RUNBOOK.md</span>, <span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html</span>) and
+      <span class="file">LR-JOHN-DEPLOY-RUNBOOK.md</span>, <span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html</span>) and
     the repo file <span class="file">apps/web-next/src/lib/feature-flags.ts</span>. The SDK service
-    <code>app.py</code> lives in <code>simple-infra</code>, not this repo; its line numbers are quoted from those docs
-    and marked as assumptions where they disagree.</p>
+    <code>app.py</code> lives in <code>livepeer/simple-infra</code> at <span class="file">sdk-service-build/app.py</span>,
+    not this repo. <strong>Rev 2:</strong> all <code>app.py</code> line numbers in this doc are now VERIFIED against
+    that file on remote <code>main</code> (byte-identical to the local checkout), no longer assumptions.</p>
   </div>
 
 </div>
