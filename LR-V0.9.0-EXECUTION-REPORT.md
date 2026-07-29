@@ -589,8 +589,11 @@ Carrying the accepted fixed mint through to paid native generation
 > 403.** See [`PR4006-NECESSITY-INVESTIGATION.md`](./PR4006-NECESSITY-INVESTIGATION.md)
 > (verdict A) and the [Run 64 section](#run-64--fixed-manifest-echo-confirming-probe-code-level-verdict-a) below. The retracted signer
 > bug report is [`SIGNER-MANIFEST-403-BUGREPORT-FOR-JOHN.md`](./SIGNER-MANIFEST-403-BUGREPORT-FOR-JOHN.md).
-> Evidence status: **code-level** — the run64 echo probe was not yet executed
-> e2e (naap composite bearer unavailable this pass).
+> Evidence status: **e2e-CONFIRMED** (2026-07-29) — the run64 echo probe was
+> executed against the PRODUCTION signer with the naap composite bearer:
+> `segCreds.manifestId` decoded to `bfe42c1d == session_id bfe42c1d` (echoed) and
+> Stage C returned an unrelated `400 model_id is required`, **not** the `403
+> mismatched manifest`. See the Run 64 section below.
 
 **Root cause of the 403 (proven by decode):** the signer sets the fixed mint's
 `SegData.manifestId` to a **fresh random id**, not the challenge's
@@ -665,27 +668,75 @@ It then decodes `segCreds` (`net.SegData`) and asserts
 mint to paid generation. A hard `MAX_TICKETS` guard (default 5) aborts Stage C
 before any spend if the mint is unexpectedly large; the fixed path mints ~2.
 
-### Execution status — NOT YET RUN e2e (credentials unavailable this pass)
+### Execution status — ✅ RUN e2e 2026-07-29 — verdict (A) EMPIRICALLY CONFIRMED
 
-**The run64 echo probe was created but could not be executed in this pass.** The
-probe requires `COMPOSITE_BEARER` (the `app_…_pmth_…` composite bearer derived
-from the naap key via `/keys/validate`) and the funded-payer path; **none of the
-naap key, the composite bearer, or the DB URL to mint one were available in this
-environment** (no env vars set; `/tmp/dburl`, `/tmp/rawkey` absent). The script
-imports the gateway deps and compiles cleanly, then exits at the missing
-`COMPOSITE_BEARER` env — i.e. it is ready to run the moment the bearer is provided.
-**No results were fabricated.**
+**The run64 echo probe was executed e2e against the PRODUCTION signer** with the
+naap composite bearer (`app_…_pmth_…`, secret — not recorded here) on
+`https://pymthouse-production.up.railway.app` via orch `:8936`
+(`https://136.66.21.17:8936/apps/runner_riljdzgh/app/generate`), funded payer
+`0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260`. Verbatim stage results:
 
-### Code-level verdict (already established, pending e2e confirmation)
+| Stage | Endpoint | Result | Evidence (verbatim) |
+|---|---|---|---|
+| A. native 402 challenge | `POST :8936/apps/runner_riljdzgh/app/generate` | ✅ **PASS** | `HTTP 402`, `payment_params(len=392)`; challenge `manifest_id = bfe42c1d`; decoded `session_id = bfe42c1d` (equal). |
+| B. `/generate-live-payment` `type=fixed`+`inPixels:1` **WITH `ManifestID=session_id`** | `POST pymthouse-production/…` | ✅ **PASS** | **`HTTP 200`** `keys=['payment','segCreds','state']`; `sender=0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260`; `numTickets=2`; `expected_price=1641786221713/1`; `server: railway-hikari`, `x-railway-request-id: N-Y1-dawSGKDF4ABEuroCg`, `x-railway-edge: ord1`. |
+| B. **decisive decode** | decode `segCreds` (`net.SegData`) | ✅ **ECHOED** | `segCreds.manifestId = b'bfe42c1d'`; `segCreds.auth.session_id = bfe42c1d`; challenge `session_id = bfe42c1d`. **Decoded value equality: `bfe42c1d == bfe42c1d` → TRUE.** |
+| C. paid native generation | `POST :8936/apps/.../app/generate` (`Livepeer-Payment`+`Livepeer-Segment`) | ✅ **403 GONE** | **`HTTP 400` body=`model_id is required`** (`server: Python/3.12 aiohttp/3.14.1`) — a **DIFFERENT, non-manifest** downstream error. The `403 mismatched manifest and auth token` **did NOT recur**. |
+| C. metering / debit | per-cap debit | ⛔ not reached | 400 at runner request-validation, before `ProcessPayment`/ticket redemption. **No asset, no debit, $0.00 on-chain spend.** |
 
-Per [`PR4006-NECESSITY-INVESTIGATION.md`](./PR4006-NECESSITY-INVESTIGATION.md)
-verdict **(A)**, the signer lineage is uniform: `manifestID := req.ManifestID`
-(`server/remote_signer.go` L401), falling back to `RandomManifestID()` **only**
-when the field is empty (L437). A populated `ManifestID` is therefore copied, so
-`segCreds.manifestId == session_id` is the near-certain outcome — but this exact
-link ("deployed prod signer echoes a *populated* value") is the one thing neither
-this report nor the investigation has **directly observed** (§7 of the
-investigation). run64 exists to close that gap.
+#### ⚠️ Reading the probe's raw `manifestId == session_id ? False` — it is a type artifact, NOT a value mismatch
+
+The probe printed `[B DECODE] manifestId == session_id ? False` and, on that raw
+boolean, its canned line flagged "NOT ECHOED". **That boolean is a Python
+`bytes`-vs-`str` comparison artifact, not a refutation.** `net.SegData.manifestId`
+is a proto **`TYPE_BYTES`** field (confirmed: `SegData.DESCRIPTOR.fields_by_name
+['manifestId'].type == TYPE_BYTES (12)`), so `sd.manifestId` decodes to
+`b'bfe42c1d'` (bytes) while `session_id` is `'bfe42c1d'` (str). In Python
+`b'bfe42c1d' == 'bfe42c1d'` is `False`, but `b'bfe42c1d'.decode() == 'bfe42c1d'`
+is `True`. **The byte content is identical** — `segCreds.manifestId` decodes
+exactly to the challenge `session_id` `bfe42c1d`, which also equals the
+`segCreds.auth_token.session_id` `bfe42c1d`. (The probe also raised a
+`TypeError: Object of type bytes is not JSON serializable` when dumping the
+bytes field to `/tmp/run64_fixed_echo.json`, for the same underlying reason; this
+did not affect the stdout evidence above.)
+
+Two independent lines of evidence therefore both point the same way:
+1. **Decode:** `segCreds.manifestId` (decoded) `= bfe42c1d == session_id bfe42c1d`
+   → the signer **echoed** the supplied `ManifestID`.
+2. **Orch check:** Stage C returned `400 model_id is required`, **not** `403
+   mismatched manifest and auth token` — i.e. the orch's
+   `segData.ManifestID == segData.AuthToken.SessionId` check (`ai_http.go` L284)
+   **PASSED**. The 400 is an unrelated runner-app request-validation error (the
+   native probe sends `{"prompt": …}` but the runner requires `model_id`), which
+   per the interpretation rubric still confirms the manifest 403 is resolved.
+
+Contrast with **run63** (same script, `ManifestID` **omitted**): there
+`segCreds.manifestId = 8d6eea88` was a *genuinely different value* from
+`session_id 381b5a15` (the `RandomManifestID()` fallback), producing the real
+`403`. With `ManifestID` populated (run64), the value is echoed and the 403 is gone.
+
+### Verdict — (A) EMPIRICALLY CONFIRMED
+
+The deployed PRODUCTION signer (`pymthouse-production`, `69.46.46.126`) **echoes a
+populated `ManifestID`** (`segCreds.manifestId == challenge session_id ==
+segCreds.auth session_id == bfe42c1d`), and the orch's manifest check passes end
+to end (the 403 is replaced by an unrelated `400 model_id is required`). This
+closes the one link §7 of `PR4006-NECESSITY-INVESTIGATION.md` marked
+"inferred, not directly e2e-tested". **go-livepeer PR #4006's signer-side manifest
+binding is NOT necessary** for the SDK-driven `fixed` live-runner flow; run63's
+403 was purely the harness omission of `ManifestID`. #4006 remains at most
+defense-in-depth hardening.
+
+### Safety / spend
+
+- **$0.00 on-chain spend.** The successful fixed mint carried `numTickets=2`
+  (under the `MAX_TICKETS=5` fail-safe). Stage C returned `400` at runner
+  request-validation **before** `ProcessPayment`/ticket redemption → no asset,
+  no debit.
+- **No deploy/rebuild/mutation.** Hit only `:8936` `/apps/.../app/generate` and
+  the signer `/generate-live-payment`. `byoc-staging-1` / `sdk-staging-1`
+  untouched (direct native probe, no SDK container). No PRs reopened/closed.
+- Secrets env-only (composite bearer never echoed/logged/committed).
 
 ### To run it (when the naap composite bearer is available)
 

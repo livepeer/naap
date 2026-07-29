@@ -31,19 +31,27 @@
 > `ManifestID = challenge.session_id` (mirroring the SDK). Its decisive decode
 > asserts `segCreds.manifestId == session_id`.
 >
-> ### ⚠️ Evidence status: CODE-LEVEL, not yet e2e-confirmed
+> ### ✅ Evidence status: e2e-CONFIRMED (2026-07-29, run64)
 >
-> The retraction rests on the **uniform signer code lineage** (`manifestID :=
-> req.ManifestID`, randomize only when empty) — the same standard already
-> reached in `PR4006-NECESSITY-INVESTIGATION.md` §7. **The run64 echo probe was
-> NOT executed in this pass** because the naap key / composite bearer (and the
-> funded-payer path) were **not available** in this environment, so the
-> "signer echoes a *populated* `ManifestID`" link remains **inferred from code,
-> not directly observed e2e**. To make it 100% airtight, run `run64` against
-> `pymthouse-production.up.railway.app` with the naap composite bearer and
-> confirm `segCreds.manifestId == session_id` (Stage C → 200 or a *different*
-> downstream error). Given uniform code lineage this is near-certain, but it is
-> the one link neither this report nor the investigation directly observed.
+> The retraction is now **empirically confirmed e2e**, not merely code-level.
+> `scripts/run64-lr-fixed-manifest-echo-probe.py` was executed against the
+> PRODUCTION signer `pymthouse-production.up.railway.app` (`69.46.46.126`) via
+> orch `:8936` with the naap composite bearer. With `ManifestID` populated to the
+> challenge `session_id` (exactly what the real SDK forwards), the signer
+> **echoed** it: `segCreds.manifestId` decodes to `bfe42c1d`, byte-for-byte equal
+> to the challenge `session_id` `bfe42c1d` and to `segCreds.auth_token.session_id`
+> `bfe42c1d`. The orchestrator's manifest check **passed** — Stage C returned an
+> unrelated **`400 model_id is required`**, **not** the previous `403 mismatched
+> manifest and auth token`. **$0.00 on-chain spend** (`numTickets=2`, 400 before
+> ticket redemption). See `LR-V0.9.0-EXECUTION-REPORT.md` → Run 64.
+>
+> (The probe's raw `manifestId == session_id ? False` line is a Python
+> `bytes`-vs-`str` comparison artifact — `net.SegData.manifestId` is a proto
+> `TYPE_BYTES` field, so it decodes to `b'bfe42c1d'`; decoded, the value equals
+> `session_id`. This is a probe-comparison quirk, **not** a refutation.) So the
+> "signer echoes a *populated* `ManifestID`" link — previously inferred from code
+> — is now **directly observed e2e**. **#4006 is confirmed NOT required** for the
+> SDK-driven `fixed` flow.
 >
 > **What this report got right (kept for John):** the *feature-matrix* findings
 > in §5/§8 are unaffected — the two deployed signers are **inverted** on

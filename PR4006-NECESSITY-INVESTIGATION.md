@@ -2,7 +2,7 @@
 
 ## Verdict (one line)
 
-**(A) — go-livepeer PR #4006 is NOT necessary for the real SDK-driven live-runner flow.** The owner is essentially correct: the SDK already sends `ManifestID = challenge.manifest_id`, the orchestrator already sets that challenge `manifest_id = AuthToken.SessionId`, and every signer lineage echoes `req.ManifestID` — so a matching `(manifestID, sessionId)` pair is produced *without* #4006. **Important correction to the framing:** the observed `403 mismatched manifest and auth token` is **NOT a stale-build / version mismatch** and **NOT proof of a signer bug**. It is a **native-probe harness artifact** — the e2e probe (`run63`) hand-built the sign request and *omitted the `ManifestID` field entirely*, which is the one and only condition under which the signer mints a fresh random id. #4006 is therefore a defense-in-depth hardening, not a required fix. (One link is inferred, not directly e2e-tested — see §7 for the exact confirmatory re-run.)
+**(A) — go-livepeer PR #4006 is NOT necessary for the real SDK-driven live-runner flow.** The owner is essentially correct: the SDK already sends `ManifestID = challenge.manifest_id`, the orchestrator already sets that challenge `manifest_id = AuthToken.SessionId`, and every signer lineage echoes `req.ManifestID` — so a matching `(manifestID, sessionId)` pair is produced *without* #4006. **Important correction to the framing:** the observed `403 mismatched manifest and auth token` is **NOT a stale-build / version mismatch** and **NOT proof of a signer bug**. It is a **native-probe harness artifact** — the e2e probe (`run63`) hand-built the sign request and *omitted the `ManifestID` field entirely*, which is the one and only condition under which the signer mints a fresh random id. #4006 is therefore a defense-in-depth hardening, not a required fix. **(e2e-CONFIRMED 2026-07-29 via `run64`:** the deployed PRODUCTION signer echoed a populated `ManifestID` — `segCreds.manifestId == session_id == bfe42c1d` — and the orch manifest check passed (Stage C returned an unrelated `400 model_id is required`, not the `403 mismatched manifest`). The single previously-inferred link in §7 is now directly observed. **$0.00 on-chain spend.)**
 
 ---
 
@@ -279,9 +279,27 @@ That alone should turn Stage C from `403` into `200` on the **current** producti
 | SDK forwards `ManifestID = challenge.manifest_id` | **Confirmed** | `live_runner.py` L851 / `_get_runner_payment` + `remote_signer.py` L298 |
 | Signer copies `req.ManifestID`; randomizes only when empty | **Confirmed (code)** | `remote_signer.go` L401-431 (be5a669e lineage) |
 | Native probe omitted `ManifestID` → produced `8d6eea88` | **Confirmed** | `run63` L92 payload + report L583 |
-| **Deployed prod signer (`69.46.46.126`) echoes a *populated* `ManifestID`** | **Inferred, not directly e2e-tested** | code lineage is uniform (`manifestID := req.ManifestID`), but the probe never sent a populated field, and the signer exposes no `/version` endpoint (report §2), so its exact binary was never observed echoing a supplied value |
+| **Deployed prod signer (`69.46.46.126`) echoes a *populated* `ManifestID`** | **✅ e2e-CONFIRMED (2026-07-29, run64)** | run64 sent `ManifestID = session_id (bfe42c1d)`; decoded `segCreds.manifestId = bfe42c1d == session_id == segCreds.auth session_id`; orch check passed (Stage C = unrelated `400 model_id is required`, **not** the `403 mismatched manifest`). See `LR-V0.9.0-EXECUTION-REPORT.md` Run 64. |
 
-**To make the verdict 100% airtight**, run the single confirmatory test in §6 (native probe with `ManifestID` populated, or the real SDK path) against `pymthouse-production.up.railway.app` and confirm Stage C returns `200`. Given uniform code lineage this is near-certain, but it is the one link this investigation could not directly observe.
+**The verdict is now 100% airtight — the confirmatory test in §6 was executed.**
+`scripts/run64-lr-fixed-manifest-echo-probe.py` ran against
+`pymthouse-production.up.railway.app` (`69.46.46.126`) via orch `:8936` on
+2026-07-29 with the naap composite bearer. With `ManifestID` populated to the
+challenge `session_id`, the signer **echoed** it: `segCreds.manifestId` decodes to
+`bfe42c1d`, byte-for-byte equal to the challenge `session_id` `bfe42c1d` and the
+`segCreds.auth_token.session_id` `bfe42c1d`. The orchestrator's
+`segData.ManifestID == segData.AuthToken.SessionId` check **passed** — Stage C
+returned an unrelated `400 model_id is required` instead of the previous `403
+mismatched manifest and auth token`. $0.00 on-chain spend (`numTickets=2`, 400
+before redemption).
+
+> Note on the probe's raw boolean: run64 printed `manifestId == session_id ? False`
+> and its canned line said "NOT ECHOED". That is a **Python `bytes`-vs-`str`
+> artifact** — `net.SegData.manifestId` is a proto `TYPE_BYTES` field, so
+> `sd.manifestId` is `b'bfe42c1d'` while `session_id` is the str `'bfe42c1d'`;
+> `b'bfe42c1d' == 'bfe42c1d'` is `False` but `.decode()` makes them equal. The
+> byte content is identical, and the Stage-C evidence (403 gone → 400) independently
+> confirms the echo. This is a probe-comparison quirk, **not** a refutation.
 
 ---
 
