@@ -474,3 +474,146 @@ No asset generated; no payment minted; no on-chain spend.
   signer/orch/Caddy/runners mutation; `sdk-staging-1` untouched (DIRECT probe, no
   container); `byoc-staging-1` NEVER touched.** `:8936` healthy (13 runners) throughout.
 - Secrets env-only; redacted here.
+
+---
+
+## `type=fixed` on the **PRODUCTION** signer (2026-07-29 / run62+run63) — ✅ **HANDLED (`RemoteType_Fixed` accepted, 200 mint)**
+
+**Goal:** run ONE fresh test-only e2e through the pymthouse signer path against the
+clean v0.9.0 orch `:8936` (`liverunner-v09-orch`, VM `liverunner-staging-1`, IP
+`136.66.21.17`) with payment **`type=fixed`**, but pointed at the **PRODUCTION DMZ
+signer `https://pymthouse-production.up.railway.app`** (NOT the
+`pymthouse-signer-test-production` service that run61/run62 previously hit).
+Determine whether `type=fixed` behaves differently there. **READ/TEST-only** — no
+deploy/rebuild/mutation of any signer/orch/infra; **`byoc-staging-1` never touched**;
+**`sdk-staging-1` never touched** (DIRECT native probe — no SDK container). Secrets
+env-only/redacted.
+
+Probes: [`scripts/run62-lr-fixed-inpixels-probe.py`](./scripts/run62-lr-fixed-inpixels-probe.py)
+(signer base overridden to `pymthouse-production`; `type=fixed`+`inPixels:1` mint +
+drift matrix) and [`scripts/run63-lr-fixed-e2e-prodsigner.py`](./scripts/run63-lr-fixed-e2e-prodsigner.py)
+(carries the fixed mint through to paid generation). Gateway checkout
+`livepeer-python-gateway/src`.
+
+### Proof of WHICH signer answered (host + railway headers)
+
+Both Railway services are **distinct** (different origin IP, `/healthz` etag, and
+`Last-Modified`):
+
+| Signer host | `remote_ip` | `/healthz` `Last-Modified` | `etag` | `x-railway-edge` / `server` |
+|---|---|---|---|---|
+| **`pymthouse-production.up.railway.app`** (target, authoritative) | **`69.46.46.126`** | **`Wed, 29 Jul 2026 05:00:17 GMT`** | `"3-657b8d4db3a40"` | `ord1` / `railway-hikari` |
+| `pymthouse-signer-test-production.up.railway.app` (prior runs) | `69.46.46.1` | `Wed, 29 Jul 2026 04:59:57 GMT` | `"3-657b8d3aa0d40"` | `ord1` / `railway-hikari` |
+
+Every `type=fixed` mint response below carried `server: railway-hikari`,
+`x-railway-edge: ord1`, and a live `x-railway-request-id` (e.g. `NJqYk2W8QU-w_Rfy21mRUA`)
+from the **`pymthouse-production`** host. **Confirmed: the production signer answered.**
+
+**NAAP-key validate resolution:** per stage 0 above, `/keys/validate` already
+resolves this key's per-key signer to **`pymthouse-production.up.railway.app`** — i.e.
+the authoritative signer for this key IS the one we probed directly here (they agree).
+
+**Signer state (no drift-hiding):** no version/commit endpoint
+(`/version` `/info` `/status` `/build` `/commit` → `404`); `/healthz` → static `OK`.
+`/generate-live-payment` GET → `405 Method Not Allowed` (POST-only). The `:8936`
+flux-schnell runner is `runner_riljdzgh`, price `1646584719803 wei fixed` (≈ $0.00315).
+
+### THE ANSWER — exact PRODUCTION signer response to `type=fixed` (VERBATIM)
+
+- **HTTP status:** `200`
+- **Notable response headers:**
+  `content-type: application/json`, `server: railway-hikari`,
+  `content-length: 1715`, `x-railway-edge: ord1`,
+  `x-railway-request-id: NJqYk2W8QU-w_Rfy21mRUA`,
+  `date: Wed, 29 Jul 2026 18:41:50 GMT`
+- **Response body (exact, `type:"fixed"` + `inPixels:1`):**
+
+```json
+{"payment":"CooBChQYCFnDN9FO31iMaF8/erRHKraiUhIHCK67d3WgABofGtDhHqmPfYpcod4gzJsHlXlERY3H54fMLZ+MonPwACIgBrdwfEK/XFZ1HZgfNgJxeyCybqgCzwPGpUwS/O2NoB4qINud7qQT8QHVEF8iDLUEnxGjQ3Hqge7B/KmDI4jPOcdaMgQBhz3IEhRsrjx6oJrfhMDtHDpTRlNkzstyYBolCLwhEiBIIgb3RG6oKR9CalktG0LdbFjXadu+FRLIh5Olrtg9eyJFCAESQVoxdlRstu1bu7Vq4Lkgoo3dwECdTf2sjxvCGHVry3X+ASOwVT79JxQIQx7mZ1ElTfYTUTi/u+NiRZPZ1inLGE4cIkUIAhJBKZKLYyseZedSvrLpj3Tzh5pkeXMNo3t2tPsGbbz2NXcFEyIPVTbJZBR+nuxQZdpM9kbUX9nqA2ZJCAxL4K1xTRwqCQi70+OA9i8QAQ==","segCreds":"CggzYzMwZDBlYhogxdJGAYb3IzySfn2y3McDwOUAtlPKgic7e/rYBF2FpHAiB2ludmFsaWQqQc1K432xxE0eJQtxD5BjMYREIzDtw56/s9856orSHzNNb21sbuDqwD+aUvUC61ny+guecS3bWR9zjrG/aagIOZsbOiAaBAglEAEqGBIWCCUSEgoQCgxmbHV4LXNjaG5lbGwSAEIyCiCAUFzmnBHbOJnYjxFIr9DYu88QEn8IFa2d4GSjT5t+bBIIODVjY2NiNzkY+KCp0wY=","state":{"State":"...(base64 signer state; Type:fixed, InitialPricePerUnit:1646584719803, InitialPixelsPerUnit:1, OrchestratorAddress:0x180859c3...a6a252, AuthID:app_98575870...:owner:d3642304-...)...","Sig":"DD6GSOlACMaGdCJAgh/RV3xZBod0S9fbJT7o/ty9PS4GAnjG041gzypIO2kcQM4QB5n4S/OGa/lf/8L5+3YU6Bw="}}
+```
+
+(Identical `200` mint **with and without** `inPixels:1`; the raw full-length body is
+in `/tmp/run62_fixed.json`.)
+
+**Decoded `net.Payment` (fixed):** sender `0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260`
+(funded payer), `expected_price 1646584719803/1` (== orch per-cap price),
+**`numTickets = 2`** (`ticket_sender_params` entries — ~1, WELL under the 100 cap),
+`state.Type = "fixed"`, `OrchestratorAddress = 0x180859c3…a6a252` (== challenge recipient).
+
+### Is `type=fixed` / `RemoteType_Fixed` HANDLED on the production signer?
+
+> **YES.** `pymthouse-production` **accepts `type=fixed`** and mints a well-formed
+> `{payment, segCreds, state}` with `Type:"fixed"` and a correctly-sized
+> **`numTickets = 2`** (the fixed path sizes tickets correctly — it does NOT blow the
+> 100-cap the way the `lv2v` path does). `RemoteType_Fixed` is deployed here.
+
+### How it differs from the `test-production` signer
+
+The two services are **inverted** on `fixed` vs `byoc` — decisive proof they run
+different builds. Same live `:8936` flux-schnell challenge, both signers, fresh mints:
+
+| `type` | **`pymthouse-production`** (authoritative) | `pymthouse-signer-test-production` (prior runs) |
+|---|---|---|
+| **`fixed`** (+`inPixels`) | ✅ **`200`** `{payment,segCreds,state}` — `numTickets 2`, `Type:fixed` | ❌ **`400`** `{"error":{"message":"invalid job type"}}` |
+| `byoc` | ❌ `400` `{"error":{"message":"invalid job type"}}` | ✅ `200` `{payment,...}` |
+| `lv2v` | ❌ `400` `{"error":{"message":"numTickets 2731486460 exceeds maximum of 100"}}` | ❌ `400` `{"error":{"message":"numTickets 2731486460 exceeds maximum of 100"}}` |
+
+So the earlier "`type=fixed` → `400 invalid job type`" verdict was a property of the
+**test-production** signer only. **The PRODUCTION signer behaves differently: it
+supports `fixed` (and, conversely, rejects `byoc`).** Both still fail `lv2v` on the
+`numTickets > 100` cap.
+
+### But the fixed e2e still does NOT complete — generation stops at `403`
+
+Carrying the accepted fixed mint through to paid native generation
+(`scripts/run63-lr-fixed-e2e-prodsigner.py`):
+
+| Stage | Endpoint | Result | Evidence (verbatim) |
+|---|---|---|---|
+| A. native 402 challenge | `POST :8936/apps/runner_riljdzgh/app/generate` | ✅ **PASS** | `HTTP 402`, `payment_params` len 392; per-cap `1646584719803/1`; `session_id`/`manifest_id` equal; recipient `0x180859c3…a6a252`; funded payer `0x6CAE3C7a…cb7260`. |
+| B. `/generate-live-payment` `type=fixed`+`inPixels:1` | `POST pymthouse-production/…` | ✅ **PASS** | **`HTTP 200`** `{payment,segCreds,state}`; `numTickets 2`; `Type:fixed`; `expected_price 1646584719803/1`. |
+| C. paid native generation | `POST :8936/apps/.../app/generate` (`Livepeer-Payment`+`Livepeer-Segment`) | ❌ **FAIL** | **`HTTP 403`  body=`mismatched manifest and auth token`** (`content-length: 35`). |
+| C. metering / debit | per-cap debit | ⛔ **not reached** | blocked by stage C 403; no asset, no debit. |
+
+**Root cause of the 403 (proven by decode):** the signer sets the fixed mint's
+`SegData.manifestId` to a **fresh random id**, not the challenge's
+`auth_token.session_id`:
+
+- challenge `auth_token.session_id` = **`381b5a15`**
+- minted `segCreds.manifestId` = **`8d6eea88`**  (also ≠ `state.StateID` `9a75aa82`)
+- `manifestId == session_id` → **False** → orch rejects with `403 mismatched manifest and auth token`.
+
+This is the same manifest-binding defect noted earlier, now surfacing one stage
+**later** than on test-production: production *accepts* the `fixed` mint (200) but
+mis-binds `segCreds.manifestId`, so the orch rejects at generation. (test-production
+never gets past the mint for `fixed`.)
+
+### PASS/FAIL summary
+
+- **Stage 0 (validate → prod signer):** ✅ PASS — key resolves to `pymthouse-production`.
+- **Stage 1 (discovery/price):** ✅ PASS — `runner_riljdzgh`, `1646584719803 wei fixed`.
+- **Stage 2 (native 402):** ✅ PASS.
+- **Stage 3 (`type=fixed` mint):** ✅ **PASS — `HTTP 200`, `RemoteType_Fixed` HANDLED, `numTickets 2`.**
+- **Stage 4 (generation):** ❌ FAIL — `403 mismatched manifest and auth token` (signer `segCreds.manifestId` ≠ challenge `session_id`).
+- **Stage 5 (metering/debit):** ⛔ not reached; no asset; **no spend**.
+
+### One-line conclusion
+
+> **`type=fixed` IS handled on the PRODUCTION signer** (`pymthouse-production`,
+> IP `69.46.46.126`): it returns **`HTTP 200`** with a valid `{payment,segCreds,state}`
+> fixed mint (`numTickets 2`) — the exact opposite of `pymthouse-signer-test-production`,
+> which returns **`400 invalid job type`**. The native fixed e2e still can't finish:
+> generation hits **`403 mismatched manifest and auth token`** because the signer
+> mis-binds `segCreds.manifestId` (`8d6eea88`) instead of echoing the challenge
+> `session_id` (`381b5a15`) — a signer-side manifest-binding fix owned by John / pymthouse.
+
+### Safety
+
+- **No spend:** the only mint that succeeded (`fixed`, 200) was rejected by the orch
+  at seg-verification (`403`) **before** `ProcessPayment`/ticket redemption → zero
+  on-chain spend. All other mints failed. Well under the ~$3 cap ($0.00 actual).
+- **Test-only:** hit only `:8936` `/discovery` + `/apps/.../app/generate` and the two
+  signer `/generate-live-payment` + `/healthz` webhooks. **No deploy/rebuild; no
+  signer/orch/Caddy/runners mutation; `sdk-staging-1` untouched (DIRECT probe, no
+  container); `byoc-staging-1` NEVER touched.** `:8936` healthy (13 runners) throughout.
+- Secrets env-only; redacted here.
