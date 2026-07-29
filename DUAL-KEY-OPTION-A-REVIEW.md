@@ -79,3 +79,19 @@ Dual-key Option A was shipped to the LIVE SDK (`sdk.daydream.monster`, VM `sdk-s
 **Rollback:** set `/opt/sdk/.env` `SDK_IMAGE=us-docker.pkg.dev/livepeer-simple-infra/simple-infra/sdk-service:optA-lr-multi-2026-07-23` (image id `sha256:7afbf749…`) and `docker compose up -d sdk-service`. The pre-swap `.env` is backed up at `/opt/sdk/.env.bak.dualkey-20260729-225901`.
 
 > **NOTE — lineage drift:** `origin/main` of `simple-infra` remains diverged from the deployed live lineage — main carries the dual-key commits but **lacks** merit-selection and `CAPABILITY_ORCH_OFFERINGS`, while the live image has both. This deploy layered dual-key onto the live lineage rather than reconciling the two. A separate **lineage-reconciliation follow-up** is recommended to fold merit/offerings back into `main` (or forward-port dual-key into the canonical `sdk-service-build/` source) so the repo and the running image converge.
+
+---
+
+## Lineage reconciliation — merit/offerings/provider_selection landed in `main` (2026-07-29)
+
+The lineage-drift follow-up noted above is **resolved**. Merit-based orchestrator selection, `CAPABILITY_ORCH_OFFERINGS` handling, and `provider_selection.py` are now captured in `simple-infra` `main` — **code capture only, NO deploy** (prod already runs this exact merit code).
+
+**PR:** [livepeer/simple-infra#115](https://github.com/livepeer/simple-infra/pull/115) — *"Land live merit-based orch selection + CAPABILITY_ORCH_OFFERINGS + provider_selection into main (converge main with prod)"* — **MERGED**, merge commit `2e0024f7545ef849366aae57b4f87e667ec8ce99`.
+
+**What was drifted:** `origin/main` (`a5ea48f`) had the dual-key PRs #112/#113/#114 (all default-OFF) but was missing merit-selection, `CAPABILITY_ORCH_OFFERINGS`, and `provider_selection.py`. Those live only in the deployed image lineage.
+
+**Source of truth used:** the local `main` branch commits `9902cee` (generalized merit selection + `provider_selection.py` + `test_provider_selection.py`) and `a61a020` (merit probe reads BYOC per-cap price + capacity precisely), branched off the same base (`44a4e42`) as the dual-key PRs. Verified **byte-identical** to the live merit image `sdk-service:merit-precise-2026-07-20` (`docker cp` of `/app/app.py`, `provider_selection.py`, `lr_offerings.py` → `diff` = identical). These two commits were cherry-picked (`-x`, provenance preserved) onto a branch off `origin/main`; `app.py` auto-merged cleanly against the dual-key seams (only the Dockerfile `COPY` list needed a trivial both-keep resolution).
+
+**`main` now captures:** `provider_selection.py`, `test_provider_selection.py`, and the merit/offerings rewiring of `select_provider()`/`_merit_probe` in `app.py` — alongside the pre-existing dual-key modules (`key_routing.py` + all six flags), all still **DEFAULT-OFF**. Env passthrough for `CAPABILITY_ORCH_OFFERINGS` / `SELECT_PROVIDER_MERIT` / `SELECT_PROVIDER_MERIT_TTL` already existed in `docker-compose/sdk-service.yaml` (default-empty). Tests: `test_key_routing.py` **20/20**, `test_provider_selection.py` **15/15**, `test_lr_offerings.py` 9/9 (44 total). No secrets committed.
+
+**main ↔ live convergence:** `main`-after-PR `app.py` was diffed against the deployed superset `optA-lr-multi-dualkey-2026-07-29` (`/app/app.py` sha `99104b53…`). It is a **faithful superset of the live merit lineage + dual-key**; the **only** remaining delta is the separately-tracked `optA-lr-multi` native-dispatch features (comma-separated `LR_ORCH_DISCOVERY` multi-orch discovery, `direct-post` free single-shot dispatch, non-media LR result passthrough) which live on branch `fix/lr-native-dispatch-call-runner` and are **out of scope** for this merit reconciliation. Zero merit/dual-key differences. Folding that native-dispatch branch into `main` is the remaining step for full byte-convergence with the deployed image.
