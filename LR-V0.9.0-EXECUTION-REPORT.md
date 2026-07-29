@@ -231,3 +231,81 @@ of the previously-logged `SegData.manifestId ≠ auth_token.session_id` 403
 (Gap #1). **Both are owned by the separate pymthouse-signer worker**, downstream
 of dispatch. The dispatch plane is now correct end-to-end; **full green is gated
 solely on the signer fix.**
+
+---
+
+## Re-test addendum (2026-07-28, PM) — after John's NEW signer deploy: STILL FAILS at payment-mint
+
+**Goal:** confirm whether John's latest deployment (expected: the go-livepeer
+remote-signer fix for the `manifestId`/`numTickets` bugs) makes the pymthouse
+**naap-key native single-shot e2e** green end-to-end on the clean v0.9.0 orch
+`:8936`. **READ/TEST-only** — no orch/signer/Caddy/runners mutation;
+`byoc-staging-1` **never touched**. Secrets env-only/redacted.
+
+### Verdict: ❌ **FAIL — still blocked at payment-mint (stage 3b). The `400 numTickets … exceeds maximum of 100` bug is NOT fixed.**
+
+Native generation + metering are **not reached**. No real asset generated. No
+on-chain spend (mint never produced a payment).
+
+### PASS/FAIL per stage
+
+| Stage | Result | Evidence |
+|---|---|---|
+| 0. naap key → `/keys/validate` → composite | ✅ **PASS** | `valid:true`; endpoint-form `signerSession {url,headers}`; composite bearer **byte-identical** to the supplied `app_…_pmth_…`. Validate now resolves the per-key signer to **`pymthouse-production.up.railway.app`** (distinct Railway service from the supplied `pymthouse-signer-test-production`). |
+| 1. discovery / per-cap price | ✅ **PASS** | `:8936` `/discovery` up, serves **8 runners** incl. `storyboard/fal-flux-schnell` → `runner_dou3fwcx`, `price 1640834633716 wei fixed` (≈ $0.00315). `get_pricing flux-schnell` = **$0.00315/MP**. |
+| 2. native 402 challenge (`POST /apps/runner_dou3fwcx/app/generate`) | ✅ **PASS** | `402` with `payment_params` (len 392) = `OrchestratorInfo` on **every** attempt (4/4 across probes). Orch healthy throughout (migration worker had not disrupted flux-schnell). |
+| 3. payment-mint (`/generate-live-payment`) | ❌ **FAIL** | See error matrix below — **`400 numTickets 2721947758 exceeds maximum of 100`** on the real native `type:"lv2v"` path, **both** signers. |
+| 4. generation | ⛔ **not reached** | blocked by stage 3. |
+| 5. metering (per-cap vs flat) | ⛔ **not reached** | blocked by stage 3. |
+
+### Error matrix — `/generate-live-payment` mint, flux-schnell, both signers × both types
+
+| Signer | `type:"byoc"` | `type:"lv2v"` (real native path) |
+|---|---|---|
+| `pymthouse-production` (naap-key-derived, authoritative) | `400 invalid job type` | **`400 numTickets 2721947758 exceeds maximum of 100`** |
+| `pymthouse-signer-test-production` (user-supplied) | `500 Internal Server Error` | **`400 numTickets 2721947758 exceeds maximum of 100`** |
+
+The real gateway native dispatch (`call_runner`) mints with `type:"lv2v"` — this
+probe reproduces that path exactly, and the error is **byte-identical** to the
+one logged in the prior [Dispatch-fix addendum](#dispatch-fix-addendum-2026-07-28)
+(`numTickets 2721947758`). The constant `2721947758` is challenge-independent →
+a **signer-side payment-sizing constant** (ticket faceValue/winProb vs. the fixed
+per-cap price), not a per-request artifact.
+
+### Are the two prior blockers gone?
+
+- **`400 numTickets … exceeds maximum of 100` — NO, STILL PRESENT.** Identical
+  value on both signers, on the real native `type:"lv2v"` mint. John's deploy did
+  **not** fix it. **This is the sole hard blocker of the native e2e today.**
+- **`403 mismatched manifest and auth token` — not observable (moot on the native
+  path).** That 403 was a **generation-stage (3c)** symptom of the `type:"byoc"`
+  mint mis-binding `SegData.manifestId`. The flow now hard-stops one stage earlier
+  at **payment-mint (3b)**, so generation is never reached and the 403 cannot fire.
+  On the `type:"byoc"` path the signer no longer even accepts the mint
+  (`invalid job type` on the derived signer; `500` on test-production), and the
+  real native path uses `type:"lv2v"` anyway. So the 403 is **not the native-path
+  blocker** — `numTickets` is.
+
+### Remaining error → stage → likely owner
+
+- **Error:** `HTTP 400 {"error":{"message":"numTickets 2721947758 exceeds maximum of 100"}}`
+- **Stage:** payment-mint, `POST /generate-live-payment`, `type:"lv2v"`.
+- **Owner:** **pymthouse signer (John).** Signer payment computation sizes
+  `numTickets` from a faceValue/winProb that is orders of magnitude too small for
+  the fixed per-cap price, blowing past the 100-ticket cap. Fix is signer-side and
+  independent of the orch (`:8936` challenge + pricing + reserve are all correct).
+
+### Signer version note
+
+The signer exposes no version/commit endpoint (`/version`,`/info`,`/status` →
+404; `/healthz` → static `OK`), so the deployed build was **not HTTP-discoverable**.
+Deploy status was therefore inferred from behavior: the identical `numTickets`
+error on both signers indicates **the numTickets fix is not live on either**.
+
+### Safety
+
+- **No spend:** mint never produced a payment → zero on-chain ticket generation.
+- **READ/TEST-only:** only hit `:8936` `/discovery` + `/apps/.../app/generate` and
+  the two signer webhooks. **`byoc-staging-1` NEVER touched.** No orch/signer/Caddy/
+  runners.json mutation. `:8936` stayed healthy (8 runners) throughout.
+- Secrets env-only; redacted here.
