@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dual-Key Routing — Operator Config Guide</title>
+<style>
+  :root{--bg:#0f1117;--panel:#171a23;--panel2:#1e222d;--ink:#e7e9ee;--muted:#9aa3b2;
+    --line:#2a2f3c;--accent:#5b9dff;--ok:#3ddc84;--warn:#ffb454;--bad:#ff6b6b;--code:#0b0d12;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 26px 80px}
+  h1{font-size:28px;margin:0 0 6px;letter-spacing:-.3px}
+  h2{font-size:20px;margin:34px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:20px 0 6px;color:#cfd5e0}
+  p{margin:9px 0}
+  .sub{color:var(--muted);font-size:14px;margin-top:0}
+  code{background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+    font:12.5px/1.4 "SF Mono",ui-monospace,Menlo,Consolas,monospace;color:#d7e0ff}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;
+    font:12.5px/1.5 "SF Mono",ui-monospace,Menlo,Consolas,monospace;color:#cdd6e6}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cfd5e0;font-weight:600}
+  tr:nth-child(even) td{background:#14171f}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin:12px 0}
+  .card.warn{border-color:rgba(255,180,84,.5);background:rgba(255,180,84,.06)}
+  .card.ok{border-color:rgba(61,220,132,.4);background:rgba(61,220,132,.05)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;font-weight:600;border:1px solid var(--line)}
+  .off{background:rgba(154,163,178,.14);color:var(--muted)}
+  .ok{color:var(--ok);font-weight:600}.warn{color:var(--warn);font-weight:600}.bad{color:var(--bad);font-weight:600}
+  .muted{color:var(--muted)}
+  ul{margin:8px 0;padding-left:22px}li{margin:4px 0}
+  .tag{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .def{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="tag">Operator reference · SDK service (livepeer/simple-infra · sdk-service-build/app.py)</p>
+  <h1>Dual-Key Routing — Config Guide</h1>
+  <p class="sub">Six env vars control key&rarr;path routing and path&rarr;orch pinning in the SDK service.
+  <strong>Every one defaults to today's behavior</strong> — the service is byte-identical until you opt in.
+  Set them in <code>docker-compose/sdk-service.yaml</code> (passthrough) + the SDK VM's <code>/opt/sdk/.env</code>,
+  then restart the container. All are reversible: unset (or set <code>0</code>) + restart to revert.</p>
+
+  <div class="card ok">
+    <strong>TL;DR.</strong> Leave everything unset for today's exact routing. To route real per-key traffic to
+    pymthouse/live-runner and keep Daydream keys on byoc, enable the flags <em>in the order below</em>, one canary
+    instance at a time. Never flip a flag fleet-wide before the canary is green.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>The flags</h2>
+
+  <h3>1 · <code>KEY_ROUTING_FROM_ENV</code> <span class="pill off">default 0 (off)</span></h3>
+  <p><strong>Type:</strong> bool <span class="def">0 | 1</span>. <strong>Master gate for the key&rarr;path pattern engine.</strong></p>
+  <ul>
+    <li><strong>Off (default):</strong> the SDK uses the legacy hardcoded rule — a bearer starting with
+      <code>naap_</code> takes the pymthouse path, everything else takes the Daydream path. Byte-identical to today.</li>
+    <li><strong>On:</strong> the bearer is classified by the glob patterns below instead.</li>
+  </ul>
+
+  <h3>2 · <code>KEY_PATTERN_PYMTHOUSE</code> <span class="pill off">default <span class="def">naap_*</span></span></h3>
+  <p><strong>Type:</strong> comma-separated glob list. <strong>Only read when <code>KEY_ROUTING_FROM_ENV=1</code>.</strong>
+  Keys matching any of these globs take the <strong>pymthouse / live-runner-eligible</strong> path
+  (per-key signer, <code>byoc</code> payment). Evaluated <strong>first</strong> (wins any overlap).</p>
+  <p class="muted">Example — also route composite provider keys to pymthouse:</p>
+  <pre>KEY_PATTERN_PYMTHOUSE=naap_*,app_*_pmth_*</pre>
+  <p class="muted">Glob syntax is <code>fnmatch</code> (<code>*</code>, <code>?</code>), case-sensitive. No regex.</p>
+
+  <h3>3 · <code>KEY_PATTERN_DAYDREAM</code> <span class="pill off">default <span class="def">sk_*</span></span></h3>
+  <p><strong>Type:</strong> comma-separated glob list. <strong>Only read when <code>KEY_ROUTING_FROM_ENV=1</code>.</strong>
+  Keys matching any of these globs take the <strong>Daydream / byoc</strong> path (static <code>SIGNER_URL</code>,
+  <code>lv2v</code> payment). Evaluated <strong>second</strong>. Covers <code>sk_live_*</code> / <code>sk_test_*</code>.</p>
+  <pre>KEY_PATTERN_DAYDREAM=sk_live_*,sk_test_*</pre>
+
+  <h3>4 · <code>KEY_ROUTING_UNMATCHED</code> <span class="pill off">default <span class="def">fail_closed</span></span></h3>
+  <p><strong>Type:</strong> enum <span class="def">fail_closed | daydream</span>.
+  <strong>Only read when <code>KEY_ROUTING_FROM_ENV=1</code>.</strong> Decides what happens to a key that matches
+  <em>neither</em> pattern list.</p>
+  <ul>
+    <li><code>fail_closed</code> (default): reject the request (401) — never silently bill the shared Daydream wallet.</li>
+    <li><code>daydream</code>: fall through to the Daydream path (the legacy behavior, if you want it back).</li>
+  </ul>
+
+  <h3>5 · <code>ORCH_PIN_BY_PATH</code> <span class="pill off">default 0 (off)</span></h3>
+  <p><strong>Type:</strong> bool <span class="def">0 | 1</span>. <strong>One symmetrical switch</strong> that pins the
+  orchestrator plane by resolved path.</p>
+  <ul>
+    <li><strong>Off (default):</strong> pymthouse traffic uses the live-runner orch when the capability is
+      LR-eligible and otherwise <em>fails open to BYOC</em>; Daydream traffic is unchanged.</li>
+    <li><strong>On:</strong> the pymthouse path goes to the <strong>live-runner orch ONLY</strong> (no BYOC fall-open —
+      an LR miss returns 502), and the Daydream path goes to <strong>byoc/daydream ONLY</strong> (never the live-runner orch).</li>
+  </ul>
+  <div class="card warn">
+    <strong>Prerequisite (OQ-1).</strong> Do <em>not</em> enable <code>ORCH_PIN_BY_PATH</code> for the pymthouse path
+    until the pymthouse DMZ signer is <strong><code>RemoteType_Fixed</code>-capable</strong>. Removing the BYOC fall-open
+    before that means fal caps would <code>400 "invalid job type"</code> with no fallback. Until then leave it <code>0</code>.
+    Also note it only makes sense where the pymthouse signer plane is active (<code>SIGNER_FROM_VALIDATE=1</code>) — with
+    that off, every request is the Daydream path and pinning would exclude all traffic from the live-runner orch.
+  </div>
+
+  <h3>6 · <code>NAAP_FAIL_CLOSED</code> <span class="pill off">default 0 (off)</span></h3>
+  <p><strong>Type:</strong> bool <span class="def">0 | 1</span>. Hardening for the pymthouse path.</p>
+  <ul>
+    <li><strong>Off (default):</strong> a pymthouse-matched key whose per-key signer session fails to resolve falls
+      through to the static Daydream signer (today's behavior — but it bills the shared wallet: risk R1).</li>
+    <li><strong>On:</strong> that request is <strong>rejected (402)</strong> instead.</li>
+  </ul>
+  <p class="muted">Only effective when <code>SIGNER_FROM_VALIDATE=1</code> (otherwise the signer never resolves a
+  per-key session and this flag is inert). Distinct from <code>KEY_ROUTING_UNMATCHED</code>: that handles keys matching
+  <em>no</em> pattern; this handles a <em>matched</em> pymthouse key with <em>no</em> session.</p>
+
+  <!-- ============================================================ -->
+  <h2>Safe enablement order</h2>
+  <p>Enable per-instance (one canary first), verifying each step before the next. Every step is reversible by
+  clearing the var and restarting.</p>
+  <ol>
+    <li><strong>Baseline.</strong> All unset ⇒ production behavior. (This is the state after the three PRs merge.)</li>
+    <li><strong>Engine, legacy-compatible.</strong> On one canary: <code>KEY_ROUTING_FROM_ENV=1</code> with default
+      patterns and <code>KEY_ROUTING_UNMATCHED=daydream</code>. Verify <code>naap_</code> and <code>sk_</code> keys route
+      exactly as before.</li>
+    <li><strong>Fail-closed unmatched.</strong> Flip <code>KEY_ROUTING_UNMATCHED=fail_closed</code> on the canary.
+      Verify unknown keys get 401 and known keys still pass.</li>
+    <li><strong>Orch pin</strong> — <span class="warn">only after OQ-1 (DMZ signer is <code>RemoteType_Fixed</code>-capable)</span>:
+      <code>ORCH_PIN_BY_PATH=1</code>. Verify <code>naap_</code>&rarr;live-runner-only and <code>sk_</code>&rarr;byoc-only.</li>
+    <li><strong>Session fail-closed (optional).</strong> <code>NAAP_FAIL_CLOSED=1</code> (requires
+      <code>SIGNER_FROM_VALIDATE=1</code>).</li>
+    <li>Promote instance-by-instance once each phase is green.</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Quick example — enable the engine on one canary</h2>
+  <p class="muted">In the canary SDK VM's <code>/opt/sdk/.env</code> (and make sure the vars are declared in
+  <code>docker-compose/sdk-service.yaml</code> passthrough), then <code>docker compose up -d</code>:</p>
+  <pre>KEY_ROUTING_FROM_ENV=1
+KEY_PATTERN_PYMTHOUSE=naap_*,app_*_pmth_*
+KEY_PATTERN_DAYDREAM=sk_*
+KEY_ROUTING_UNMATCHED=fail_closed
+# ORCH_PIN_BY_PATH=1        # only after OQ-1 (fixed-capable DMZ signer)
+# NAAP_FAIL_CLOSED=1        # only with SIGNER_FROM_VALIDATE=1</pre>
+  <p class="muted">To revert instantly: remove the lines (or set the bools to <code>0</code>) and restart.</p>
+
+  <!-- ============================================================ -->
+  <h2>Defaults at a glance</h2>
+  <table>
+    <tr><th>Var</th><th>Default</th><th>ON does what</th></tr>
+    <tr><td><code>KEY_ROUTING_FROM_ENV</code></td><td class="def">0</td><td>use glob patterns instead of hardcoded <code>naap_</code></td></tr>
+    <tr><td><code>KEY_PATTERN_PYMTHOUSE</code></td><td class="def">naap_*</td><td>these keys &rarr; pymthouse/live-runner path</td></tr>
+    <tr><td><code>KEY_PATTERN_DAYDREAM</code></td><td class="def">sk_*</td><td>these keys &rarr; Daydream/byoc path</td></tr>
+    <tr><td><code>KEY_ROUTING_UNMATCHED</code></td><td class="def">fail_closed</td><td>unmatched key &rarr; reject (vs <code>daydream</code> fall-through)</td></tr>
+    <tr><td><code>ORCH_PIN_BY_PATH</code></td><td class="def">0</td><td>pymthouse&rarr;LR-only, Daydream&rarr;byoc-only</td></tr>
+    <tr><td><code>NAAP_FAIL_CLOSED</code></td><td class="def">0</td><td>pymthouse key w/ no session &rarr; reject (vs Daydream fall-through)</td></tr>
+  </table>
+
+  <p class="muted" style="margin-top:26px">See <code>DUAL-KEY-OPTION-A-IMPL-PLAN.html</code> for the full design and
+  <code>DUAL-KEY-OPTION-A-REVIEW.md</code> for the review verdict. Code: <code>livepeer/simple-infra</code>
+  <code>sdk-service-build/app.py</code> + <code>key_routing.py</code> (PRs #112, #113, #114).</p>
+</div>
+</body>
+</html>
