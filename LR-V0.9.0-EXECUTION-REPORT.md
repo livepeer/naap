@@ -756,3 +756,115 @@ Expected (verdict A): `[B DECODE] manifestId == session_id ? True` and Stage C
 returns `200` (or a *different*, non-manifest downstream error). If instead
 `segCreds.manifestId != session_id` even with a populated field, verdict (A) is
 refuted and #4006 (or equivalent) IS needed — the script flags this loudly.
+
+---
+
+## Run 65 — `fixed` FULL generation + metering probe (closes the run64 `model_id` gap)
+
+> **OUTCOME (2026-07-29):** ✅ **Generation is e2e-CONFIRMED** — the native
+> `type=fixed` live-runner path on `:8936` → PRODUCTION signer
+> `pymthouse-production.up.railway.app` now returns a **real asset** (HTTP 200 +
+> `fal.media` image URL) for a paid, manifest-bound, fixed-price single-shot.
+> ⚠️ **Verdict = PARTIAL:** the pymthouse/OpenMeter **metering debit could NOT be
+> confirmed** with the available credential (the composite `app_…_pmth_…` bearer
+> is an **app API key**, not the OIDC client secret / M2M credential the usage API
+> requires — see Stage D). Generation GREEN; metering UNVERIFIED.
+
+**Purpose:** close the single remaining gap from run64. run64 proved every link
+green up to generation but stopped at `400 model_id is required` because its
+native payload sent only `{"prompt": …}`. This run **derives** the runner
+`model_id` from what the orch/runner actually advertises, sends the paid
+generation WITH `model_id`, enforces a hard ~$1 spend cap, and attempts to read
+the pymthouse/OpenMeter debit.
+
+**Script:** [`scripts/run65-lr-fixed-full-generation-probe.py`](./scripts/run65-lr-fixed-full-generation-probe.py)
+— based on run64 (`type=fixed` + `inPixels:1` + `ManifestID=session_id`), plus:
+model_id derivation, a USD spend-cap, generation-with-`model_id`, and a metering read.
+
+### `model_id` derivation (NOT hardcoded — derived from discovery + descriptor)
+
+The runner requires a fal `model_id` (`fal-app` `_handle_generate` raises
+`model_id is required` without it). The orch `/discovery` advertises `app` +
+`price_info` but **not** the fal model URL, so it is resolved through the deployed
+capability descriptor + the SDK's authoritative offering table:
+
+```
+discovery.app 'storyboard/fal-flux-schnell'  (runner_riljdzgh, price 1641786221713 wei fixed)
+   → descriptor.cap 'flux-schnell'           (runners.json: io.endpoint=/generate, required=[prompt])
+   → SDK LR_MODEL_IDS[flux-schnell]           (app.py, via lr_offerings.build_lr_payload)
+   → model_id 'fal-ai/flux/schnell'
+runner body(verbatim) = {"prompt": "…", "model_id": "fal-ai/flux/schnell"}
+```
+
+### Execution status — ✅ RUN e2e 2026-07-29 — GENERATION CONFIRMED (metering unverified)
+
+Executed against the PRODUCTION signer with the naap composite bearer (secret —
+not recorded here) on orch `:8936`
+(`https://136.66.21.17:8936/apps/runner_riljdzgh/app/generate`), funded payer
+`0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260`. Verbatim stage results:
+
+| Stage | Endpoint | Result | Evidence (verbatim) |
+|---|---|---|---|
+| 0. derive model_id | `GET :8936/discovery` + `runners.json` + SDK `LR_MODEL_IDS` | ✅ **DERIVED** | `discovery.app='storyboard/fal-flux-schnell'` → `cap='flux-schnell'` → **`model_id='fal-ai/flux/schnell'`**; runner body `{"prompt":…,"model_id":"fal-ai/flux/schnell"}`. `$/wei` from descriptor `0.00315/1284088677165 = 2.4531e-15` (implied ETH≈$2,453). |
+| A. native 402 challenge | `POST :8936/apps/runner_riljdzgh/app/generate` | ✅ **PASS** | `HTTP 402`, `payment_params(len=392)`; challenge `manifest_id = 26f042dd`; decoded `session_id = 26f042dd` (equal). |
+| B. `/generate-live-payment` `type=fixed`+`inPixels:1` **WITH `ManifestID=session_id`** | `POST pymthouse-production/…` | ✅ **PASS** | **`HTTP 200`** `keys=['payment','segCreds','state']`; `sender=0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260`; `numTickets=2`; `expected_price=1641786221713/1`; `faceValue=2491920000000000 wei`; `server: railway-hikari`, `x-railway-request-id: YBCTJENHS-yWkIWw5nX1uw`, `x-railway-edge: ord1`. |
+| B. manifest echo (re-confirm run64) | decode `segCreds` (`net.SegData`) | ✅ **ECHOED** | `segCreds.manifestId = 26f042dd == session_id 26f042dd` → the manifest 403 remains RESOLVED. |
+| C. **paid native generation WITH `model_id`** | `POST :8936/apps/.../app/generate` (`Livepeer-Payment`+`Livepeer-Segment`) | ✅ **GENERATION_PASS** | **`HTTP 200`** body(verbatim) = `{"url": "https://v3b.fal.media/files/b/0aa43c14/C96gynsbTyDtw-aaevbEZ.jpg", "model_id": "fal-ai/flux/schnell"}` (`server: Python/3.12 aiohttp/3.14.1`, `content-length: 110`). **Real asset returned.** The run64 `400 model_id is required` is GONE. |
+| D. metering / OpenMeter debit | `GET pymthouse.com/api/v1/apps/{clientId}/usage` (Basic, composite key) | ⛔ **UNVERIFIED** | Both `…/usage?includeRetail=1` and `…/usage?groupBy=user` returned **`HTTP 404 {"error":"Not found"}`**. Root cause (code-verified): `authenticateAppClient` validates an **OIDC client secret** (`pmth_cs_…`, `validateClientSecret`); the composite bearer's secret is a `pmth_…` **app API key** (resolved via `resolveActiveAppApiKey`), not a client secret. The documented usage read (the surface NaaP's `usage-pull` uses) needs the **M2M client secret** or the app's **OIDC client secret** — neither is available to this probe. **Metering could NOT be read with the available credential.** |
+
+### Asset (verbatim)
+
+```json
+{"url": "https://v3b.fal.media/files/b/0aa43c14/C96gynsbTyDtw-aaevbEZ.jpg", "model_id": "fal-ai/flux/schnell"}
+```
+
+A real fal.media JPEG URL — a genuine flux-schnell text-to-image generation
+served through the paid native live-runner path.
+
+### Safety / spend
+
+- **Hard ~$1 cap enforced (2 guards).** `MAX_TICKETS=5` (mint had `numTickets=2`)
+  AND a computed USD cap `MAX_SPEND_USD=$1.00`.
+- **Expected spend (the metered fee):** fixed fee `1641786221713 wei = 1.642e-6 ETH
+  = $0.004027` per generation; mint total (`2×` tickets) `= 3283572443426 wei =
+  $0.008055` — **well under the $1 cap** (assertion passed → proceeded).
+- **faceValue exposure (transparency):** each ticket carries `faceValue =
+  2491920000000000 wei ≈ $6.11` at `winProb ≈ 4.0e-4` (~0.04%/ticket). This is
+  Livepeer's standard probabilistic micropayment (high faceValue × tiny winProb →
+  EV = the $0.008 fee). Worst case (both tickets win, ~1.6e-7 probability) =
+  $12.23; **expected/most-likely actual on-chain spend ≈ $0** (no winning ticket).
+- **Actual on-chain spend:** not directly readable by this probe (would require
+  the TicketBroker redemption record or the pymthouse/OpenMeter debit, which the
+  composite key cannot read — see Stage D). Expected fee `$0.004027`; expected
+  redemption `≈ $0`.
+- **No deploy/rebuild/mutation.** Hit only `:8936` `/discovery` + `/apps/.../app/generate`,
+  the signer `/generate-live-payment`, and (read-only) `pymthouse.com/api/v1/apps/.../usage`.
+  `byoc-staging-1` / `sdk-staging-1` untouched. No PRs reopened/closed.
+- Secrets env-only (composite bearer never echoed/logged/committed).
+
+### Verdict — PARTIAL (generation e2e-CONFIRMED; metering UNVERIFIED)
+
+The AI-runner / pymthouse **fixed live-runner path generates end-to-end**: paid,
+manifest-bound, fixed-price single-shot → **HTTP 200 + a real fal.media asset**.
+This closes the run64 `400 model_id is required` gap (the only remaining link).
+**However, this is NOT a FULL PASS:** the pymthouse/OpenMeter metering debit for
+`app_98575870…` could not be confirmed with the supplied composite app API key
+(the usage API requires an OIDC client secret / M2M credential). To upgrade to
+FULL PASS, re-run with the app's M2M client secret (or its `pmth_cs_…` OIDC client
+secret) and read `GET pymthouse.com/api/v1/apps/{clientId}/usage` for the
+`totals.requestCount` / `networkFeeUsdMicros` debit record.
+
+### To run it
+
+```bash
+GWPY=../livepeer-python-gateway/.venv/bin/python
+export COMPOSITE_BEARER="…app_…_pmth_… (secret; env-only)"
+export BYOC_SIGNER_URL="https://pymthouse-production.up.railway.app"
+export RUNNER_APP_URL="https://136.66.21.17:8936/apps/runner_riljdzgh/app"
+export PAYER_ADDRESS="0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260"
+export GATEWAY_SRC="../livepeer-python-gateway/src"
+# optional (defaults resolve automatically):
+#   SDK_SRC=../simple-infra/sdk-service-build  RUNNERS_JSON=live-runner-v2/runners.json
+#   PYMTHOUSE_APP_URL=https://pymthouse.com  MAX_TICKETS=5  MAX_SPEND_USD=1.0
+"$GWPY" scripts/run65-lr-fixed-full-generation-probe.py   # writes /tmp/run65_fixed_full.json
+```
