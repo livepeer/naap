@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dual-Key Option A — Improved, No-Regression Implementation Plan</title>
+<style>
+  :root {
+    --bg:#0f1117; --panel:#171a23; --panel2:#1e222d; --ink:#e7e9ee; --muted:#9aa3b2;
+    --line:#2a2f3c; --accent:#5b9dff; --pmt:#7ee0b8; --day:#ffcf6b; --byoc:#c7a2ff;
+    --lr:#7ee0b8; --ok:#3ddc84; --warn:#ffb454; --bad:#ff6b6b; --code:#0b0d12;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:40px 28px 80px; }
+  h1 { font-size:30px; margin:0 0 6px; letter-spacing:-.3px; }
+  h2 { font-size:22px; margin:38px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  h3 { font-size:17px; margin:24px 0 8px; color:#cfd5e0; }
+  p { margin:10px 0; }
+  .sub { color:var(--muted); font-size:14px; margin-top:0; }
+  code { background:var(--code); border:1px solid var(--line); border-radius:5px;
+    padding:1px 6px; font:13px/1.4 "SF Mono",ui-monospace,Menlo,Consolas,monospace; color:#d7e0ff; }
+  pre { background:var(--code); border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+    overflow:auto; font:12.5px/1.5 "SF Mono",ui-monospace,Menlo,Consolas,monospace; color:#cdd6e6; }
+  .file { color:#8fb7ff; font:12px "SF Mono",ui-monospace,Menlo,monospace; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:13.5px; }
+  th,td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel2); color:#cfd5e0; font-weight:600; }
+  tr:nth-child(even) td { background:#14171f; }
+  .pill { display:inline-block; padding:1px 9px; border-radius:20px; font-size:11.5px; font-weight:600;
+    border:1px solid var(--line); }
+  .pill.pmt { background:rgba(126,224,184,.12); color:var(--pmt); border-color:rgba(126,224,184,.4); }
+  .pill.day { background:rgba(255,207,107,.12); color:var(--day); border-color:rgba(255,207,107,.4); }
+  .pill.byoc{ background:rgba(199,162,255,.12); color:var(--byoc); border-color:rgba(199,162,255,.4); }
+  .pill.lr  { background:rgba(126,224,184,.12); color:var(--lr); border-color:rgba(126,224,184,.4); }
+  .pill.off { background:rgba(154,163,178,.12); color:var(--muted); }
+  .pill.on  { background:rgba(91,157,255,.15); color:var(--accent); border-color:rgba(91,157,255,.5); }
+  .ok { color:var(--ok); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+  .warn { color:var(--warn); font-weight:600; } .muted { color:var(--muted); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }
+  .card.hi { border-color:rgba(255,107,107,.5); background:rgba(255,107,107,.06); }
+  .card.good { border-color:rgba(61,220,132,.4); background:rgba(61,220,132,.05); }
+  .assume { color:var(--warn); font-style:italic; }
+  .lead { font-size:16px; color:#dfe4ec; }
+  .tag { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  ul { margin:8px 0; padding-left:22px; } li { margin:4px 0; }
+  .flow { font:13px "SF Mono",ui-monospace,Menlo,monospace; white-space:pre; background:var(--code);
+    border:1px solid var(--line); border-radius:8px; padding:16px; overflow:auto; color:#cdd6e6; }
+  .kbd { border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:1px 6px;
+    background:var(--panel2); font-size:12px; }
+  a { color:var(--accent); }
+  .foot { margin-top:40px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+  .prnum { display:inline-block; width:26px; height:26px; line-height:26px; text-align:center; border-radius:6px;
+    background:var(--accent); color:#0b0d12; font-weight:700; margin-right:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="tag">Design + planning only · no code / deploy / PRs opened</p>
+  <h1>Dual-Key Routing — Option A: Improved, No-Regression Implementation Plan</h1>
+  <p class="sub">Branch <code>docs/pricing-scope-simplified</code> · author <code>seanhanca</code> · supersedes the
+  "Option A" section of <span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html</span>. All new controls default to
+  <strong>current production behavior</strong>; merging any PR changes nothing until an operator opts in.</p>
+
+  <div class="card good">
+    <strong>Ground truth carried in (do not re-verify):</strong> the <code>naap_</code> key → pymthouse signer →
+    live-runner orch <code>type=fixed</code> path is <strong>e2e-CONFIRMED</strong> (generation run65 + metering run66,
+    per <span class="file">LR-V0.9.0-EXECUTION-REPORT.md:22</span>). The Daydream <code>sk_</code> key →
+    <code>signer.daydream.live</code> (<code>lv2v</code>) → byoc/daydream plane is the existing production path
+    (<span class="file">LR-V0.9.0-EXECUTION-REPORT.md:23</span>). <strong>Both must keep working with ZERO
+    regression.</strong>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>1 · What changed vs the original Option A</h2>
+  <p>Original Option A (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:202-297</span>) said: the SDK service
+  already routes by key format (<code>bearer.startswith("naap_")</code> in <code>_effective_signer</code>); the only
+  work is to turn the process-wide gates ON and add a fail-closed guard for a <code>naap_</code> key with no session.
+  This plan keeps that spirit but adds three operator-controlled, default-off improvements:</p>
+
+  <table>
+    <tr><th style="width:34%">Improvement</th><th>Original Option A</th><th>This plan</th></tr>
+    <tr>
+      <td><strong>1. Path→orch pinning (pymthouse)</strong></td>
+      <td>Silent: pymthouse path may land on the live-runner orch or fall open to <code>byoc-staging-1</code>
+        (LR failure fails-open to BYOC — <span class="file">LR-3ORCH-INFRA-ASSESSMENT.md:101</span>).</td>
+      <td>Optional flag pins the pymthouse path to the <strong>live-runner orch ONLY</strong> (no BYOC fall-open).
+        Default OFF = today's fail-open preserved.</td>
+    </tr>
+    <tr>
+      <td><strong>2. Path→orch pinning (Daydream), same flag</strong></td>
+      <td>Not addressed.</td>
+      <td>The <em>same single flag</em> symmetrically pins the Daydream path to <strong>byoc/daydream ONLY</strong>
+        (never the LR orch). Default OFF = unchanged.</td>
+    </tr>
+    <tr>
+      <td><strong>3. Configurable key→path patterns</strong></td>
+      <td>Hardcoded <code>startswith("naap_")</code> discriminator.</td>
+      <td>Env-driven glob patterns (<code>KEY_PATTERN_PYMTHOUSE</code> / <code>KEY_PATTERN_DAYDREAM</code>) with
+        first-match precedence and a fail-closed policy for unmatched keys. Default reproduces the hardcoded
+        behavior exactly.</td>
+    </tr>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>2 · How routing works today (grounding)</h2>
+  <p>There are <strong>two independent decision planes</strong> inside the one SDK service
+  (<span class="file">simple-infra/sdk-service-build/app.py</span>, not present in this repo — cited from the
+  investigation docs):</p>
+
+  <h3>Plane A — signer selection (<code>_effective_signer</code>)</h3>
+  <ul>
+    <li>Non-<code>naap_</code> bearer ⇒ static <code>SIGNER_URL = https://signer.daydream.live</code> → payment
+      <code>type:lv2v</code> (Daydream shared wallet). <span class="file">STORYBOARD-SIGNER-ROUTING.md:116-127</span></li>
+    <li><code>naap_</code> bearer + <code>SIGNER_FROM_VALIDATE=1</code> + <code>AUTH_VALIDATE_URL</code> set + validate
+      returns endpoint-form <code>signerSession{url,headers}</code> ⇒ per-key pymthouse DMZ signer, composite bearer
+      <code>app_&lt;24hex&gt;_pmth_&lt;secret&gt;</code>, payment <code>type:byoc</code> (caller wallet).</li>
+    <li>Payment type is <em>derived</em> from the signer hostname in the SDK library
+      (<code>byoc.py :: _payment_type_for_signer</code>): <code>signer.daydream.live → lv2v</code>, else <code>byoc</code>.</li>
+    <li><strong>Prod today:</strong> <code>SIGNER_FROM_VALIDATE</code> / <code>AUTH_VALIDATE_URL</code> are unset ⇒ every
+      request is Daydream/lv2v; the pymthouse per-key path is enabled only on canary/staging overlays.
+      <span class="file">STORYBOARD-SIGNER-ROUTING.md:24-27,162-181</span></li>
+  </ul>
+
+  <h3>Plane B — orchestrator selection (LR dispatch vs BYOC)</h3>
+  <ul>
+    <li><strong>BYOC plane:</strong> <code>ORCH_URL</code> / <code>CAPABILITY_ORCH_MAP</code> → <code>byoc-staging-1</code>
+      on <code>:8935</code> (existing prod path). <span class="file">LR-JOHN-DEPLOY-RUNBOOK.md:44-47</span></li>
+    <li><strong>Live-runner plane:</strong> <code>SDK_MULTI_ORCH_ENABLED=1</code> + <code>LR_DESCRIPTOR_DISPATCH=1</code>
+      + <code>SELECT_PROVIDER_LR_CAPS</code> (which caps go LR) + <code>SELECT_PROVIDER_LR_PCT</code> + discovery
+      (<code>LR_ORCH_DISCOVERY</code>, <code>LR_OFFERINGS_JSON</code>) → the v0.9.0 orch on <code>:8936</code> via
+      <code>_dispatch_lr</code>/<code>_dispatch_lr_v2</code> → <code>call_runner</code>.
+      <span class="file">LR-V0.9.0-EXECUTION-REPORT.md:63-65,120-125</span> · <span class="file">LR-V1-RETIRE-REPORT.md:71</span></li>
+    <li><strong>Key mechanic for pinning:</strong> LR selection is <em>additive</em> and <strong>fails open to
+      BYOC</strong> — if LR dispatch is unavailable, the request falls back to <code>byoc-staging-1</code>.
+      <span class="file">LR-3ORCH-INFRA-ASSESSMENT.md:101,205</span></li>
+  </ul>
+
+  <h3>Existing control surface (consolidate with, do not duplicate)</h3>
+  <table>
+    <tr><th>Layer</th><th>Existing controls</th><th>Where</th></tr>
+    <tr><td>Storyboard base-URL</td><td><code>STORYBOARD_PROVIDER_SWITCH</code>, <code>NAAP_PROVIDER</code></td>
+      <td><span class="file">STORYBOARD-SIGNER-ROUTING.md:195</span></td></tr>
+    <tr><td>SDK service — signer</td><td><code>SIGNER_FROM_VALIDATE</code>, <code>AUTH_VALIDATE_URL</code>, <code>SIGNER_URL</code></td>
+      <td><span class="file">app.py:519,540,541</span> (per STORYBOARD-SIGNER-ROUTING.md:121-123)</td></tr>
+    <tr><td>SDK service — LR orch</td><td><code>SDK_MULTI_ORCH_ENABLED</code>, <code>LR_DESCRIPTOR_DISPATCH</code>, <code>SELECT_PROVIDER_LR_CAPS</code>, <code>SELECT_PROVIDER_LR_PCT</code>, <code>LR_ORCH_DISCOVERY</code>, <code>LR_OFFERINGS_JSON</code></td>
+      <td><span class="file">LR-V0.9.0-EXECUTION-REPORT.md:63-65</span></td></tr>
+    <tr><td>SDK service — BYOC orch</td><td><code>ORCH_URL</code>, <code>CAPABILITY_ORCH_MAP</code></td>
+      <td><span class="file">LR-JOHN-DEPLOY-RUNBOOK.md:45</span></td></tr>
+    <tr><td>NaaP web feature flags (DB, default OFF)</td><td><code>per_key_remote_signer</code>, <code>provider_instances</code>, NAAP-5 gateway flag</td>
+      <td><span class="file">apps/web-next/src/lib/feature-flags.ts:44,84,177-181</span></td></tr>
+    <tr><td>Env guard rail</td><td><code>SIGNER_FROM_VALIDATE=1</code> rejected unless <code>AUTH_VALIDATE_URL</code> set</td>
+      <td><span class="file">simple-infra/scripts/validate-envs.sh:141-155</span></td></tr>
+  </table>
+  <p class="muted"><strong>Consolidation decision:</strong> the two new controls live <em>in the same SDK service
+  as env vars</em> (the same place <code>_effective_signer</code> and <code>_dispatch_lr_v2</code> already read
+  their config), validated by the same <code>validate-envs.sh</code>. No new parallel control plane is introduced;
+  the NaaP-web feature-flag registry is not extended (these are service-runtime routing knobs, not product flags).</p>
+
+  <!-- ============================================================ -->
+  <h2>3 · Finalized routing decision flow</h2>
+  <div class="flow">Incoming request  (Authorization: Bearer &lt;key&gt;)
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│ STEP 1 — KEY → PATH   (Plane A: _effective_signer)                      │
+│                                                                         │
+│   KEY_ROUTING_FROM_ENV = 0 (default)  →  legacy: startswith("naap_")    │
+│   KEY_ROUTING_FROM_ENV = 1            →  first-match glob patterns:     │
+│        match KEY_PATTERN_PYMTHOUSE (e.g. naap_* )  → pymthouse path     │
+│        match KEY_PATTERN_DAYDREAM   (e.g. sk_*    )  → daydream path     │
+│        match neither → KEY_ROUTING_UNMATCHED (fail_closed | daydream)   │
+└───────────────────────────────────────────────────────────────────────┘
+        │                                              │
+   pymthouse path                                 daydream path
+   (validate → signerSession)                     (static SIGNER_URL)
+        │                                              │
+        ▼                                              ▼
+   signer = pymthouse DMZ                         signer = signer.daydream.live
+   payment type = byoc                            payment type = lv2v
+        │                                              │
+        ▼                                              ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│ STEP 2 — PATH → ORCH   (Plane B: _dispatch_lr_v2 / BYOC fallback)       │
+│                                                                         │
+│   ORCH_PIN_BY_PATH = 0 (default)                                        │
+│       pymthouse: LR if cap∈SELECT_PROVIDER_LR_CAPS else BYOC (fail-open)│
+│       daydream : today's daydream/byoc plane (unchanged)                │
+│                                                                         │
+│   ORCH_PIN_BY_PATH = 1                                                   │
+│       pymthouse: live-runner orch (:8936) ONLY — NO byoc fall-open;     │
+│                  LR-dispatch failure → reject (fail-closed)             │
+│       daydream : byoc/daydream ONLY — NEVER the live-runner orch        │
+└───────────────────────────────────────────────────────────────────────┘</div>
+  <p class="muted">Step 2 keys on the <em>resolved path</em> (which signer plane Step 1 chose), so it composes
+  cleanly whether Step 1 used legacy or env-pattern matching.</p>
+
+  <!-- ============================================================ -->
+  <h2>4 · Config surface (all new controls)</h2>
+  <table>
+    <tr><th>Env var / flag</th><th>Type</th><th>Default</th><th>Where read</th><th>Precedence / notes</th></tr>
+    <tr>
+      <td><code>KEY_ROUTING_FROM_ENV</code></td><td>bool (<code>0/1</code>)</td><td class="ok"><code>0</code> (legacy)</td>
+      <td><code>_effective_signer</code> <span class="assume">(app.py ~1072-1091 per STORYBOARD-SIGNER-ROUTING.md:125; LR-3ORCH-INFRA-ASSESSMENT.md:67 cites 904-923 — assumption, verify)</span></td>
+      <td>Master gate for pattern engine. OFF ⇒ hardcoded <code>startswith("naap_")</code> (byte-identical to today).</td>
+    </tr>
+    <tr>
+      <td><code>KEY_PATTERN_PYMTHOUSE</code></td><td>CSV glob list</td><td><code>naap_*</code></td>
+      <td>same helper (<code>_match_key_path</code>, new)</td>
+      <td>Evaluated <strong>first</strong>. Match ⇒ pymthouse/live-runner-eligible path. Multiple globs comma-separated (e.g. <code>naap_*,app_*_pmth_*</code>).</td>
+    </tr>
+    <tr>
+      <td><code>KEY_PATTERN_DAYDREAM</code></td><td>CSV glob list</td><td><code>sk_*</code></td>
+      <td>same helper</td>
+      <td>Evaluated <strong>second</strong>. Match ⇒ daydream/byoc path. Realistic default covers <code>sk_live_*</code>.</td>
+    </tr>
+    <tr>
+      <td><code>KEY_ROUTING_UNMATCHED</code></td><td>enum <code>fail_closed | daydream</code></td><td><code>fail_closed</code> <span class="muted">(recommended)</span></td>
+      <td>same helper</td>
+      <td>Only consulted when <code>KEY_ROUTING_FROM_ENV=1</code>. Fail-closed rejects (401/402) rather than silently billing the Daydream shared wallet — see justification below. The outer gate being OFF by default preserves zero regression.</td>
+    </tr>
+    <tr>
+      <td><code>ORCH_PIN_BY_PATH</code></td><td>bool (<code>0/1</code>)</td><td class="ok"><code>0</code></td>
+      <td>orch-selection gate in <code>_dispatch_lr_v2</code> + BYOC fallback <span class="assume">(app.py — line n/a in docs; assumption, verify)</span></td>
+      <td><strong>Single flag governs BOTH pinnings symmetrically.</strong> OFF ⇒ today's LR-select-with-BYOC-fail-open + daydream unchanged.</td>
+    </tr>
+    <tr>
+      <td><code>NAAP_FAIL_CLOSED</code> <span class="muted">(optional / bundled)</span></td><td>bool</td><td class="ok"><code>0</code></td>
+      <td><code>_effective_signer</code> pymthouse branch</td>
+      <td>Carried over from original Option A (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:364-366</span>): <code>naap_</code> key that matched pymthouse but resolves NO session ⇒ reject instead of falling to Daydream. Distinct from <code>KEY_ROUTING_UNMATCHED</code> (which handles keys matching no pattern).</td>
+    </tr>
+  </table>
+
+  <h3>Design choices, justified</h3>
+  <ul>
+    <li><strong>Glob, not regex.</strong> Key discriminators are literal-prefix tokens (<code>naap_</code>,
+      <code>sk_live_</code>, <code>app_…_pmth_</code>). Glob (<code>fnmatch</code>: <code>*</code>, <code>?</code>) is
+      operator-legible, matches the existing <code>sk_live_*</code> mental model, and eliminates ReDoS / catastrophic
+      backtracking and accidental over-broad patterns. If true regex power is ever needed, add
+      <code>KEY_PATTERN_SYNTAX=glob|regex</code> later — not now.</li>
+    <li><strong>First-match precedence.</strong> Pymthouse patterns are checked before Daydream patterns; the first
+      list that matches wins. Rationale: native <code>naap_</code>/composite forms are the more specific, higher-risk
+      routing (they must never leak to the shared wallet), so they take priority. Patterns SHOULD be disjoint;
+      <code>validate-envs.sh</code> warns if a sample key matches both lists.</li>
+    <li><strong>Fail-closed for unmatched (recommended default when the engine is enabled).</strong> An unmatched key
+      today falls through to the Daydream signer and <em>silently bills the shared Daydream wallet</em> — the HIGH
+      risk R1 in the original design (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:317-321</span>). Rejecting
+      is safer. Because the whole engine is gated OFF by default (<code>KEY_ROUTING_FROM_ENV=0</code>), defaulting the
+      inner policy to <code>fail_closed</code> introduces <em>zero regression at merge</em>; operators who want the
+      legacy fall-through can set <code>KEY_ROUTING_UNMATCHED=daydream</code>.</li>
+    <li><strong>One flag for both pins (as explicitly requested).</strong> Trade-off: a single
+      <code>ORCH_PIN_BY_PATH</code> is atomic, symmetrical, and one-switch to roll back — but you cannot pin one side
+      while leaving the other free. If independent control is later needed, split into
+      <code>ORCH_PIN_PYMTHOUSE</code> / <code>ORCH_PIN_DAYDREAM</code>; ship one flag now.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>5 · PR breakdown (self-contained, ordered, each zero-regression)</h2>
+  <p class="muted">Code PRs target the <strong><code>simple-infra</code></strong> repo (where the SDK service lives),
+  <em>not</em> <code>livepeer/naap</code>. This HTML doc is the only artifact committed to
+  <code>livepeer/naap:docs/pricing-scope-simplified</code>. Each PR is independently mergeable and a no-op until its
+  flag is enabled.</p>
+
+  <div class="card">
+    <p><span class="prnum">1</span><strong>Env-driven key→path pattern engine (default legacy)</strong></p>
+    <ul>
+      <li><strong>Scope:</strong> add <code>_match_key_path(bearer) → "pymthouse"|"daydream"|"unmatched"</code> and
+        wire it into <code>_effective_signer</code>, used only when <code>KEY_ROUTING_FROM_ENV=1</code>; otherwise the
+        existing <code>startswith("naap_")</code> branch runs unchanged.</li>
+      <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span> (<code>_effective_signer</code>);
+        <span class="file">simple-infra/scripts/validate-envs.sh</span> (validate pattern envs + disjointness warning);
+        <span class="file">simple-infra/docker-compose/sdk-service.yaml</span> (document defaults).</li>
+      <li><strong>Flag introduced:</strong> <code>KEY_ROUTING_FROM_ENV=0</code> (+ <code>KEY_PATTERN_PYMTHOUSE</code>,
+        <code>KEY_PATTERN_DAYDREAM</code>, <code>KEY_ROUTING_UNMATCHED</code>).</li>
+      <li><strong>Tests:</strong> legacy mode byte-identical to today; env mode → <code>naap_*</code>→pymthouse,
+        <code>sk_*</code>→daydream, unmatched→(fail_closed reject | daydream); precedence + disjointness; empty/garbage bearer.</li>
+      <li><strong>Prod validation:</strong> deploy with flag OFF → confirm a <code>naap_</code> and an <code>sk_</code>
+        request route identically to today (reuse <span class="file">pymthouse-e2e.md</span> harness).</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <p><span class="prnum">2</span><strong>Path→orch pinning (single symmetrical flag, default OFF)</strong></p>
+    <ul>
+      <li><strong>Scope:</strong> gate the LR-vs-BYOC selection on <code>ORCH_PIN_BY_PATH</code>. ON ⇒ pymthouse path
+        pinned to the live-runner orch only (remove the BYOC fail-open, reject on LR failure); daydream path pinned to
+        byoc/daydream only (exclude from LR selection regardless of <code>SELECT_PROVIDER_LR_CAPS</code>).</li>
+      <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span>
+        (<code>_dispatch_lr_v2</code> selection + BYOC fallback branch);
+        <span class="file">simple-infra/scripts/validate-envs.sh</span>;
+        <span class="file">simple-infra/docker-compose/sdk-service.yaml</span>.</li>
+      <li><strong>Flag introduced:</strong> <code>ORCH_PIN_BY_PATH=0</code>.</li>
+      <li><strong>Tests:</strong> pymthouse+ON→LR only, LR-fail→reject (no BYOC); daydream+ON→byoc only, never LR;
+        both OFF→today's fail-open + daydream unchanged.</li>
+      <li><strong>Prod validation:</strong> flag OFF → no change; enable on ONE canary instance → drive naap key
+        (expect <code>:8936</code> only) and daydream key (expect byoc/daydream only).</li>
+      <li><strong>Independence:</strong> keys on the resolved signer plane, so it is orthogonal to PR&nbsp;1 and mergeable in either order.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <p><span class="prnum">3</span><strong>(Optional) fail-closed on unresolved naap session — R1 hardening</strong></p>
+    <ul>
+      <li><strong>Scope:</strong> in the pymthouse branch, when a key matched pymthouse but validate returns no
+        session, reject (402/401) instead of falling to the Daydream signer, gated by <code>NAAP_FAIL_CLOSED=1</code>.</li>
+      <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span> (<code>_effective_signer</code>);
+        <span class="file">simple-infra/scripts/validate-envs.sh</span>.</li>
+      <li><strong>Flag introduced:</strong> <code>NAAP_FAIL_CLOSED=0</code>.</li>
+      <li><strong>Tests:</strong> <code>naap_</code>+session→DMZ; <code>naap_</code>+no-session→402 (flag ON) / today's
+        Daydream fall-through (flag OFF); <code>sk_</code>→static signer.</li>
+      <li><strong>Why separate/optional:</strong> not one of the three core asks; it closes the pre-existing R1
+        mis-attribution hole and pairs naturally with PR&nbsp;1's unmatched fail-closed. Ship only if owners want it.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>6 · No-regression test matrix</h2>
+  <p>Dimensions: <em>key pattern × <code>KEY_ROUTING_FROM_ENV</code> × <code>ORCH_PIN_BY_PATH</code> → signer chosen ×
+  orch chosen → expected outcome</em>.</p>
+  <table>
+    <tr><th>#</th><th>Key</th><th>ENV routing</th><th>ORCH pin</th><th>Signer</th><th>Orch</th><th>Expected</th></tr>
+    <tr><td>1</td><td><code>sk_live_…</code></td><td class="muted">OFF</td><td class="muted">OFF</td>
+      <td><span class="pill day">daydream</span> lv2v</td><td><span class="pill byoc">byoc/daydream</span></td>
+      <td class="ok">200 — today's baseline</td></tr>
+    <tr><td>2</td><td><code>sk_live_…</code></td><td class="muted">OFF</td><td><span class="pill on">ON</span></td>
+      <td><span class="pill day">daydream</span> lv2v</td><td><span class="pill byoc">byoc/daydream ONLY</span></td>
+      <td class="ok">200 — never LR</td></tr>
+    <tr><td>3</td><td><code>naap_…</code> (session)</td><td class="muted">OFF</td><td class="muted">OFF</td>
+      <td><span class="pill pmt">pymthouse</span> byoc</td><td><span class="pill lr">LR if cap∈SELECT else BYOC</span></td>
+      <td class="ok">200 — confirmed path (LR native or BYOC fail-open)</td></tr>
+    <tr><td>4</td><td><code>naap_…</code> (session)</td><td class="muted">OFF</td><td><span class="pill on">ON</span></td>
+      <td><span class="pill pmt">pymthouse</span> byoc</td><td><span class="pill lr">live-runner :8936 ONLY</span></td>
+      <td class="ok">200 via LR; LR-fail → <span class="warn">reject</span> (no BYOC) <span class="assume">— requires fixed-capable DMZ signer, see OQ-1</span></td></tr>
+    <tr><td>5</td><td><code>naap_…</code> (no session)</td><td class="muted">OFF</td><td>any</td>
+      <td>Daydream fallback / <code>NAAP_FAIL_CLOSED</code>→402</td><td>—</td>
+      <td class="warn">today: silent Daydream bill (R1); flag ON → 402</td></tr>
+    <tr><td>6</td><td><code>naap_…</code></td><td><span class="pill on">ON</span> (defaults)</td><td class="muted">OFF</td>
+      <td><span class="pill pmt">pymthouse</span></td><td>= row 3</td><td class="ok">identical to legacy row 3</td></tr>
+    <tr><td>7</td><td><code>sk_…</code></td><td><span class="pill on">ON</span> (defaults)</td><td class="muted">OFF</td>
+      <td><span class="pill day">daydream</span></td><td>= row 1</td><td class="ok">identical to legacy row 1</td></tr>
+    <tr><td>8</td><td><code>foo_unknown</code></td><td><span class="pill on">ON</span>, unmatched=<code>fail_closed</code></td><td>any</td>
+      <td>— (reject)</td><td>—</td><td class="bad">401/402 fail-closed — no silent shared-wallet bill</td></tr>
+    <tr><td>9</td><td><code>foo_unknown</code></td><td><span class="pill on">ON</span>, unmatched=<code>daydream</code></td><td class="muted">OFF</td>
+      <td><span class="pill day">daydream</span></td><td><span class="pill byoc">byoc/daydream</span></td>
+      <td class="warn">200 — legacy-compatible fall-through (documents the non-fail-closed choice)</td></tr>
+    <tr><td>10</td><td><code>naap_…</code></td><td><span class="pill on">ON</span></td><td><span class="pill on">ON</span></td>
+      <td><span class="pill pmt">pymthouse</span></td><td><span class="pill lr">LR ONLY</span></td><td class="ok">200 via LR (= row 4)</td></tr>
+    <tr><td>11</td><td><code>sk_…</code></td><td><span class="pill on">ON</span></td><td><span class="pill on">ON</span></td>
+      <td><span class="pill day">daydream</span></td><td><span class="pill byoc">byoc ONLY</span></td><td class="ok">200 (= row 2)</td></tr>
+  </table>
+  <p class="muted"><strong>No-regression anchor:</strong> rows 1 &amp; 3 are today's two confirmed paths; rows 6/7
+  prove the env engine (default patterns) reproduces them exactly; every "ON" is opt-in.</p>
+
+  <!-- ============================================================ -->
+  <h2>7 · Rollout / enablement &amp; rollback</h2>
+  <h3>Enablement (per-instance, additive)</h3>
+  <ol>
+    <li><strong>Phase 0 — merge all PRs, all flags OFF.</strong> Production is byte-identical; nothing routes differently.</li>
+    <li><strong>Phase 1 — one canary instance:</strong> <code>KEY_ROUTING_FROM_ENV=1</code> with default patterns
+      (<code>naap_*</code>, <code>sk_*</code>) and <code>KEY_ROUTING_UNMATCHED=daydream</code> first → verify routing is
+      identical to legacy (rows 6/7).</li>
+    <li><strong>Phase 2:</strong> flip <code>KEY_ROUTING_UNMATCHED=fail_closed</code> on canary → verify unmatched keys
+      reject (row 8) and known keys still pass.</li>
+    <li><strong>Phase 3:</strong> set <code>ORCH_PIN_BY_PATH=1</code> on canary <em>after</em> confirming the DMZ
+      signer is fixed-capable (OQ-1) → verify naap→LR-only (row 4/10) and daydream→byoc-only (row 2/11).</li>
+    <li><strong>Phase 4 (optional):</strong> <code>NAAP_FAIL_CLOSED=1</code>.</li>
+    <li>Promote instance-by-instance once each phase is green.</li>
+  </ol>
+  <h3>Rollback</h3>
+  <ul>
+    <li>Every control is an env var — <strong>unset it (or set <code>0</code>) + restart</strong> → byte-identical to
+      the prior state. No image rebuild required (all env-gated).</li>
+    <li>Honor the guard rail: keep <code>SIGNER_FROM_VALIDATE</code>/<code>AUTH_VALIDATE_URL</code> paired
+      (<span class="file">validate-envs.sh:141-155</span>).</li>
+    <li>Instant partial rollback: <code>ORCH_PIN_BY_PATH=0</code> restores LR→BYOC fail-open (removes the pin's
+      fail-closed blast radius) without touching key routing.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>8 · Risks &amp; mitigations</h2>
+  <table>
+    <tr><th>Risk</th><th>Mitigation</th></tr>
+    <tr><td class="bad">Pin removes LR→BYOC fail-open (pymthouse). An LR-orch outage becomes a pymthouse outage while <code>ORCH_PIN_BY_PATH=1</code>.</td>
+      <td>Ship flag OFF; enable only after LR SLO proven (run65/66 confirm functional). Instant rollback = flag <code>0</code>. Monitor <code>:8936</code> health.</td></tr>
+    <tr><td class="bad">DMZ signer lacks <code>RemoteType_Fixed</code> ⇒ pinning pymthouse→LR-only would <code>400 "invalid job type"</code> for fal caps until the merged <code>fixed</code>+<code>byoc</code> signer ships. <span class="file">LR-3ORCH-INFRA-ASSESSMENT.md:19-28,65</span></td>
+      <td><strong>Gate Phase 3 on the fixed-capable DMZ signer being deployed (John item 3).</strong> Until then leave <code>ORCH_PIN_BY_PATH=0</code> — fail-open keeps fal caps on BYOC.</td></tr>
+    <tr><td class="warn">Single-flag coupling — cannot pin one side independently.</td>
+      <td>Accepted per explicit request; split into two flags later if needed.</td></tr>
+    <tr><td class="warn">Pattern collision (a key matches both lists) or over-broad glob.</td>
+      <td>First-match precedence (pymthouse first) + disjointness warning in <code>validate-envs.sh</code> + glob (no regex) to prevent catastrophic matches.</td></tr>
+    <tr><td class="warn">Line-number drift — <code>_effective_signer</code> cited as <code>1072-1091</code> (STORYBOARD-SIGNER-ROUTING.md:125) vs <code>904-923</code> (LR-3ORCH-INFRA-ASSESSMENT.md:67).</td>
+      <td>Confirm exact location against deployed <code>app.py</code> before coding (OQ-1).</td></tr>
+    <tr><td class="warn">Is the Daydream path ever LR-eligible today? If <code>SELECT_PROVIDER_LR_CAPS</code> could route a daydream request to LR, pin ON changes that.</td>
+      <td><span class="assume">Assumption: daydream prod = daydream/fal plane, not <code>:8936</code> (LR-V0.9.0-EXECUTION-REPORT.md:23,93). Verify with SDK owner (OQ-2).</span></td></tr>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>9 · Open questions for owners</h2>
+  <ul>
+    <li><strong>OQ-1 (John — signer/orch):</strong> confirm the exact <code>_effective_signer</code> +
+      <code>_dispatch_lr_v2</code>/BYOC-fallback locations in the deployed <code>app.py</code>, and confirm the
+      pymthouse DMZ signer is <code>RemoteType_Fixed</code>-capable before <code>ORCH_PIN_BY_PATH</code> is enabled for
+      the pymthouse path (else LR-only pinning breaks fal caps).</li>
+    <li><strong>OQ-2 (SDK owner):</strong> is env the agreed consolidation point (vs the NaaP-web flag registry)?
+      Is any Daydream traffic LR-eligible today via <code>SELECT_PROVIDER_LR_CAPS</code>? Glob vs regex preference?</li>
+    <li><strong>OQ-3 (product):</strong> default <code>KEY_ROUTING_UNMATCHED</code> = <code>fail_closed</code>
+      (recommended, safe because engine is OFF by default) vs <code>daydream</code> (legacy fall-through)?</li>
+    <li><strong>OQ-4:</strong> ship PR&nbsp;3 (<code>NAAP_FAIL_CLOSED</code>) now, or defer the R1 hardening?</li>
+  </ul>
+
+  <div class="foot">
+    <p><strong>Bottom line.</strong> Three additive, env-gated improvements to Option A — a configurable key→path
+    pattern engine, a single symmetrical path→orch pinning flag, and (optional) fail-closed session hardening — each
+    defaulting to today's exact behavior. Merging changes nothing; the two confirmed paths (Daydream→lv2v,
+    naap→pymthouse→live-runner <code>type=fixed</code>) stay green until an operator opts in per instance.</p>
+    <p>Citations from the read-only investigation docs (<span class="file">STORYBOARD-SIGNER-ROUTING.md</span>,
+    <span class="file">LR-V0.9.0-EXECUTION-REPORT.md</span>, <span class="file">LR-3ORCH-INFRA-ASSESSMENT.md</span>,
+    <span class="file">LR-JOHN-DEPLOY-RUNBOOK.md</span>, <span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html</span>) and
+    the repo file <span class="file">apps/web-next/src/lib/feature-flags.ts</span>. The SDK service
+    <code>app.py</code> lives in <code>simple-infra</code>, not this repo; its line numbers are quoted from those docs
+    and marked as assumptions where they disagree.</p>
+  </div>
+
+</div>
+</body>
+</html>
