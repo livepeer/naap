@@ -1,9 +1,70 @@
+# RETRACTED — this report's core claim is WRONG (the 403 was a probe-harness artifact, not a signer bug)
+
+> ## ⛔ RETRACTION BANNER — READ FIRST
+>
+> **John, please disregard the "signer manifest-binding bug" conclusion below.**
+> This report claimed the PRODUCTION pymthouse signer *ignores* the supplied
+> `ManifestID` and mints a fresh random id, requiring go-livepeer **PR #4006**.
+> **That is incorrect.** The `403 mismatched manifest and auth token` was a
+> **test-harness artifact**, not a signer defect:
+>
+> - The e2e probe that produced it (`scripts/run63-lr-fixed-e2e-prodsigner.py`,
+>   L92) **hand-built the sign request and OMITTED the `ManifestID` field
+>   entirely**. An empty `ManifestID` is the *one and only* condition under which
+>   the signer falls back to `RandomManifestID()`
+>   (`server/remote_signer.go` ~L401/L437). That fresh id (`8d6eea88`) then
+>   mismatched the challenge `session_id` (`381b5a15`) → the orch's 403.
+> - The **real SDK never omits it**: it reads the orch challenge
+>   `manifest_id` (= `AuthToken.SessionId`, `ai_http.go` L448) and forwards it to
+>   the signer as `ManifestID` (`live_runner.py` L851 → `remote_signer.py` L298).
+>   The signer **copies `req.ManifestID`** (`remote_signer.go` L401), so
+>   `segCreds.manifestId == session_id` and the 403 does **not** occur.
+> - Therefore **#4006 is NOT required** to clear this 403 for the SDK-driven
+>   `fixed` flow. It is at most defense-in-depth hardening. #4006 was closed
+>   as redundant; closing it was **correct** for the SDK path.
+>
+> **Full analysis:** [`PR4006-NECESSITY-INVESTIGATION.md`](./PR4006-NECESSITY-INVESTIGATION.md)
+> (verdict **(A)** — #4006 not necessary), §2/§5/§7.
+>
+> **Confirmatory probe:** [`scripts/run64-lr-fixed-manifest-echo-probe.py`](./scripts/run64-lr-fixed-manifest-echo-probe.py)
+> is an exact copy of run63 whose *only* substantive change is populating
+> `ManifestID = challenge.session_id` (mirroring the SDK). Its decisive decode
+> asserts `segCreds.manifestId == session_id`.
+>
+> ### ⚠️ Evidence status: CODE-LEVEL, not yet e2e-confirmed
+>
+> The retraction rests on the **uniform signer code lineage** (`manifestID :=
+> req.ManifestID`, randomize only when empty) — the same standard already
+> reached in `PR4006-NECESSITY-INVESTIGATION.md` §7. **The run64 echo probe was
+> NOT executed in this pass** because the naap key / composite bearer (and the
+> funded-payer path) were **not available** in this environment, so the
+> "signer echoes a *populated* `ManifestID`" link remains **inferred from code,
+> not directly observed e2e**. To make it 100% airtight, run `run64` against
+> `pymthouse-production.up.railway.app` with the naap composite bearer and
+> confirm `segCreds.manifestId == session_id` (Stage C → 200 or a *different*
+> downstream error). Given uniform code lineage this is near-certain, but it is
+> the one link neither this report nor the investigation directly observed.
+>
+> **What this report got right (kept for John):** the *feature-matrix* findings
+> in §5/§8 are unaffected — the two deployed signers are **inverted** on
+> `fixed` vs `byoc`, and both still fail `lv2v` on `numTickets > 100`. Those are
+> real and independent of #4006. See "Still-valid items" at the bottom.
+
+---
+
+<details>
+<summary><b>ORIGINAL REPORT (SUPERSEDED — retained for correction trail; do not act on §1/§4/§6)</b></summary>
+
 # Signer bug report — `manifestId` mismatch blocks `type=fixed` live-runner e2e (PRODUCTION pymthouse signer)
 
 **For:** John (pymthouse / go-livepeer signer owner)
 **From:** naap live-runner e2e probe (2026-07-29)
 **Type:** signer-side code bug — **documentation only**, nothing was deployed/rebuilt/minted on-chain.
 **Source of every value below:** verified e2e probe run, recorded in [`LR-V0.9.0-EXECUTION-REPORT.md`](./LR-V0.9.0-EXECUTION-REPORT.md) (final PRODUCTION-signer addendum, commit `74b3feb1`).
+
+> **[CORRECTION]** §1, §4, and §6 below are **WRONG** — see the retraction banner
+> at the top. The 403 was caused by the probe omitting `ManifestID`, not by the
+> signer mis-binding it. The signer copies a supplied `ManifestID`.
 
 ---
 
@@ -126,3 +187,30 @@ This single build unblocks the naap → live-runner `fixed` e2e and restores `by
 - **Read/test-only:** hit only `:8936` `/discovery` + `/apps/.../app/generate` and the signer `/generate-live-payment` + `/healthz` webhooks. **No deploy / rebuild / signer / orch / Caddy / runners mutation.**
 - **`byoc-staging-1` — NEVER touched. `sdk-staging-1` — untouched** (direct native probe, no SDK container).
 - Secrets env-only; redacted throughout.
+
+</details>
+
+---
+
+## Still-valid items (NOT retracted — independent of the #4006 error above)
+
+These findings from the original §5/§8 do **not** depend on the (wrong) manifest-binding
+claim and remain accurate:
+
+1. **The two deployed signers are inverted on job types.** `pymthouse-production`
+   (`69.46.46.126`) supports `type=fixed` (HTTP 200, `numTickets 2`,
+   `Type:fixed`) but rejects `byoc` (`400 invalid job type`).
+   `pymthouse-signer-test-production` is the opposite (supports `byoc`, rejects
+   `fixed`). No single deployed signer currently has `{fixed, byoc}` together.
+2. **`lv2v` is broken on both** with `numTickets 2731486460 exceeds maximum of 100`.
+3. **What John should actually ship** (revised): a single build with **both**
+   `type=fixed` and `/sign-byoc-job` (`byoc`) support, plus the `lv2v numTickets`
+   fix. **The `manifestId = AuthToken.SessionId` binding (PR #4006) is NOT required
+   to clear the 403** — the SDK already supplies the value and the signer copies it.
+   #4006 is optional defense-in-depth only.
+
+## Correction provenance
+
+- **Retraction basis:** [`PR4006-NECESSITY-INVESTIGATION.md`](./PR4006-NECESSITY-INVESTIGATION.md) verdict (A) (code-level).
+- **Confirmatory probe (created, not yet executed):** [`scripts/run64-lr-fixed-manifest-echo-probe.py`](./scripts/run64-lr-fixed-manifest-echo-probe.py).
+- **Evidence status:** code-level; the e2e echo confirmation is pending a run with the naap composite bearer (unavailable this pass). See the run64 section of [`LR-V0.9.0-EXECUTION-REPORT.md`](./LR-V0.9.0-EXECUTION-REPORT.md).
