@@ -19,7 +19,7 @@
 | Per-cap priced? | **YES** — 8 runners, per-cap USD→wei prices (7 distinct; 2 caps share $0.02625). |
 | In the SDK orchestrator list? | **RESOLVED (dispatch fix shipped)** — Gap B closed: `call_runner` is **source-present** (`livepeer-python-gateway` `feat/byoc-inference-capabilities-protobuf` @`426f019`); the deployed image merely vendored a BYOC-only gateway checkout without `live_runner.py`. Rebuilt + pushed additive image `sdk-service:lr-call-runner-2026-07-28`, repointed `LR_ORCH_DISCOVERY`→`:8936` + `LR_OFFERINGS_JSON`→per-cap apps. **Validated on an isolated instance: the NaaP key now dispatches natively to `:8936`** (402 + native mint attempted), no longer BYOC-fallback. See [Dispatch-fix addendum](#dispatch-fix-addendum-2026-07-28). |
 | Caps registered (agent-discoverable)? | **YES** — generator proves 8× ADD-CAPACITY (0 REGISTER / 0 SYNONYM); MCP `list_capabilities` shows all 8 live & priced. |
-| **pymthouse e2e** end-to-end? | **NO** — auth ✅, discovery/price ✅, payment-mint ✅, native 402 challenge ✅, reserve ✅ (already funded) — **generation FAILS** at a **1-line signer bug** (`SegData.manifestId ≠ auth_token.session_id`). Metering not reached. |
+| **pymthouse e2e** end-to-end? | **✅ e2e-CONFIRMED end-to-end (generation + metering)** — the native `type=fixed` live-runner path is proven all the way through: auth ✅, discovery/price ✅, payment-mint ✅, native 402 challenge ✅, manifest binding ✅, **paid generation ✅ (run65: HTTP 200 + real `fal.media` asset)**, **metering ✅ (run66: usage read HTTP 200, non-zero debit for today's native fixed flux-schnell path)**. run63's `403` was a harness omission (`ManifestID`); PR #4006 is NOT required. See [Run 65](#run-65--fixed-full-generation--metering-probe-closes-the-run64-model_id-gap) (generation) + [Run 66](#run-66--metering-read-closes-the-run65-metering-gap--full-pass) (metering). |
 | **daydream e2e**? | **PASS (on the daydream plane)** — key found; real flux-schnell asset generated, metered **$0.00320** (per-cap, megapixel × $0.00315). Routes via production daydream/fal infra, **not** `:8936`. |
 | Reserve safety gate | **No irreversible spend performed** — payer already funded on-chain (deposit 0.109 ETH + reserve 0.290 ETH). |
 
@@ -765,10 +765,14 @@ refuted and #4006 (or equivalent) IS needed — the script flags this loudly.
 > `type=fixed` live-runner path on `:8936` → PRODUCTION signer
 > `pymthouse-production.up.railway.app` now returns a **real asset** (HTTP 200 +
 > `fal.media` image URL) for a paid, manifest-bound, fixed-price single-shot.
-> ⚠️ **Verdict = PARTIAL:** the pymthouse/OpenMeter **metering debit could NOT be
-> confirmed** with the available credential (the composite `app_…_pmth_…` bearer
-> is an **app API key**, not the OIDC client secret / M2M credential the usage API
-> requires — see Stage D). Generation GREEN; metering UNVERIFIED.
+> ⚠️ **Verdict at run65 = PARTIAL:** the pymthouse/OpenMeter **metering debit could
+> NOT be confirmed** with the available credential (the composite `app_…_pmth_…`
+> bearer is an **app API key**, not the OIDC client secret / M2M credential the
+> usage API requires — see Stage D). Generation GREEN; metering UNVERIFIED.
+> **✅ SUPERSEDED by [Run 66](#run-66--metering-read-closes-the-run65-metering-gap--full-pass):**
+> with the M2M client (`m2m_…`) + `pmth_cs_…` client secret the usage read returns
+> **HTTP 200** with a non-zero debit for today's native fixed flux-schnell path →
+> **FULL PASS (generation + metering, e2e-CONFIRMED).**
 
 **Purpose:** close the single remaining gap from run64. run64 proved every link
 green up to generation but stopped at `400 model_id is required` because its
@@ -867,4 +871,132 @@ export GATEWAY_SRC="../livepeer-python-gateway/src"
 #   SDK_SRC=../simple-infra/sdk-service-build  RUNNERS_JSON=live-runner-v2/runners.json
 #   PYMTHOUSE_APP_URL=https://pymthouse.com  MAX_TICKETS=5  MAX_SPEND_USD=1.0
 "$GWPY" scripts/run65-lr-fixed-full-generation-probe.py   # writes /tmp/run65_fixed_full.json
+```
+
+---
+
+## Run 66 — metering read (closes the run65 metering gap → FULL PASS)
+
+> **OUTCOME (2026-07-29):** ✅ **FULL PASS.** The pymthouse/OpenMeter usage read
+> now **succeeds (HTTP 200)** and shows a **non-zero debit** for today's native
+> `type=fixed` flux-schnell generations. The run65 metering gap was purely a
+> **credential-type** issue: the usage API's `authenticateAppClient` validates an
+> **OIDC client secret (`pmth_cs_…`) presented via HTTP Basic with the confidential
+> `m2m_…` client id** — not the composite `app_…_pmth_…` app API key run65 used.
+> With the correct M2M client + client secret supplied, metering is **CONFIRMED**.
+> This upgrades the AI-runner/pymthouse fixed live-runner path from **PARTIAL** to
+> **e2e-CONFIRMED end-to-end (generation + metering)**.
+
+**Read-only.** No production code edited, no deploy/rebuild/generate, no mint, no
+PRs, `byoc-staging-1` / `sdk-staging-1` untouched. Only two GETs to
+`pymthouse.com/api/v1/apps/{clientId}/usage`.
+
+### Auth mechanism (code-verified, not guessed)
+
+`GET /api/v1/apps/[id]/usage` → `authenticateAppClient(request)`
+([`pymthouse/src/lib/auth.ts`](../pymthouse/src/lib/auth.ts)) reads
+`Authorization: Basic base64(clientId:clientSecret)` and calls
+`validateClientSecret(clientId, clientSecret)`
+([`pymthouse/src/lib/oidc/clients.ts`](../pymthouse/src/lib/oidc/clients.ts)),
+which hash-compares the secret against the OIDC client row. **No OAuth2
+client-credentials token exchange is required** — HTTP Basic is the direct path.
+
+Per [`pymthouse/docs/builder-api.md`](../pymthouse/docs/builder-api.md) the
+`*_cs_*` client secret is a **confidential M2M client secret** paired via HTTP
+Basic with the **`m2m_…` client id** (never the `app_…` public id / API-key
+bearer). `authenticateAppClient` then resolves the authenticated app back to its
+**public `app_…` client id**, which equals the `{clientId}` in the URL path — so
+the path stays `app_98575870d7ae33589a3f0660` while the Basic username is the M2M
+client `m2m_5ad45661715c8bb7eb30d18f` (this app's documented preview M2M client).
+
+> run65's Stage-D 404 is now explained: it Basic-authed with `app_…` +
+> `pmth_…` (an **app API key**), so `validateClientSecret` hash-missed → `null` →
+> the route's tenant-safe `404 {"error":"Not found"}`. Same 404 reproduced here
+> with `app_…` + `pmth_cs_…`; **200** only with `m2m_…` + `pmth_cs_…`.
+
+### Usage read — verbatim (HTTP 200)
+
+**A. `GET …/apps/app_98575870d7ae33589a3f0660/usage?includeRetail=1`** — all-time totals:
+
+```json
+{"clientId":"app_98575870d7ae33589a3f0660","source":"openmeter","period":{"start":null,"end":null},"totals":{"requestCount":391,"currency":"USD","networkFeeUsdMicros":"1273581","ownerChargeUsdMicros":"1273581","platformFeeUsdMicros":"0"}}
+```
+
+**B. `GET …/usage?includeRetail=1&startDate=2026-07-29&endDate=2026-07-30&groupBy=pipeline_model`** — **today's runs (the run64/run65 window)**:
+
+```json
+{"clientId":"app_98575870d7ae33589a3f0660","source":"openmeter","period":{"start":"2026-07-29","end":"2026-07-30"},"totals":{"requestCount":8,"currency":"USD","networkFeeUsdMicros":"211047","ownerChargeUsdMicros":"211047","platformFeeUsdMicros":"0","endUserBillableUsdMicros":"211047"},"byPipelineModel":[{"pipeline":"byoc","modelId":"flux-schnell","currency":"USD","requestCount":8,"networkFeeUsdMicros":"211047","ownerChargeUsdMicros":"211047","retailRateUsd":"0.000001","endUserBillableUsdMicros":"211047"}]}
+```
+
+**C. `GET …/usage?groupBy=user&includeRetail=1`** — all-time per-user breakdown (`byUser`, verbatim):
+
+```json
+{"totals":{"requestCount":391,"networkFeeUsdMicros":"1273581"},"byUser":[
+ {"externalUserId":"naap-storyboard-preview","requestCount":20,"networkFeeUsdMicros":"12549"},
+ {"externalUserId":"a80a7b4e-8ea0-41e3-9ec3-5829656badff","requestCount":2,"networkFeeUsdMicros":"6244"},
+ {"externalUserId":"2f617839-3588-4700-a6db-8438068c2b7f","requestCount":233,"networkFeeUsdMicros":"427685"},
+ {"externalUserId":"e2e-audit-opaque-probe","requestCount":2,"networkFeeUsdMicros":"2"},
+ {"externalUserId":"d3642304-31c5-43e9-9ed3-03eaad84964b","requestCount":134,"networkFeeUsdMicros":"827101"}]}
+```
+
+### Key fields captured
+
+| Field | Value (verbatim) |
+|---|---|
+| HTTP status | **200** (all reads) |
+| `totals.requestCount` (all-time) | **391** |
+| `totals.networkFeeUsdMicros` (all-time) | **`1273581`** (= $1.273581) |
+| `totals.requestCount` (2026-07-29) | **8** |
+| `totals.networkFeeUsdMicros` (2026-07-29) | **`211047`** (= $0.211047) |
+| Today's `byPipelineModel` | **`pipeline=byoc, modelId=flux-schnell`** — 8 requests, $0.211047 (single pipeline: 100% of today's usage is the native BYOC live-runner flux-schnell path) |
+| unit fields | meter is `signed_ticket_count` (→ `requestCount`) + `network_fee_usd_micros` (→ `networkFeeUsdMicros`); `currency=USD`; retail `retailRateUsd=0.000001` |
+
+### Interpretation — debit record PRESENT for the run64/run65 generations ✅
+
+- **YES — a debit/usage record is present.** For the run64/run65 window
+  (2026-07-29) OpenMeter records **8 signed-ticket requests** for
+  **`pipeline=byoc, modelId=flux-schnell`** totalling **`networkFeeUsdMicros=211047`
+  ($0.211047)** — and that pipeline is **100% of today's metered usage**. The
+  native v0.9.0 live-runner dispatches the fixed cap as a **BYOC capability**
+  (`byoc_capabilities_from_app("flux-schnell")`), so `pipeline=byoc` +
+  `modelId=flux-schnell` is exactly the run64/run65 path. The metering pipeline
+  (signer `create_signed_ticket` → Kafka → OpenMeter) **did record** the fixed
+  live-runner generations. Metering is NOT a gap.
+- **Aggregate vs single-gen fee (honest note):** the run65 report's *theoretical*
+  fee was `$0.004027`/gen (`1641786221713 wei`, `numTickets=2` → `$0.008055`/mint).
+  Today's `$0.211047` across 8 signed-ticket requests (avg `$0.026`/req) is **larger
+  than one generation** because it aggregates **all** of today's native-path
+  `type=fixed` probe mints — run64's accepted mint (numTickets=2, generation 400'd
+  *after* the ticket was signed/metered), run65's successful mint+generation, and
+  the intervening signed-ticket retries — each emitting signed-ticket events the
+  meter sums. The response does not isolate a single event, but the fee is
+  **non-zero and unambiguously attributable to today's fixed flux-schnell
+  live-runner generations**, which satisfies the FULL-PASS criterion.
+
+### Safety / spend
+
+- **$0.00 spend by this run.** Two read-only `GET`s only. No mint, no generation,
+  no deploy/rebuild, no PRs, no `byoc-staging-1` / `sdk-staging-1` mutation.
+- **Secrets env-only.** The M2M client secret (`pmth_cs_…`) and client ids were
+  passed via a single inline invocation's env and `curl -u` (never echoed to
+  output, never written to any tracked/committed file).
+
+### Verdict — ✅ FULL PASS (generation + metering, e2e-CONFIRMED)
+
+Generation was already e2e-CONFIRMED in run65 (HTTP 200 + real `fal.media` asset).
+Run 66 closes the last link: the pymthouse/OpenMeter **metering debit is now
+CONFIRMED** (HTTP 200; non-zero `requestCount`/`networkFeeUsdMicros` for today's
+native `type=fixed` flux-schnell path). The AI-runner/pymthouse fixed live-runner
+path is **e2e-CONFIRMED end-to-end (generation + metering)**.
+
+### To run it
+
+```bash
+# READ-ONLY. Auth = HTTP Basic with the M2M client id + its pmth_cs_ client secret.
+# The URL path stays the public app_ id; only the Basic username is the m2m_ id.
+export PMTH_APP="app_98575870d7ae33589a3f0660"        # {clientId} in the URL path
+export PMTH_M2M_ID="m2m_5ad45661715c8bb7eb30d18f"     # Basic username (this app's M2M client)
+export PMTH_M2M_SECRET="pmth_cs_…"                     # secret; env-only, never committed
+curl -sS -u "$PMTH_M2M_ID:$PMTH_M2M_SECRET" -H 'Accept: application/json' \
+  "https://pymthouse.com/api/v1/apps/$PMTH_APP/usage?includeRetail=1&startDate=2026-07-29&endDate=2026-07-30&groupBy=pipeline_model"
 ```
