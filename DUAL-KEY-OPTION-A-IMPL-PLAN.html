@@ -238,12 +238,12 @@
     <tr>
       <td><code>ORCH_PIN_BY_PATH</code></td><td>bool (<code>0/1</code>)</td><td class="ok"><code>0</code></td>
       <td><code>_lr_eligible</code> <span class="file">app.py:208-219</span> gate + orch-selection loop in <code>_dispatch_lr_v2</code> <span class="file">:290 (loop 316-329)</span> / <code>_dispatch_lr</code> <span class="file">:222 (loop 245-256)</span>; dispatch call site <span class="file">/inference :1329-1332</span> <span class="ok">(VERIFIED, Rev 2)</span></td>
-      <td><strong>Single flag governs BOTH pinnings symmetrically.</strong> OFF ⇒ today's LR-select-with-BYOC-fail-open + daydream unchanged.</td>
+      <td><strong>Single flag governs BOTH pinnings symmetrically.</strong> OFF ⇒ today's LR-select-with-BYOC-fail-open + daydream unchanged. <strong>Enforcement seam (Rev 2 review):</strong> the pin is applied at the <code>/inference</code> dispatch call site (<span class="file">:1329-1352</span>) — <code>_lr_eligible(cap_name)</code> alone has no path context, so the call site (which already holds <code>signer_url_eff</code>) is where LR is gated/forced and the BYOC fail-open is removed. <strong>"Resolved path" definition:</strong> <code>signer_url_eff == SIGNER_URL</code> ⇒ daydream path; a per-key session signer ⇒ pymthouse path.</td>
     </tr>
     <tr>
       <td><code>NAAP_FAIL_CLOSED</code> <span class="muted">(PR&nbsp;3 — first-class, Rev 2 · OQ-4 resolved)</span></td><td>bool</td><td class="ok"><code>0</code></td>
       <td><code>_effective_signer</code> pymthouse branch <span class="file">app.py:918-923</span> (session from <code>_resolve_validate_session:833-901</code>)</td>
-      <td>Carried over from original Option A (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:364-366</span>): <code>naap_</code> key that matched pymthouse but resolves NO session (<code>_effective_signer:921</code> falls to <code>SIGNER_URL:351</code>) ⇒ reject instead of falling to Daydream. Distinct from <code>KEY_ROUTING_UNMATCHED</code> (which handles keys matching no pattern). Flag-OFF by default ⇒ today's fall-through preserved.</td>
+      <td>Carried over from original Option A (<span class="file">DUAL-KEY-SIDE-BY-SIDE-DESIGN.html:364-366</span>): <code>naap_</code> key that matched pymthouse but resolves NO session ⇒ reject at the fall-through return (<code>_effective_signer:923</code> — <code>:921</code> is the success branch that returns the per-key signer) instead of falling to <code>SIGNER_URL:351</code> / Daydream. Distinct from <code>KEY_ROUTING_UNMATCHED</code> (which handles keys matching no pattern). Flag-OFF by default ⇒ today's fall-through preserved. <strong>Prerequisite (Rev 2 review):</strong> only effective when <code>SIGNER_FROM_VALIDATE=1</code> — with it off, <code>_effective_signer</code> returns early at <code>:918</code> and never reaches the pymthouse branch.</td>
     </tr>
   </table>
 
@@ -285,6 +285,12 @@
         <code>_resolve_validate_session</code> call at <code>:920</code>, used only when <code>KEY_ROUTING_FROM_ENV=1</code>;
         otherwise the existing <code>token.startswith("naap_")</code> branch (<code>_resolve_validate_session:854</code>)
         runs unchanged.</li>
+      <li><strong>Consistency note (Rev 2 review):</strong> <code>_resolve_validate_session</code> <em>independently</em>
+        hard-gates on <code>token.startswith("naap_")</code> at <span class="file">:854</span>. With the default
+        <code>KEY_PATTERN_PYMTHOUSE=naap_*</code> this is byte-identical. If an operator sets a <em>non-<code>naap_</code></em>
+        pymthouse pattern (e.g. <code>app_*_pmth_*</code>), the pattern engine must also relax that <code>:854</code> gate for
+        the matched path (pass the resolved path into <code>_resolve_validate_session</code>), or such keys will match
+        pymthouse in <code>_effective_signer</code> yet resolve no session. Default patterns + both confirmed paths are unaffected.</li>
       <li><strong>Files:</strong> <span class="file">simple-infra/sdk-service-build/app.py</span>
         (<code>_effective_signer</code> <span class="file">:904-923</span>; <code>_resolve_validate_session</code>
         <span class="file">:833-901</span>; config statics <code>AUTH_VALIDATE_URL:372</code>,
