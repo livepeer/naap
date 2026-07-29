@@ -386,3 +386,91 @@ produce a valid fixed payment** on the deployed test-production signer.
   Caddy/runners mutation; `sdk-staging-1` untouched (DIRECT probe, no container);
   `byoc-staging-1` NEVER touched.** `:8936` healthy (13 runners) throughout.
 - Secrets env-only; redacted here.
+
+---
+
+## `type=fixed` (+`inPixels`) re-run addendum (2026-07-28, PM / run62) — STILL `400 invalid job type`
+
+**Goal:** run ONE fresh test-only e2e through the pymthouse signer path against the
+clean v0.9.0 orch `:8936` (`liverunner-v09-orch`, VM `liverunner-staging-1`, IP
+`136.66.21.17`) with payment **`type=fixed`** + **`inPixels:1`**, and capture the
+**EXACT** `/generate-live-payment` response verbatim. Re-detect any signer build
+drift since run61 (`400 invalid job type`). **READ/TEST-only** — no deploy/rebuild/
+mutation of any signer/orch/infra; **`byoc-staging-1` never touched**;
+**`sdk-staging-1` never touched** (DIRECT native probe, method (a) — no SDK
+container). Secrets env-only/redacted.
+
+Probe: [`scripts/run62-lr-fixed-inpixels-probe.py`](./scripts/run62-lr-fixed-inpixels-probe.py)
+(gateway checkout `fix/live-runner-fixed-price-inpixels` @`63cecd6`; native 402
+challenge → `type=fixed`+`inPixels:1` mint, raw status+body+headers captured;
+`type=fixed` w/o `inPixels`, `byoc`, `lv2v` mints recorded for build-drift).
+
+### THE ANSWER — exact pymthouse signer response to `type=fixed` (VERBATIM)
+
+- **HTTP status:** `400`
+- **Response body (exact):** `{"error":{"message":"invalid job type"}}`
+- **Notable response headers:**
+  `content-type: application/json`,
+  `server: railway-hikari`,
+  `content-length: 41`,
+  `x-railway-edge: ord1`,
+  `x-railway-request-id: nqC-m3HfSgu8FdRD55So4g`,
+  `date: Wed, 29 Jul 2026 04:22:55 GMT`
+- Identical response **with and without** `inPixels:1` → the `inPixels` field is
+  irrelevant; the signer rejects the `fixed` job **type** before reading it.
+
+### Verdict: ❌ **`type=fixed` is REJECTED — `HTTP 400 {"error":{"message":"invalid job type"}}`. RemoteType_Fixed still NOT supported.**
+
+No asset generated; no payment minted; no on-chain spend.
+
+### PASS/FAIL per stage
+
+| Stage | Endpoint | Result | Evidence (verbatim) |
+|---|---|---|---|
+| A. native 402 challenge | `POST :8936/apps/runner_riljdzgh/app/generate` (flux-schnell) | ✅ **PASS** | `HTTP 402`, `payment_params` **len 392** = `net.OrchestratorInfo`; per-cap **price `1666807772086/1` (≈ $0.00315 fixed)**; `session_id=2e5c1503`, `manifest_id=2e5c1503` (**now equal**); `ticket_params=True`; recipient `0x180859c3…a6a252`. Funded payer `0x6CAE3C7a…cb7260`. |
+| B. **`/generate-live-payment` `type=fixed` + `inPixels:1`** | `POST {signer}/generate-live-payment` | ❌ **FAIL (decisive)** | **`HTTP 400`  body=`{"error":{"message":"invalid job type"}}`** — signer has no `RemoteType_Fixed` handler. |
+| B′. `type=fixed` w/o `inPixels` (control) | same | ❌ **FAIL** | **`HTTP 400`  `{"error":{"message":"invalid job type"}}`** (identical). |
+| C. generation | (native paid re-POST) | ⛔ **not reached** | blocked by stage B (no payment/segCreds minted). |
+| C. metering | per-cap debit | ⛔ **not reached** | blocked by stage B. |
+
+### Build-drift matrix — `/generate-live-payment` mint, flux-schnell, `pymthouse-signer-test-production`
+
+| `type` | HTTP | Body (verbatim) | vs run61 |
+|---|---|---|---|
+| **`fixed`** (this run's target) | **400** | **`{"error":{"message":"invalid job type"}}`** | same (`invalid job type`) |
+| `byoc` | 400 | `{"error":{"message":"numTickets 101 exceeds maximum of 100"}}` | **CHANGED** (run61 was `500 Internal Server Error`) |
+| `lv2v` (real native gateway path) | 400 | `{"error":{"message":"numTickets 2765034077 exceeds maximum of 100"}}` | same class (`numTickets >100`; value scales w/ challenge: 2738510093 → 2765034077) |
+
+### Did the signer build change since run61 (`sha-4214202f`)? Is `type=fixed` now supported?
+
+- **`/healthz` Last-Modified `Mon, 27 Jul 2026 02:30:30 GMT`** (`etag "3-6578e8181bd80"`)
+  — **UNCHANGED vs run61**. No version/commit endpoint (`/version` `/info` `/status`
+  `/build` `/commit` → `404`), so the build is not HTTP-discoverable.
+- **Behavioral drift IS present:** the `byoc` mint moved from run61's `500 Internal
+  Server Error` to **`400 numTickets 101 exceeds maximum of 100`** — a different,
+  numTickets-computing code path. So *something* on the signer changed even though
+  the static `/healthz` file did not. The `:8936` flux-schnell runner id is stable
+  at `runner_riljdzgh`.
+- **`type=fixed` support: NO — still not added.** Whatever build is live, it returns
+  the **identical `400 invalid job type`** for `fixed` (with and without `inPixels`).
+  **`RemoteType_Fixed` has NOT been deployed.** None of the three usable mint types
+  (`fixed` → `400 invalid job type`; `byoc` → `400 numTickets 101`; `lv2v` → `400
+  numTickets 2765034077`) produce a valid fixed payment.
+
+### One-line conclusion
+
+> **Fixed path is NOT green.** The pymthouse signer still **REJECTS `type=fixed`
+> with `HTTP 400 {"error":{"message":"invalid job type"}}`** (unchanged from run61;
+> `inPixels` makes no difference) on the healthy `:8936` per-cap flux-schnell
+> challenge (402 + per-cap price `1666807772086/1` + ticket params + funded reserve
+> all PASS). The native fixed e2e remains **blocked solely on the merged
+> `fixed`+`byoc` signer deploy** — a signer-side change owned by John / pymthouse.
+
+### Safety
+
+- **No spend:** every mint failed → zero payment/ticket generated → no on-chain spend.
+- **Test-only:** only hit `:8936` `/discovery` + `/apps/.../app/generate` and the
+  signer `/generate-live-payment` webhook + `/healthz`. **No deploy/rebuild; no
+  signer/orch/Caddy/runners mutation; `sdk-staging-1` untouched (DIRECT probe, no
+  container); `byoc-staging-1` NEVER touched.** `:8936` healthy (13 runners) throughout.
+- Secrets env-only; redacted here.
