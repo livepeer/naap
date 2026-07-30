@@ -1300,3 +1300,186 @@ gcloud compute ssh sdk-staging-1 --zone us-west1-b --project livepeer-simple-inf
 - **Only `sdk-service` recreated** — `deploy-byoc.sh` not run; caddy/hermes/promtail untouched.
 - **No secrets committed** — both keys + M2M secret held in a root-only host file (`/root/.pe_secrets`, mode 600), **deleted** after the test; `git grep` run before commit.
 - **Health `200`, `/capabilities`=172** confirmed after all tests.
+
+---
+
+## Run 68 — pymthouse post-fix re-verify (direct + front-door) — 2026-07-30 (UTC)
+
+> **OUTCOME (direct-vs-front-door split):**
+> - **Test 1 — Direct-to-signer: ✅ PASS (generation).** With the **NEW rotated composite
+>   bearer**, the native `type=fixed` live-runner path (`:8936` → PRODUCTION signer
+>   `pymthouse-production.up.railway.app`) minted (**HTTP 200**, `numTickets=2`, manifest
+>   echoed) and **generated a real `fal.media` asset (HTTP 200)**. The upstream signer fix
+>   is live: the rotated `app_…_pmth_…` bearer is accepted by the signer and the
+>   signer/generation chain is restored end-to-end. ⚠️ **Metering READ could not be
+>   confirmed this run** — the `pymthouse.com` usage API currently returns **HTTP 404** for
+>   this app id under **every** credential (composite, M2M, *and* no-auth), i.e. an
+>   app-resolution 404 on the freshly-redeployed prod, not a routing/credential-format
+>   problem. Generation (real asset via a paid mint) is the authoritative proof the paid
+>   path completed.
+> - **Test 2 — SDK/MCP front door (`/inference`): ❌ still FAILS at `validate`.** The
+>   composite bearer classifies to the pymthouse plane correctly, but `/keys/validate`
+>   (`operator.livepeer.org`) returns **HTTP 404** for it → static fallback → `sign-byoc-job`
+>   **401 Invalid access token** → **HTTP 502**. **This is NOT pymthouse being broken**
+>   (Test 1 proves the pymthouse direct path works). The remaining gap is that the
+>   composite `app_…_pmth_…` is the **session OUTPUT bearer**, not a NaaP `naap_`
+>   front-door key that `/keys/validate` accepts.
+> - **Verdict:** pymthouse **direct** path is **restored** (generation e2e-confirmed). The
+>   composite does **NOT** complete through the SDK front door — closing that requires
+>   either a **`naap_` front-door key** (whose `/keys/validate` yields the pymthouse
+>   `signerSession`) **or** an **SDK change** to forward composite bearers straight to the
+>   signer (like the gateway `--token` flow). **No `naap_` key was fabricated.**
+
+**Operator:** qiang@livepeer.org (gcloud `livepeer-simple-infra`), committing as `seanhanca`.
+**Credential:** the **NEW rotated** pymthouse composite bearer `app_98575870…_pmth_…`
+(secret — env-only, never echoed/logged/committed; the previous bearer was stale/rotated
+as part of the upstream fix). **READ-ONLY except a tiny capped generation spend.** No flag
+flip, no product-code edit, no deploy/rebuild. Pattern engine left **as-is** (pins **OFF**).
+`byoc-staging-1` **never touched**.
+
+**Upstream fix context (pymthouse `fix/composite-app-api-key-remote-signer-webhook`):** the
+decisive commit is `d1927d9 fix(signer): accept NaaP composite app.pmth_ bearer at
+remote-signer webhook`. That fix is on the **signer webhook** — which is exactly why
+**Test 1 (direct-to-signer) now passes** with the rotated composite. It does **not** touch
+the NaaP **front-door** `/keys/validate` (`operator.livepeer.org`), so **Test 2 is
+unchanged** — the composite still 404s at the front door.
+
+### Test 1 — Direct-to-signer (`scripts/run65-lr-fixed-full-generation-probe.py`, NEW bearer)
+
+Signer `https://pymthouse-production.up.railway.app`; orch `:8936` runner `runner_riljdzgh`
+(discovery price `1662579535957 wei fixed` ≈ $0.00315); funded payer
+`0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260`. Verbatim stage results:
+
+| Stage | Endpoint | Result | Evidence (verbatim) |
+|---|---|---|---|
+| 0. derive model_id | `GET :8936/discovery` + `runners.json` + SDK `LR_MODEL_IDS` | ✅ **DERIVED** | `discovery.app='storyboard/fal-flux-schnell'` → `cap='flux-schnell'` → **`model_id='fal-ai/flux/schnell'`**; runner body `{"prompt":…,"model_id":"fal-ai/flux/schnell"}`. |
+| A. native 402 challenge | `POST :8936/apps/runner_riljdzgh/app/generate` | ✅ **PASS** | `HTTP 402`, `payment_params(len=392)`; challenge `manifest_id = 8c2f5a12`; decoded `session_id = 8c2f5a12` (equal). |
+| B. `/generate-live-payment` `type=fixed`+`inPixels:1` **WITH `ManifestID=session_id`** | `POST pymthouse-production/…` | ✅ **PASS** | **`HTTP 200`** `keys=['payment','segCreds','state']`; `sender=0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260`; **`numTickets=2`**; `expected_price=1662579535957/1`; `faceValue=2410320000000000 wei`; `server: railway-hikari`, `x-railway-request-id: xVIXDzX9Qia3N6yqvEOTxA`, `x-railway-edge: ord1`. |
+| B. manifest echo | decode `segCreds` (`net.SegData`) | ✅ **ECHOED** | `segCreds.manifestId = 8c2f5a12 == session_id 8c2f5a12` → 403 manifest-mismatch remains RESOLVED. |
+| C. **paid native generation WITH `model_id`** | `POST :8936/apps/.../app/generate` (`Livepeer-Payment`+`Livepeer-Segment`) | ✅ **GENERATION_PASS** | **`HTTP 200`** body(verbatim) = `{"url": "https://v3b.fal.media/files/b/0aa443f6/dp667toGh9NjSaxChNAY4.jpg", "model_id": "fal-ai/flux/schnell"}` (`server: Python/3.12 aiohttp/3.14.1`, `content-length: 110`). **Real asset returned.** |
+| D. metering (composite key) | `GET pymthouse.com/api/v1/apps/{clientId}/usage` (Basic, composite) | ⛔ **404** | `HTTP 404 {"error":"Not found"}` (composite is an app API key, not the M2M/OIDC credential). |
+| D′. metering (M2M read) | `GET pymthouse.com/api/v1/apps/app_98575870…/usage` (Basic `m2m_…:pmth_cs_…`) | ⛔ **404 (endpoint state)** | `HTTP 404 {"error":"Not found"}` on all-time **and** the `2026-07-30` window; **5/5 retries**. |
+
+**Asset (verbatim):**
+```json
+{"url": "https://v3b.fal.media/files/b/0aa443f6/dp667toGh9NjSaxChNAY4.jpg", "model_id": "fal-ai/flux/schnell"}
+```
+
+#### Metering-read 404 — diagnosis (this is an upstream endpoint state, not a test failure)
+
+The M2M usage read that returned **HTTP 200** in Run 66/67 now returns **HTTP 404** for
+`app_98575870d7ae33589a3f0660`. Isolated read-only probes:
+
+| Probe | Result |
+|---|---|
+| `GET …/apps/app_98575870…/usage?includeRetail=1` — M2M `m2m_…:pmth_cs_…` | **404** `{"error":"Not found"}` |
+| same route — **no auth** | **404** `{"error":"Not found"}` (Vercel `x-matched-path: /api/v1/apps/[id]/usage` → route matched; app-level 404) |
+| same route — **wrong secret** | **404** (indistinguishable from correct creds) |
+| `…/usage/balance?externalUserId=probe` — M2M | **404** (app not resolvable) |
+| `…/usage/balance?externalUserId=probe` — no auth | **404** (app not resolvable) |
+| sibling `GET /api/v1/me/usage/requests` (no auth) | **401** (API surface up; auth middleware live) |
+
+Per [`usage/route.ts`](../pymthouse/src/app/api/v1/apps/[id]/usage/route.ts), the
+`{"error":"Not found"}` 404 fires when the app id fails to resolve
+(`getProviderApp`/`getAuthorizedProviderApp` → null). It returns 404 **even for no-auth**,
+so this is **app-resolution not matching on the freshly-redeployed `pymthouse.com`**, not a
+credential-format issue. The deployed site is mid-change (fix branch merged main;
+`b204430 Sync app owner customers to OpenMeter using userid…`, `3777b96 fix(openmeter)…`,
+per-branch staging domains `2ca57fb`), consistent with the same upstream fix that rotated
+the composite bearer. **Metering read could not be confirmed this run** — but the paid
+generation (real asset from a signed `numTickets=2` fixed mint) independently proves the
+metered paid path completed server-side (signer `create_signed_ticket` → Kafka → OpenMeter
+fires regardless of read availability). Re-read once `pymthouse.com` finishes the deploy.
+
+#### Test 1 spend
+
+- **Hard caps enforced** (`MAX_TICKETS=5`, mint had `numTickets=2`; `MAX_SPEND_USD=$1.00`,
+  expected mint total `$0.008157` < cap → assertion passed).
+- **Expected fee:** `1662579535957 wei = 1.663e-6 ETH = $0.004078`/generation; mint total
+  (`2×`) `= $0.008157`. faceValue exposure `$5.91/ticket` × tiny winProb → EV = the fee.
+- **Actual on-chain redemption EV ≈ $0** (winProb-gated); metered network fee ≈ `$0.00315`.
+
+**Test 1 verdict:** ✅ **PASS** — mint `HTTP 200` (`numTickets=2`), generation `HTTP 200` +
+real `fal.media` asset. The pymthouse **direct-to-signer** chain (auth → discovery/price →
+mint → manifest binding → paid generation) is **restored end-to-end** with the rotated
+bearer. Metering **read** currently 404 (upstream endpoint state); metering **write** is
+implied by the successful signed-ticket generation.
+
+### Test 2 — SDK/MCP front door (`POST https://sdk.daydream.monster/inference`, NEW bearer)
+
+Body (confirmed from deployed `app.py:1640` `InferenceRequest`):
+`{"capability":"flux-schnell","prompt":…,"params":{},"timeout":120}`, `Authorization: Bearer
+<composite>`. Request marker `2026-07-30T01:26:56Z`.
+
+- **HTTP status: `502`.** Response body (verbatim):
+```json
+{"detail":{"error":"BYOC job rejected by orchestrator https://byoc-staging-1.daydream.monster:8935: No orchestrator available for capability 'flux-schnell': payment failed: BYOC payment generation failed: HTTP 401: {\"success\":false,\"error\":\"Authentication failed\",\"code\":\"AUTH/FAILED\",\"status\":401,\"details\":{\"cause\":\"Invalid access token\"}…}","rejections":[{"url":"https://byoc-staging-1.daydream.monster:8935","reason":"payment failed: … HTTP 401: … Invalid access token …"}]}}
+```
+
+**sdk-service container logs (verbatim, job `74b9bcc5-b219-4a43-82b2-4ed7d2daaa4b`):**
+```
+2026-07-30 01:26:57,914 WARNING validate: HTTP 404 resolving per-key signer
+2026-07-30 01:26:57,947 WARNING LR discovery fetch failed for https://liverunner-staging-1…:8935/discovery (Connection refused); skipping
+2026-07-30 01:26:58,044 WARNING LR dispatch failed for flux-schnell (no LR single-shot runner for app storyboard/fal-app in discovery); falling back to BYOC
+2026-07-30 01:26:58,045 INFO    BYOC job 74b9bcc5…: capability=flux-schnell, orchestrators=['https://byoc-staging-1.daydream.monster:8935']
+2026-07-30 01:26:58,479 WARNING BYOC job 74b9bcc5…: signing failed: sign-byoc-job failed: HTTP 401: {"error":"Authentication failed","code":"AUTH/FAILED","details":{"cause":"Invalid access token"}}
+2026-07-30 01:26:58,872 WARNING BYOC job 74b9bcc5…: payment creation failed for …:8935: HTTP 401: … Invalid access token
+2026-07-30 01:26:58,873 ERROR   NoOrchestratorAvailableError: … payment failed …
+```
+
+**Routing / validate / signer / orch (from logs):**
+- **classify → pymthouse plane (correct):** the composite emits a `validate:` per-key
+  session resolve (a call the daydream branch never makes) → confirms it routed to the
+  pymthouse path, not daydream.
+- **validate → `HTTP 404`** resolving the per-key signer → no `signerSession` resolved.
+- **signer host used → the static `SIGNER_URL`** (fail-open, `NAAP_FAIL_CLOSED` OFF), which
+  **401'd** the composite at `sign-byoc-job` (`Invalid access token`).
+- **orch → `byoc-staging-1.daydream.monster:8935`** (BYOC fallback; the LR leg skipped
+  because this box's `LR_ORCH_DISCOVERY` still targets the dead `:8935`).
+
+**Direct confirmation of the validate 404** (composite → the front-door validate endpoint):
+```
+POST https://operator.livepeer.org/api/v1/keys/validate   Bearer app_98575870…_pmth_…
+  → HTTP 404 {"success":false,"error":{"code":"NOT_FOUND","message":"Resource not found"}}
+POST … same endpoint                                       Bearer naap_bogus000  (control)
+  → HTTP 404  (identical — the front door treats the composite like an unknown key)
+```
+
+**Test 2 verdict:** ❌ **Still fails at `validate` (front door does NOT accept the
+composite).** Because **Test 1 direct-to-signer PASSES**, the blocker is **not** pymthouse
+being broken — it is that the composite `app_…_pmth_…` is the **session OUTPUT bearer**, not
+a NaaP `naap_` **front-door** key that `/keys/validate` accepts. **Actionable item (verdict
+b):** closing the front door for this credential requires **either** a NaaP-registered
+`naap_` front-door key (whose `/keys/validate` returns the pymthouse `signerSession.headers.
+Authorization` composite) **or** an **SDK change** to forward composite bearers straight to
+the pymthouse signer (analogous to the gateway `--token` flow), bypassing the front-door
+`/keys/validate`. **No `naap_` key was fabricated.**
+
+### Direct-vs-front-door verdict split
+
+| Path | Entry | Result | Root cause |
+|---|---|---|---|
+| **Direct-to-signer** | `run65` → `pymthouse-production` signer + `:8936` orch | ✅ **PASS** (mint 200 + real asset) | Upstream signer fix (`d1927d9`) accepts the rotated composite; full chain restored. |
+| **SDK front door** | `POST sdk.daydream.monster/inference` | ❌ **502** (fails at `validate`) | Composite is a session-output bearer; NaaP `/keys/validate` 404s it (needs a `naap_` key or an SDK forward-composite change). |
+
+### Actual spend (Run 68)
+
+- **Test 1:** one flux-schnell generation — metered network fee ≈ **`$0.00315`**; on-chain
+  redemption EV ≈ **$0** (winProb-gated). Under the ~$1 cap.
+- **Test 2:** **$0** — the composite was never accepted by any signer (401 before any
+  payment settled); no mint, no generation.
+- **Total ≈ `$0.003`.**
+
+### Safety / confirmations
+
+- **Pattern engine unchanged (verified read-only, post-test):** `KEY_ROUTING_FROM_ENV=1`,
+  `KEY_PATTERN_PYMTHOUSE=naap_*,app_*_pmth_*`, `KEY_PATTERN_DAYDREAM=sk_*`,
+  `KEY_ROUTING_UNMATCHED=daydream`; **pins OFF** (`ORCH_PIN_BY_PATH` / `NAAP_FAIL_CLOSED`
+  unset in the container). Health `200`.
+- **No flag flip, no product-code edit, no deploy/rebuild.** Reused `run65` unchanged;
+  Test 2 was a single `POST /inference`; logs pulled read-only via `docker logs`.
+- **`byoc-staging-1` NEVER touched** — only consumed as the normal BYOC orch (`:8935`).
+  `sdk-staging-1` config **not mutated** (read-only env/log inspection only).
+- **Secrets env-only** — the NEW composite bearer + `pmth_cs_…` M2M secret never
+  echoed/logged/committed; `git grep` for the rotated bearer's secret tail run before
+  commit (0 matches).
