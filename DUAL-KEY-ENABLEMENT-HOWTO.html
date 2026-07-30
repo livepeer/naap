@@ -50,6 +50,20 @@
     <p style="margin:6px 0 0">The dual-key image is deployed and every supporting prerequisite is set. All <b>6 enable flags are OFF</b>, so behavior is byte-identical to the legacy <code>naap_</code> path. Enabling is a pure <code>.env</code> edit + <code>docker compose up -d sdk-service</code> — <b>no rebuild, no deploy</b>. Roll back by unsetting the flag and re-running <code>up -d</code>.</p>
   </div>
 
+  <div class="card warn">
+    <span class="tag">Run 70 — composite-default cutover</span>
+    <p style="margin:6px 0 0"><b><code>naap_</code>/validate is retired.</b> The pymthouse plane is now driven by the
+    <b>COMPOSITE key</b> (<code>app_*_pmth_*</code>): put the composite key in the MCP key section and inference works
+    with <b>no validate step</b> — the composite bearer is forwarded <b>DIRECT to <code>PYMTHOUSE_SIGNER_URL</code></b>
+    (validate SKIPPED) <b>by default</b>. Removed vars: <code>AUTH_VALIDATE_URL</code>, <code>SIGNER_FROM_VALIDATE</code>,
+    <code>PYMTHOUSE_COMPOSITE_DIRECT</code>, <code>NAAP_FAIL_CLOSED</code>. Default <code>KEY_PATTERN_PYMTHOUSE</code> is now
+    <code>app_*_pmth_*</code> (no <code>naap_*</code>). Live on <code>sdk-staging-1</code> as image
+    <code>optA-lr-multi-dualkey-compositedefault-2026-07-30</code> (<a href="https://github.com/livepeer/simple-infra/pull/118">simple-infra#118</a>).
+    The still-relevant knobs are <code>KEY_ROUTING_FROM_ENV=1</code>, <code>KEY_PATTERN_PYMTHOUSE</code>,
+    <code>KEY_PATTERN_DAYDREAM</code>, <code>KEY_ROUTING_UNMATCHED</code>, <code>PYMTHOUSE_SIGNER_URL</code>,
+    <code>ORCH_PIN_BY_PATH</code>.</p>
+  </div>
+
   <!-- ============================================================= -->
   <h2>1 · Where to configure</h2>
   <table>

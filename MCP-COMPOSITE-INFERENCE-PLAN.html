@@ -101,10 +101,21 @@
     <strong>TL;DR —</strong> The composite key <em>is</em> the pymthouse signer credential. It travels as the MCP
     caller's <code>Authorization: Bearer</code> and is <strong>forwarded verbatim</strong> to
     <code>sdk.daydream.monster/inference</code>, where the pattern engine classifies <code>app_*_pmth_*</code> as
-    <span class="pill pmt">pymthouse</span> and — with <code>PYMTHOUSE_COMPOSITE_DIRECT=1</code> — <strong>skips
-    <code>/keys/validate</code></strong> and posts the composite straight to
-    <code>PYMTHOUSE_SIGNER_URL</code>. On the MCP side there is <strong>nothing to change but the bearer value</strong>:
-    the MCP server forwards whatever bearer the caller presents (per-call passthrough, provider-neutral).
+    <span class="pill pmt">pymthouse</span> and <strong>by default skips <code>/keys/validate</code></strong>,
+    posting the composite straight to <code>PYMTHOUSE_SIGNER_URL</code>. On the MCP side there is
+    <strong>nothing to change but the bearer value</strong>: the MCP server forwards whatever bearer the caller
+    presents (per-call passthrough, provider-neutral).
+  </div>
+
+  <div class="tldr" style="background:linear-gradient(135deg,#3a2a12,#2a1a20)">
+    <strong>Run 70 update — composite is now the DEFAULT pymthouse driver; <code>naap_</code>/validate retired.</strong>
+    Composite DIRECT-to-signer is no longer flag-gated: the <code>PYMTHOUSE_COMPOSITE_DIRECT</code> enable-flag has been
+    <strong>removed</strong> and DIRECT fires whenever <code>PYMTHOUSE_SIGNER_URL</code> is set. The <code>naap_</code>
+    front-door / <code>/keys/validate</code> RESOLVE path is <strong>gone</strong> (<code>AUTH_VALIDATE_URL</code>,
+    <code>SIGNER_FROM_VALIDATE</code>, <code>NAAP_FAIL_CLOSED</code> removed; default <code>KEY_PATTERN_PYMTHOUSE</code>
+    is now <code>app_*_pmth_*</code>). Verified live on <code>sdk-staging-1</code>: the composite bearer logs
+    <code>DIRECT-to-signer — validate SKIPPED, signer_host=pymthouse-production.up.railway.app</code> with
+    <strong>no <code>/keys/validate</code> call</strong> (<a href="https://github.com/livepeer/simple-infra/pull/118">simple-infra#118</a>).
   </div>
 
   <h2>1. Goal &amp; token recap</h2>

@@ -52,6 +52,19 @@
     instance at a time. Never flip a flag fleet-wide before the canary is green.
   </div>
 
+  <div class="card warn">
+    <strong>Update — Run 70 (composite-default cutover, <code>naap_</code>/validate retired).</strong>
+    The pymthouse plane is now driven by the <strong>COMPOSITE key</strong> (<code>app_*_pmth_*</code>), forwarded
+    <strong>DIRECT to the pymthouse signer</strong> (<code>PYMTHOUSE_SIGNER_URL</code>) with <strong>validate SKIPPED</strong>
+    &mdash; this is the <strong>DEFAULT</strong> (no enable-flag). The legacy <code>naap_</code> front-door /
+    <code>/keys/validate</code> RESOLVE path is <strong>retired</strong>: <code>AUTH_VALIDATE_URL</code>,
+    <code>SIGNER_FROM_VALIDATE</code>, <code>PYMTHOUSE_COMPOSITE_DIRECT</code> and <code>NAAP_FAIL_CLOSED</code> are gone,
+    and the default <code>KEY_PATTERN_PYMTHOUSE</code> is now <code>app_*_pmth_*</code> (no <code>naap_*</code>).
+    <code>sk_</code>&rarr;Daydream static signer and the <code>unmatched</code> policy are unchanged.
+    Shipped in <a href="https://github.com/livepeer/simple-infra/pull/118">simple-infra#118</a>; live on
+    <code>sdk-staging-1</code> (image <code>optA-lr-multi-dualkey-compositedefault-2026-07-30</code>).
+  </div>
+
   <!-- ============================================================ -->
   <h2>The flags</h2>
 

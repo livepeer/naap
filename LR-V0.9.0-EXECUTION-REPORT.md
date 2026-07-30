@@ -1740,3 +1740,84 @@ GET on `/discovery`+`/health`, and read-only SSH (`docker ps -a`, `docker inspec
 start/stop, no `.env`/compose edits on any VM, no redeploy, no flag flips, no on-chain
 action. `byoc-staging-1` and `liverunner-v09-orch` (`:8936`) stayed healthy and untouched.
 The remediation command in §6 is **recommended, not executed** — awaiting green light.
+
+---
+
+## Run 70 — composite-default cutover (`naap_`/validate retired)
+
+**Goal:** make the composite key (`app_*_pmth_*`) the **default** pymthouse driver — DIRECT-to-signer
+with **validate SKIPPED** — and **retire** the deprecated `naap_` front-door / `/keys/validate` RESOLVE
+path from the pymthouse plane. Builds on Run 69 (#117, flag-gated DIRECT) by dropping the enable-flag.
+
+### Scope map — removed vs preserved
+
+**Removed (confirmed pymthouse-only, not load-bearing elsewhere):**
+
+- `key_routing.py`: `naap_fail_closed_reject()` (dead once validate is gone); `composite_direct_decision()`
+  `direct_enabled` param dropped (DIRECT is now the default when a signer URL is set).
+- `app.py`: `AUTH_VALIDATE_URL` + `SIGNER_FROM_VALIDATE` (the `/keys/validate` RESOLVE config);
+  `_resolve_validate_session()` + `_validate_session_cache` (the validate round trip);
+  `NAAP_FAIL_CLOSED` + `_naap_fail_closed_reject` wiring; `PYMTHOUSE_COMPOSITE_DIRECT` enable-flag;
+  the `SIGNER_FROM_VALIDATE`-driven RESOLVE tail in `_effective_signer`.
+- Default `KEY_PATTERN_PYMTHOUSE`: `naap_*` &rarr; **`app_*_pmth_*`** (naap_ dropped).
+
+**Preserved byte-identical:** Daydream/`sk_` &rarr; static `SIGNER_URL`; `unmatched` policy
+(`fail_closed`|`daydream`); merit / offerings / native-dispatch; `ORCH_PIN_BY_PATH` pins;
+health / discovery; `is_composite_bearer` + `composite_direct_decision` (composite defense-in-depth,
+now always-on when the signer URL is configured); master gate `KEY_ROUTING_FROM_ENV`.
+
+### Files changed / tests
+
+- `sdk-service-build/app.py`, `key_routing.py`, `test_key_routing.py` (rewritten: composite&rarr;DIRECT
+  default, `sk_`&rarr;static, `naap_` no longer special-cased, `unmatched`&rarr;daydream fallthrough).
+- **All sdk-service suites green — 55 passed** (`key_routing` 26 · `provider_selection` 15 ·
+  `lr_offerings` 9 · `lr_native_dispatch` 5). `py_compile` clean. No secrets in diff (`git grep` verified).
+
+### PR + merge
+
+- **PR:** [livepeer/simple-infra#118](https://github.com/livepeer/simple-infra/pull/118) — MERGEABLE/CLEAN.
+- **Merge SHA:** `b6e781ae1ee57e8a73937b8cb8b0df4ff7d156c9`.
+
+### Image (image-layered, SDK-only swap)
+
+- **New tag:** `us-docker.pkg.dev/livepeer-simple-infra/simple-infra/sdk-service:optA-lr-multi-dualkey-compositedefault-2026-07-30`
+- **New digest:** `sha256:936d215d874f7f0232d2811a04c1dd5c21a11dd464f00938ea748972296f4c1f`
+- **Base reused (FROM, pinned):** `sdk-service:optA-lr-multi-dualkey-composite-2026-07-30`
+  @ `sha256:839a602ac1e2e40840bdc1704e122b9b6f6434edef521fb487bdfaf612d6abbc` — only `app.py` +
+  `key_routing.py` layers changed; gateway / merit / offerings / native-dispatch / dual-key layers
+  reused byte-for-byte (no gateway rebuild). Built via Cloud Build (`gcloud builds submit`, amd64).
+
+### Deploy + config on `sdk-staging-1`
+
+- **`.env` edits:** `SDK_IMAGE` &rarr; new tag; `KEY_PATTERN_PYMTHOUSE=app_*_pmth_*` (dropped `naap_*`);
+  **removed** `AUTH_VALIDATE_URL`, `SIGNER_FROM_VALIDATE`, `PYMTHOUSE_COMPOSITE_DIRECT`. Kept
+  `KEY_ROUTING_FROM_ENV=1`, `KEY_PATTERN_DAYDREAM=sk_*`, `KEY_ROUTING_UNMATCHED=daydream`,
+  `PYMTHOUSE_SIGNER_URL=https://pymthouse-production.up.railway.app`. `docker compose up -d
+  --force-recreate sdk-service` (sdk-service only; pull via metadata-token config to bypass the
+  flaky snap `docker-credential-gcloud`).
+- **Health:** `200`; **`/capabilities` = 172**. Running image confirmed `…compositedefault-2026-07-30`.
+- **Backups (rollback):** `/opt/sdk/.env.bak.20260730-021619`,
+  `/opt/sdk/docker-compose.yaml.bak.20260730-021619`. **OLD image:** `…composite-2026-07-30`.
+
+### Front-door verify (`POST sdk.daydream.monster/inference`, `flux-schnell`, composite bearer)
+
+**DIRECT fired — validate SKIPPED, no `/keys/validate` call:**
+
+```
+signer: pymthouse composite DIRECT-to-signer — validate SKIPPED, signer_host=pymthouse-production.up.railway.app
+```
+
+HTTP **502** — the **only** remaining failure is the LR-orch outage (stale SDK discovery →
+`liverunner-staging-1:8935` connection refused → BYOC fallback → BYOC payment 400), **not** this change
+(diagnosed separately; orch is live on `:8936`). A `sk_` probe emitted **no** DIRECT log, confirming the
+Daydream/`sk_` static branch is byte-identical. `byoc-staging-1` untouched; `deploy-byoc.sh` never run.
+
+### Rollback command
+
+```bash
+gcloud compute ssh sdk-staging-1 --zone us-west1-b --project livepeer-simple-infra --tunnel-through-iap --command '
+  sudo cp /opt/sdk/.env.bak.20260730-021619 /opt/sdk/.env &&
+  sudo cp /opt/sdk/docker-compose.yaml.bak.20260730-021619 /opt/sdk/docker-compose.yaml &&
+  cd /opt/sdk && sudo docker compose up -d --force-recreate sdk-service'
+# reverts SDK_IMAGE to optA-lr-multi-dualkey-composite-2026-07-30 and restores the naap_/validate vars.
+```
