@@ -95,3 +95,33 @@ The lineage-drift follow-up noted above is **resolved**. Merit-based orchestrato
 **`main` now captures:** `provider_selection.py`, `test_provider_selection.py`, and the merit/offerings rewiring of `select_provider()`/`_merit_probe` in `app.py` — alongside the pre-existing dual-key modules (`key_routing.py` + all six flags), all still **DEFAULT-OFF**. Env passthrough for `CAPABILITY_ORCH_OFFERINGS` / `SELECT_PROVIDER_MERIT` / `SELECT_PROVIDER_MERIT_TTL` already existed in `docker-compose/sdk-service.yaml` (default-empty). Tests: `test_key_routing.py` **20/20**, `test_provider_selection.py` **15/15**, `test_lr_offerings.py` 9/9 (44 total). No secrets committed.
 
 **main ↔ live convergence:** `main`-after-PR `app.py` was diffed against the deployed superset `optA-lr-multi-dualkey-2026-07-29` (`/app/app.py` sha `99104b53…`). It is a **faithful superset of the live merit lineage + dual-key**; the **only** remaining delta is the separately-tracked `optA-lr-multi` native-dispatch features (comma-separated `LR_ORCH_DISCOVERY` multi-orch discovery, `direct-post` free single-shot dispatch, non-media LR result passthrough) which live on branch `fix/lr-native-dispatch-call-runner` and are **out of scope** for this merit reconciliation. Zero merit/dual-key differences. Folding that native-dispatch branch into `main` is the remaining step for full byte-convergence with the deployed image.
+
+---
+
+## Full convergence — native-dispatch (`optA-lr-multi`) landed in `main` (2026-07-29)
+
+The last remaining delta noted above is **resolved**. `simple-infra` `main` is now **byte-identical** to the deployed superset image for the entire `/app` payload — all three feature families coexist and the repo == the running image.
+
+**PR:** [livepeer/simple-infra#116](https://github.com/livepeer/simple-infra/pull/116) — *"Land optA-lr-multi native-dispatch into main — full byte-convergence with live image"* — **MERGED**, merge commit `ab0c718`. Feature commit `dad5455`. **NO deploy** (prod already runs this exact image).
+
+**Source of truth:** the deployed image `sdk-service:optA-lr-multi-dualkey-2026-07-29` (`/app/app.py` sha `99104b53535942e01455f146372b088ebfa84aca84aeaf5db2287a0d08084eaf81`), extracted via `docker create` + `docker cp`. The native-dispatch source lineage is branch `fix/lr-native-dispatch-call-runner` (tip `bb99565`).
+
+**Native-dispatch delta landed (entirely within `sdk-service-build/app.py`):**
+- `LR_ORCH_DISCOVERY` may be a **comma-separated list** of `/discovery` URLs → parsed into `LR_ORCH_DISCOVERY_URLS`; new `_discover_lr_orchs()` fetches each, flattens list/dict responses, and is **fail-open per URL** (a down orch is logged and skipped). Both dispatch sites use it. Single-URL default behaves exactly as before.
+- **`direct-post`** — an offering declaring `"dispatch":"direct-post"` is a **free** single-shot runner: POST payload directly, return the runner's JSON verbatim (no payment handshake, no `call_runner`). The 8 paid fal offerings keep the `call_runner` path byte-for-byte.
+- **Non-media passthrough** — a structured/analysis LR result (no media `{url}`) is returned verbatim in `data` instead of discarded.
+
+**Excluded (stale, not in the live image):** `fix/lr-native-dispatch-call-runner` predates merit/dual-key, so its branch-tip `Dockerfile` `COPY`-line removals and its deletions of `key_routing.py` / `provider_selection.py` / their tests were **not** applied — the live image (sha `99104b53`) is the source of truth. `main`'s Dockerfile already `COPY`s all four `/app` py files.
+
+**Byte-convergence proof (all `/app` files, `main` vs deployed image):**
+
+| file | `main` (post-#116) | deployed image | match |
+|---|---|---|---|
+| `app.py` | `99104b53…` | `99104b53…` | ✅ byte-identical (`diff` = 0) |
+| `key_routing.py` | `6c35e00b…` | `6c35e00b…` | ✅ |
+| `lr_offerings.py` | `5e3bfa6f…` | `5e3bfa6f…` | ✅ |
+| `provider_selection.py` | `54d26a9c…` | `54d26a9c…` | ✅ |
+
+**All three feature families coexist in `main` `app.py`** (grep-verified): native-dispatch (`_discover_lr_orchs` / `LR_ORCH_DISCOVERY_URLS` / `direct-post` / non-media passthrough) + merit (`provider_selection` / `_merit_probe` / `CAPABILITY_ORCH_OFFERINGS`) + dual-key (`key_routing` + `KEY_ROUTING_FROM_ENV` / `KEY_ROUTING_UNMATCHED` / `ORCH_PIN_BY_PATH` / `NAAP_FAIL_CLOSED` / `SIGNER_FROM_VALIDATE`), **all still DEFAULT-OFF**.
+
+**Tests:** `test_key_routing.py` **20/20**, `test_provider_selection.py` **15/15**, `test_lr_offerings.py` **9/9**, new `test_lr_native_dispatch.py` **5/5** (comma-parse, list/dict flatten, per-URL fail-open, all-down empty) — **49 total green**; `py_compile` clean. No secrets committed. `byoc-staging-1` untouched; `deploy-byoc.sh` not run. **`main` is now fully byte-convergent with the live deployed SDK image.**
