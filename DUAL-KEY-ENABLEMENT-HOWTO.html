@@ -116,6 +116,11 @@ sudo docker compose up -d sdk-service
       <td><code>0</code>/unset (def) · <code>1</code></td>
       <td>For a <b>pymthouse-matched</b> key that resolves <b>no</b> session, reject instead of falling through to the shared wallet. Requires <code>SIGNER_FROM_VALIDATE=1</code>. Disjoint from <code>KEY_ROUTING_UNMATCHED</code> (that one is for keys matching no pattern; this one is for matched-but-no-session).</td>
     </tr>
+    <tr>
+      <td><code>PYMTHOUSE_COMPOSITE_DIRECT</code> + <code>PYMTHOUSE_SIGNER_URL</code></td>
+      <td><code>0</code>/unset (def) · <code>1</code> &nbsp;|&nbsp; URL <code>empty</code> (def)</td>
+      <td><b>Composite direct-to-signer (<code>--token</code> style).</b> A pymthouse <b>COMPOSITE</b> bearer (<code>app_*_pmth_*</code>) is the session-<em>output</em> key — it 404s on <code>/keys/validate</code>. When <code>PYMTHOUSE_COMPOSITE_DIRECT=1</code> <b>and</b> <code>PYMTHOUSE_SIGNER_URL</code> is set, a composite on the pymthouse path <b>skips validate</b> and forwards the bearer straight to the signer as <code>Authorization: Bearer &lt;composite&gt;</code> (mirrors livepeer-python-gateway <code>--token</code>; no session exchange). Off/empty ⇒ composite still RESOLVEs (byte-identical to today). Detection keys on the <code>_pmth_</code> segment, so <code>naap_</code> keys always keep RESOLVE.</td>
+    </tr>
   </table>
 
   <!-- ============================================================= -->

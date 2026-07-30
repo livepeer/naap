@@ -1483,3 +1483,126 @@ the pymthouse signer (analogous to the gateway `--token` flow), bypassing the fr
 - **Secrets env-only** — the NEW composite bearer + `pmth_cs_…` M2M secret never
   echoed/logged/committed; `git grep` for the rotated bearer's secret tail run before
   commit (0 matches).
+
+---
+
+## Run 69 — composite direct-forward (SDK front door)
+
+**Goal:** close the Run 68 SDK/MCP front-door gap by forwarding a pymthouse **COMPOSITE**
+bearer (`app_*_pmth_*`) *directly* to the pymthouse signer (livepeer-python-gateway
+`--token` style) instead of through `/keys/validate`.
+
+### The change (flag-gated, DEFAULT-OFF)
+
+Per John's guidance ("stop parsing the bearer… send it as a normal `Authorization: Bearer`
+to the signer directly… no signer session exchange"), the SDK now **skips `/keys/validate`**
+for a composite on the pymthouse path and signs by forwarding the composite bearer straight
+to `PYMTHOUSE_SIGNER_URL`.
+
+- **`key_routing.py`**: new `DIRECT` decision; pure `is_composite_bearer(token)` (matches the
+  `_pmth_` session segment); `composite_direct_decision()` upgrades `RESOLVE → DIRECT` **only**
+  when the flag is on, a signer URL is set, and the bearer is a composite. `naap_` keys never
+  carry `_pmth_`, so they **always** keep `RESOLVE`.
+- **`app.py`**: new env flags `PYMTHOUSE_COMPOSITE_DIRECT` (default `0`/OFF) +
+  `PYMTHOUSE_SIGNER_URL` (default empty). In `_effective_signer`, on the pymthouse `RESOLVE`
+  path, when both are set for a composite, **SKIP** validate and return
+  `(PYMTHOUSE_SIGNER_URL, inbound-bearer headers)`. Logs `validate SKIPPED` + signer host.
+- **`docker-compose/sdk-service.yaml`**: both vars declared as `${VAR:-}` (default empty).
+- **`test_key_routing.py`**: +7 tests. Flag OFF (default) or empty URL ⇒ composite still
+  `RESOLVE`s, **byte-identical to today**.
+
+Tests (all green): `key_routing` **28** · `provider_selection` **15** · `lr_offerings` **9**
+· `lr_native_dispatch` **5**. `py_compile` clean. No secrets in diff (`git grep` verified).
+
+### PR + merge
+
+- **PR:** [livepeer/simple-infra#117](https://github.com/livepeer/simple-infra/pull/117)
+  — MERGEABLE/CLEAN, checks green (Validate fleet config ✓, GCP dry-run ✓).
+- **Merge SHA:** `ef26129151539f38c7c59c4c03a7a813abbc9e10`.
+
+### Image (image-layered, SDK-only swap)
+
+- **New tag:** `us-docker.pkg.dev/livepeer-simple-infra/simple-infra/sdk-service:optA-lr-multi-dualkey-composite-2026-07-30`
+- **New digest:** `sha256:839a602ac1e2e40840bdc1704e122b9b6f6434edef521fb487bdfaf612d6abbc`
+- **Base reused (FROM, pinned):** `sdk-service:optA-lr-multi-dualkey-2026-07-29`
+  @ `sha256:a90c67cc8917070797a633a2748a4099a8f49516e6073d565e6d1caa448eba67`
+  — only `app.py` + `key_routing.py` layers changed; gateway / merit / offerings /
+  native-dispatch / dual-key layers reused byte-for-byte (no gateway rebuild). Built via
+  Cloud Build (`gcloud builds submit`, amd64).
+
+### Deploy + flags on `sdk-staging-1`
+
+- **Enabled:** `PYMTHOUSE_COMPOSITE_DIRECT=1`, `PYMTHOUSE_SIGNER_URL=https://pymthouse-production.up.railway.app`
+  (added to both `/opt/sdk/.env` and the compose `environment:` block), `SDK_IMAGE` → new tag.
+  `docker compose up -d --force-recreate sdk-service` (sdk-service only).
+- **Health:** `200`; **`/capabilities` = 172**. **Pins OFF** (`ORCH_PIN_BY_PATH` /
+  `NAAP_FAIL_CLOSED` unset). Legacy `sk_`/daydream classification path untouched (DIRECT
+  triggers only on `_pmth_` composites on the RESOLVE branch; daydream branch byte-identical).
+- **Backups (rollback):** `/opt/sdk/.env.bak.20260730-014448`,
+  `/opt/sdk/docker-compose.yaml.bak.20260730-014448`. **OLD image:**
+  `sdk-service:optA-lr-multi-dualkey-2026-07-29`.
+
+### Front-door re-test (`POST sdk.daydream.monster/inference`, `flux-schnell`)
+
+**HTTP 502** — but the composite-direct forward is **PROVEN firing**. DIRECT log proof
+(validate skipped, forwarded to the pymthouse signer):
+
+```
+signer: pymthouse composite DIRECT-to-signer — validate SKIPPED, signer_host=pymthouse-production.up.railway.app
+```
+
+**The Run 68 validate-404 sub-gap is CLOSED** (no `/keys/validate` call for the composite;
+it is now forwarded direct). The remaining 502 is a **separate, infra-plane block on the
+orchestration path**, not the signer change:
+
+```
+LR discovery fetch failed for https://liverunner-staging-1.daydream.monster:8935/discovery (Connection refused); skipping
+LR discovery fetch failed for https://lpt.tail3396e5.ts.net:8443/discovery (Name or service not known); skipping
+LR dispatch failed for flux-schnell (no LR single-shot runner for app storyboard/fal-app in discovery); falling back to BYOC
+BYOC job …: signing failed: sign-byoc-job failed: HTTP 404: 404 page not found
+BYOC payment generation failed: HTTP 400: {"error":{"message":"invalid job type"}}
+```
+
+**Root cause of the block:** both LR discovery endpoints are down —
+`liverunner-staging-1:8935` refuses connections (LR orchestrator not listening) and the
+tailnet host is DNS-unresolvable from the container. With no LR orch, **every** capability
+falls back to BYOC; the pymthouse signer (correctly reached via DIRECT) exposes **no** BYOC
+`sign-byoc-job` endpoint (all probed paths 404 — it is an LR/mint signer, not a BYOC signer),
+so BYOC signing fails. This affects all keys equally and is **not a regression** from this
+change (the old image would fail flux-schnell identically while the LR orch is down). A green
+end-to-end asset requires the LR orchestrator to be live so the job takes the LR
+descriptor-dispatch (mint) path through the pymthouse signer — **outside this SDK change and
+outside the "don't touch byoc / don't run deploy-byoc.sh" scope.** Stopped per instructions
+rather than forcing.
+
+### Metering
+
+Not verifiable this run: no signed ticket was generated (BYOC signing 404'd before any
+payment settled), and the m2m metering read had no reachable endpoint (Run 68 = 404 during
+redeploy). No server-side metering proof this run.
+
+### Actual spend
+
+**≈ `$0.00`** — no generation completed and no payment settled (signing 404'd before payment).
+Well under the ~$1 cap.
+
+### Rollback command (if needed)
+
+```bash
+gcloud compute ssh sdk-staging-1 --zone us-west1-b --tunnel-through-iap --command '
+  sudo cp /opt/sdk/.env.bak.20260730-014448 /opt/sdk/.env &&
+  sudo cp /opt/sdk/docker-compose.yaml.bak.20260730-014448 /opt/sdk/docker-compose.yaml &&
+  cd /opt/sdk && sudo docker compose up -d --force-recreate sdk-service'
+# reverts SDK_IMAGE to optA-lr-multi-dualkey-2026-07-29 and clears PYMTHOUSE_COMPOSITE_DIRECT.
+```
+
+### Safety / confirmations
+
+- **Pins OFF** (`ORCH_PIN_BY_PATH` / `NAAP_FAIL_CLOSED` unset); pattern engine unchanged
+  (`KEY_ROUTING_FROM_ENV=1`, `KEY_PATTERN_PYMTHOUSE=naap_*,app_*_pmth_*`,
+  `KEY_PATTERN_DAYDREAM=sk_*`, `KEY_ROUTING_UNMATCHED=daydream`).
+- **`sk_`/legacy unaffected** — DIRECT only triggers on `_pmth_` composites on the RESOLVE
+  branch; the daydream/static branch is byte-identical (unit-tested + 172-caps healthy).
+- **`byoc-staging-1` NEVER touched**; `deploy-byoc.sh` NOT run; only `sdk-service` recreated.
+- **Secrets env-only** — the composite bearer + `pmth_cs_…` M2M secret never
+  echoed/logged/committed; `git grep` for the secret tails run before commit (0 matches).

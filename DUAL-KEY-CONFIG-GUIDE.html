@@ -115,6 +115,28 @@
   <em>no</em> pattern; this handles a <em>matched</em> pymthouse key with <em>no</em> session.</p>
 
   <!-- ============================================================ -->
+  <h3>7 · <code>PYMTHOUSE_COMPOSITE_DIRECT</code> + <code>PYMTHOUSE_SIGNER_URL</code> <span class="pill off">default 0 (off) / empty</span></h3>
+  <p><strong>Type:</strong> <code>PYMTHOUSE_COMPOSITE_DIRECT</code> = bool <span class="def">0 | 1</span>;
+  <code>PYMTHOUSE_SIGNER_URL</code> = URL <span class="def">empty</span>. Forwards a pymthouse
+  <strong>COMPOSITE</strong> bearer (<code>app_*_pmth_*</code>) straight to the pymthouse signer,
+  <em>--token</em> style, skipping <code>/keys/validate</code>.</p>
+  <ul>
+    <li><strong>Why:</strong> a composite is the session-<em>output</em> bearer a resolved pymthouse session emits.
+      It is <em>not</em> a front-door <code>naap_</code> key and <strong>404s on <code>/keys/validate</code></strong>, so the
+      RESOLVE path dies and the job falls back to BYOC (the Run 68 gap). This flag sends the composite as a plain
+      <code>Authorization: Bearer &lt;composite&gt;</code> directly to <code>PYMTHOUSE_SIGNER_URL</code>, mirroring
+      livepeer-python-gateway's <code>--token</code> flow — no session exchange.</li>
+    <li><strong>Off (default) or empty URL:</strong> a composite still takes the RESOLVE path — <strong>byte-identical to
+      today</strong>.</li>
+    <li><strong>On + <code>PYMTHOUSE_SIGNER_URL</code> set:</strong> a composite on the pymthouse (RESOLVE) path
+      <strong>skips validate</strong> and signs via the pymthouse signer directly.</li>
+  </ul>
+  <p class="muted">Composite detection keys on the <code>_pmth_</code> session segment, so a front-door <code>naap_</code>
+  key (no <code>_pmth_</code>) <strong>always</strong> keeps <code>RESOLVE</code>. Only meaningful when the pattern engine
+  routes the composite to the pymthouse path (<code>KEY_ROUTING_FROM_ENV=1</code> with <code>app_*_pmth_*</code> in
+  <code>KEY_PATTERN_PYMTHOUSE</code>). Fully reversible: clear <code>PYMTHOUSE_COMPOSITE_DIRECT</code> to revert.</p>
+
+  <!-- ============================================================ -->
   <h2>Safe enablement order</h2>
   <p>Enable per-instance (one canary first), verifying each step before the next. Every step is reversible by
   clearing the var and restarting.</p>
@@ -154,6 +176,8 @@ KEY_ROUTING_UNMATCHED=fail_closed
     <tr><td><code>KEY_ROUTING_UNMATCHED</code></td><td class="def">fail_closed</td><td>unmatched key &rarr; reject (vs <code>daydream</code> fall-through)</td></tr>
     <tr><td><code>ORCH_PIN_BY_PATH</code></td><td class="def">0</td><td>pymthouse&rarr;LR-only, Daydream&rarr;byoc-only</td></tr>
     <tr><td><code>NAAP_FAIL_CLOSED</code></td><td class="def">0</td><td>pymthouse key w/ no session &rarr; reject (vs Daydream fall-through)</td></tr>
+    <tr><td><code>PYMTHOUSE_COMPOSITE_DIRECT</code></td><td class="def">0</td><td>composite (<code>app_*_pmth_*</code>) &rarr; skip validate, forward bearer direct to signer (<code>--token</code> style)</td></tr>
+    <tr><td><code>PYMTHOUSE_SIGNER_URL</code></td><td class="def">empty</td><td>the pymthouse signer endpoint used by the direct-forward path (required for it to run)</td></tr>
   </table>
 
   <p class="muted" style="margin-top:26px">See <code>DUAL-KEY-OPTION-A-IMPL-PLAN.html</code> for the full design and
