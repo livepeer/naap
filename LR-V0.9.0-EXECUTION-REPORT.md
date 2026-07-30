@@ -1969,3 +1969,48 @@ The identical `No module named 'livepeer_gateway.live_runner'` failure recurs fo
 **Closing note — work paused here by decision; owner handoff issued.** No further SDK/gateway/signer changes will be made from this thread. The two remaining actions are owned externally and are fully specified — with exact refs, tags, commands, regression checklist, rollback, signer verification, and the final e2e — in **[`LR-GATEWAY-REBUILD-HANDOFF.md`](./LR-GATEWAY-REBUILD-HANDOFF.md)** (repo root):
 - **Owner 1 (simple-infra build):** re-vendor the gateway to a ref that includes `src/livepeer_gateway/live_runner.py` (`jm/live-runner-session-payments` @ `bd8e7807`, `call_runner` line 624 — OPEN QUESTION: as-is vs merged with the `dad5455` converge branch), then a **FULL base-image rebuild** (`pip install /sdk/` must re-run; a thin overlay will not pick up the module) and redeploy `sdk-staging-1`.
 - **Owner 2 (pymthouse signer):** after Owner 1, verify the deployed signer supports `call_runner`'s session-payment mint (payment challenge → signed ticket / `numTickets`); may still block and is a signer-side deliverable if so.
+
+---
+
+## Run 73 — ticket-signing observation: front-door (BYOC abort) vs DIRECT signer (`type=fixed` GREEN)
+
+**Purpose:** read/observe only (no SDK/gateway/signer changes) — reproduce the current front-door state AND directly probe the pymthouse production signer with `type=fixed` to answer the ticket-signing / `numTickets` / `>100` questions and reconcile against prior runs. Composite bearer held in-memory only (env), never written/committed/logged.
+
+### A) Front-door SDK run (`POST sdk.daydream.monster/inference`, `flux-schnell`)
+
+Result: **HTTP 502**, no asset. SDK log (this run, `04:44:03`):
+
+```
+LR dispatch failed for flux-schnell (No module named 'livepeer_gateway.live_runner'); falling back to BYOC
+BYOC job 0c415b7b-…: signing failed: sign-byoc-job failed: HTTP 404: 404 page not found
+BYOC job 0c415b7b-…: payment creation failed …: BYOC payment generation failed: HTTP 400: {"error":{"message":"invalid job type"}}
+NoOrchestratorAvailableError: No orchestrator available for capability 'flux-schnell'
+```
+
+**Was any ticket signed here? NO.** It aborts at the BYOC `sign-byoc-job` 404 (the pymthouse signer has no BYOC endpoint), **before any pymthouse mint**. This is the unchanged, handed-off blocker (gateway image missing `live_runner.py`). *(Unrelated `chatterbox-tts` "payment tickets created" lines in the same window are a separate ~4-min canary loop, not this run.)*
+
+### B) DIRECT signer probe — `type=fixed` on the PRODUCTION signer (`pymthouse-production.up.railway.app`)
+
+Native `:8936` flux-schnell runner `runner_riljdzgh`; `type=fixed` + `inPixels:1` + `ManifestID=session_id`; hard guard `MAX_TICKETS=5`.
+
+| Stage | Result |
+|-------|--------|
+| A. native 402 challenge | ✅ HTTP 402, `manifest_id=c5d9b607` |
+| B. mint `type=fixed` (`POST /generate-live-payment`) | ✅ **HTTP 200 — TICKET SIGNED**. sender `0x6cae3c7a…cb7260`, **`numTickets=2`**, `expected_price=1651396405072/1`, faceValue `2405760000000000` wei, winProb ≈ 4.81e73 (~41% of 2^256). `segCreds.manifestId=c5d9b607` → **`manifestId==session_id` (echoed=True)** ⇒ no 403. |
+| C. paid native generation (with `model_id`) | ✅ **HTTP 200 — REAL ASSET**: `https://v3b.fal.media/files/b/0aa448f0/…jpg` (`model_id=fal-ai/flux/schnell`). |
+
+- **Ticket SIGNED successfully?** ✅ YES — HTTP 200, `numTickets=2`.
+- **Exact `numTickets`:** **2**.
+- **`maxTickets`/100 cap exceeded?** ❌ NO — `2` is well in range (cap is 100).
+- **Downstream error?** None — no `403 mismatched manifest` (ManifestID bound correctly), no `400 invalid job type` (prod signer supports `RemoteType_Fixed`), no `numTickets>100`. Generation returned a real asset.
+
+### Reconciliation (answers to the questions)
+
+1. **Is the ticket signed in the pymthouse path right now?** **DIRECT signer path: YES** (`type=fixed`, `numTickets=2`, HTTP 200, real asset). **Front-door SDK `/inference` path: NO** — it never mints; it aborts at the BYOC dead-end because the deployed image's gateway lacks `live_runner.call_runner`.
+2. **Do we still have `numTickets`/`maxTickets>100` with `type=fixed`?** **NO.** Observed `numTickets=2` (in range). The `>100` blow-up (`2721947758`/`2738510093`) was the **`type=lv2v`** continuous-pixels estimate. `type=fixed` with an explicit `inPixels:1` fixed unit yields a small, in-range `numTickets`.
+3. **Why the prior front-door Run 72 did NOT show `numTickets>100`:** because it **fell back to BYOC and aborted at `invalid job type` BEFORE minting any pymthouse ticket**. Absence of the `numTickets` error at the front door is **not** evidence that `type=fixed` works end-to-end — the front door simply never reaches the pymthouse mint.
+4. **"Claude Code complains it is wrong" — likely cause by path:**
+   - **Front-door / native LR (SDK `/inference`):** same `live_runner`-module → BYOC-fallback → `sign-byoc-job 404` → `invalid job type` **502** (the handed-off gateway-rebuild blocker). This is expected until Owner 1 rebuilds.
+   - **Direct `type=fixed` signer probe:** it **works today** (HTTP 200 + asset) **only if** it (a) hits `pymthouse-production` (NOT `pymthouse-signer-test-production`), (b) uses `type=fixed` (+`inPixels`), and (c) sends `ManifestID = challenge session_id`. Common complaint→cause: `403 mismatched manifest` = ManifestID omitted; `400 invalid job type` = wrong signer build or `type≠fixed`; `400 numTickets … exceeds maximum of 100` = `type=lv2v` used instead of `fixed`; `400 model_id is required` = generation body missing `model_id`.
+
+**Verdict:** the pymthouse `type=fixed` ticket-signing + paid generation is **GREEN via the direct signer/runner path** (numTickets=2, real asset) — the numTickets>100 problem is a `type=lv2v`-only artifact and does **not** affect `type=fixed`. The only thing still red is the **front-door SDK path**, blocked solely by the gateway image missing `live_runner.py` (Owner 1 rebuild). Metering was not re-read here (the composite **app key** cannot read the usage API — needs the `pmth_cs_…` OIDC/M2M secret; prior Run 66 confirmed a non-zero debit for this path). No changes made; `byoc-staging-1` untouched; bearer never persisted.
