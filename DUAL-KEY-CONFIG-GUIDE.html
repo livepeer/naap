@@ -63,6 +63,14 @@
     <code>sk_</code>&rarr;Daydream static signer and the <code>unmatched</code> policy are unchanged.
     Shipped in <a href="https://github.com/livepeer/simple-infra/pull/118">simple-infra#118</a>; live on
     <code>sdk-staging-1</code> (image <code>optA-lr-multi-dualkey-compositedefault-2026-07-30</code>).
+    <br><br>Folded into the same deploy: <code>LR_ORCH_DISCOVERY</code> repointed to the live v0.9.0 orch
+    <code>https://liverunner-staging-1.daydream.monster:8936/discovery</code> (the old <code>:8935</code> + dead
+    tailnet name were the Run 69 "outage"). Discovery now returns 13 runners and the SDK logs
+    <em>9 LR offerings active</em>. <strong>Remaining gap:</strong> the full green e2e still 502s — the
+    <code>:8936</code> orch advertises <em>per-model</em> apps (<code>storyboard/fal-flux-schnell</code>, …) while
+    the SDK filters on the shared <code>storyboard/fal-app</code>, so LR dispatch misses and falls back to BYOC.
+    Reconciling that app-name contract is a separate LR-integration change (orch advertises <code>fal-app</code>,
+    or SDK maps per-model apps via <code>LR_OFFERINGS_JSON</code>/code) — not part of this cutover.
   </div>
 
   <!-- ============================================================ -->

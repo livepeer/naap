@@ -1821,3 +1821,61 @@ gcloud compute ssh sdk-staging-1 --zone us-west1-b --project livepeer-simple-inf
   cd /opt/sdk && sudo docker compose up -d --force-recreate sdk-service'
 # reverts SDK_IMAGE to optA-lr-multi-dualkey-composite-2026-07-30 and restores the naap_/validate vars.
 ```
+
+### Run 70b — LR discovery repoint folded in (coordination w/ agent 6216fa17) + full e2e attempt
+
+The parallel LR diagnosis confirmed the LR orch is **NOT** down: `liverunner-v09-orch` is Up on host
+port **`:8936`** serving `/discovery` (200, 13 runners). The Run 69 "outage" was a **stale SDK config** —
+`LR_ORCH_DISCOVERY` still pointed at the retired v1 orch (`:8935`, refused) + a dead tailnet name
+(`lpt.tail3396e5.ts.net:8443`, NXDOMAIN). To avoid a concurrent `/opt/sdk/.env` race, the one-line repoint
+was folded into **this** cutover's `.env` edit:
+
+```
+LR_ORCH_DISCOVERY=https://liverunner-staging-1.daydream.monster:8936/discovery
+```
+
+- **Backup (discovery change):** `/opt/sdk/.env.bak.20260730-022618`. Only that one var changed.
+- **After recreate:** discovery now reaches `:8936` — the SDK logs **`LR offering-driven dispatch ACTIVE:
+  9 offerings [chatterbox-tts, flux-dev, flux-schnell, gpt-image, kontext-edit, pixverse-i2v,
+  screen-agent-video-understanding, seedance-mini-i2v, veo-t2v]`** (vs 0 runners before). No more
+  `:8935`/NXDOMAIN discovery errors.
+
+**Full e2e (`flux-schnell`, composite bearer):** DIRECT still fires
+(`validate SKIPPED, signer_host=pymthouse-production…`), but generation **does NOT complete** — **HTTP 502,
+no asset, no metering**. Root cause is a **new, distinct SDK↔orch app-name contract mismatch** (NOT the
+discovery config, NOT the composite cutover):
+
+```
+LR dispatch failed for flux-schnell (no LR single-shot runner for app storyboard/fal-app in discovery); falling back to BYOC
+```
+
+The `:8936` orch advertises **per-model** apps — `storyboard/fal-flux-schnell`, `…/fal-flux-dev`,
+`…/fal-gpt-image`, `…/fal-kontext-edit`, `…/fal-pixverse-i2v`, `…/fal-seedance-mini-i2v`, `…/fal-veo-t2v`,
+`…/fal-chatterbox-tts`, plus `ffmpeg-app`/`blender-app`/`hyperframes-app` — and has **no
+`storyboard/fal-app` runner**. But the SDK's offering table (`lr_offerings.py` `FAL_APP =
+"storyboard/fal-app"`, the discovery filter for all 8 fal caps) looks up the single shared
+`storyboard/fal-app`, finds none, and falls back to BYOC → the pymthouse signer exposes no BYOC endpoint →
+502.
+
+**Remaining gap (needs coordination — outside the one-line repoint scope):** reconcile the LR app naming.
+Either (a) the `:8936` orch advertises a `storyboard/fal-app` runner (orch-side, separate owner), or
+(b) the SDK maps each fal cap to its per-model app name — e.g. via `LR_OFFERINGS_JSON` overrides
+(`{"flux-schnell":{"app":"storyboard/fal-flux-schnell","endpoint":"/generate","model_id":"fal-ai/flux/schnell","mode":"single-shot"}}`,
+one per fal cap) or a code change to `lr_offerings.py`/dispatch — **contingent on confirming the per-model
+runner request contract** (endpoint + whether `model_id` is still required). Not done here: it is a
+separate LR-integration change (governed by the LR-cap onboarding flow / the parallel LR worker), and the
+coordination note scoped this deploy to the single `LR_ORCH_DISCOVERY` line.
+
+**Net:** composite-default cutover ✅ live + verified; LR discovery repoint ✅ live (offerings active); full
+green e2e ❌ still blocked, now by the fal app-name mismatch (a step further than Run 70 — the LR orch is
+reached and offerings are active, but the per-cap runner lookup misses). Daydream/`sk_` unaffected; health
+200 / 172 caps; `byoc-staging-1` untouched; no secrets logged.
+
+**Rollback (discovery change only):**
+
+```bash
+gcloud compute ssh sdk-staging-1 --zone us-west1-b --project livepeer-simple-infra --tunnel-through-iap --command '
+  sudo cp /opt/sdk/.env.bak.20260730-022618 /opt/sdk/.env &&
+  cd /opt/sdk && sudo docker compose up -d --force-recreate sdk-service'
+# reverts LR_ORCH_DISCOVERY to the :8935 + tailnet value (leaves the composite-default cutover intact).
+```
