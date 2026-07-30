@@ -1879,3 +1879,51 @@ gcloud compute ssh sdk-staging-1 --zone us-west1-b --project livepeer-simple-inf
   cd /opt/sdk && sudo docker compose up -d --force-recreate sdk-service'
 # reverts LR_ORCH_DISCOVERY to the :8935 + tailnet value (leaves the composite-default cutover intact).
 ```
+
+---
+
+## Run 71 — SDK↔orch app-name mismatch closed (per-model fal apps)
+
+**Goal:** fix the Run 70b blocker — the SDK filtered LR discovery on the shared `storyboard/fal-app`, which the `:8936` orch does not advertise, so every fal cap missed and fell back to BYOC → 502. Option **b** (SDK-side, no orch redeploy).
+
+**Investigated first (not guessed):** queried `:8936/discovery` in full. Each fal runner advertises `app=storyboard/fal-<cap>`, `mode=single-shot`, `url=…/apps/<runner>/app`, fixed `price_info`. Cross-checked `_dispatch_lr_v2` (the active path — `LR_DESCRIPTOR_DISPATCH=1`): it filters runners by `offering["app"]`, normalizes the runner url to `…/app`, appends `endpoint_for()` (`/generate`), and calls `call_runner(build_lr_payload(...))`. So **only the offering `app` value** (the discovery selector) needed to change; endpoint + injected `model_id` + payload + payment path are unchanged.
+
+**Change (simple-infra [PR #119](https://github.com/livepeer/simple-infra/pull/119), merged):** `lr_offerings.py` — `default_offerings` now resolves each fal cap to its per-model app via `fal_app_for(cap)` = `"storyboard/fal-<cap>"` (data-driven convention, single constant `FAL_APP_PREFIX`). Legacy `FAL_APP` kept for override/reference. `LR_OFFERINGS_JSON` still overrides any cap. **No change** to Daydream `sk_` routing, byoc, merit, composite-default, or the native-dispatch mechanism.
+
+**Tests:** +3 `test_lr_offerings.py` (per-model mapping locked against the advertised names, `LR_OFFERINGS_JSON` override, safe fallback for an unknown cap). Full sdk-service suite **58 passed**; `py_compile` clean.
+
+**Build / deploy (SDK-only, layered):**
+- **New tag:** `sdk-service:optA-lr-multi-dualkey-compositedefault-permodelapp-2026-07-30` (digest `sha256:e9ad165…`).
+- **Base reused (FROM, pinned):** `sdk-service:optA-lr-multi-dualkey-compositedefault-2026-07-30` — thin overlay copies only the changed `lr_offerings.py` to `/app`.
+- **Deploy:** `sdk-staging-1` `.env` `SDK_IMAGE` bumped; pre-pull via metadata token; `docker compose up -d --force-recreate --no-deps sdk-service`. Timestamped backups: `/opt/sdk/.env.bak-20260730-023907`, `/opt/sdk/docker-compose.yaml.bak-20260730-023907`. `byoc-staging-1` untouched; `deploy-byoc.sh` NOT run.
+
+**Verification — routing layer (deterministic, no bearer):** replicated `_dispatch_lr_v2`'s discovery-match inside the running container against the LIVE `:8936` orch. Every fal cap now resolves to its per-model runner instead of missing:
+
+```
+flux-schnell    app=storyboard/fal-flux-schnell    -> https://136.66.21.17:8936/apps/runner_riljdzgh/app/generate
+veo-t2v         app=storyboard/fal-veo-t2v         -> https://136.66.21.17:8936/apps/runner_mv3woqug/app/generate
+chatterbox-tts  app=storyboard/fal-chatterbox-tts  -> https://136.66.21.17:8936/apps/runner_pzw25w7w/app/generate
+```
+
+Startup log: `LR offering-driven dispatch ACTIVE: 9 offerings […]`. In-container `default_offerings()` confirms `flux-schnell → storyboard/fal-flux-schnell`. **The app-name mismatch that caused the BYOC fallback is closed** — the SDK now selects the per-model runner (no fallback at the selection layer).
+
+**Full green e2e (asset + metering) — BLOCKED on a credential, not code.** The final leg (POST `sdk.daydream.monster/inference` with the composite bearer → real asset + pymthouse debit) requires a **funded composite key** (`app_<appId>_pmth_<secret>`). That secret is not present in this session's context, the `sdk-staging-1` VM, or the repo (only the retired `naap_` key remains in `/tmp/rawkey`, now UNMATCHED). **Owner/action:** the requester must supply a funded composite bearer (or run the one curl below). Once provided, no further SDK change is expected — the routing to the per-model runner is proven.
+
+```bash
+# Final e2e (run with a funded composite bearer):
+COMPOSITE_BEARER='Bearer app_<appId>_pmth_<secret>' \
+curl -sk https://sdk.daydream.monster/inference \
+  -H "Authorization: $COMPOSITE_BEARER" -H 'Content-Type: application/json' \
+  -d '{"capability":"flux-schnell","prompt":"a red bicycle"}'
+# Expect: DIRECT fires (validate SKIPPED), LR dispatch hits …/runner_riljdzgh/app/generate on :8936
+# (no BYOC fallback), a real asset URL, and a pymthouse debit.
+```
+
+**Rollback (SDK image only):**
+
+```bash
+gcloud compute ssh sdk-staging-1 --zone us-west1-b --project livepeer-simple-infra --tunnel-through-iap --command '
+  sudo cp /opt/sdk/.env.bak-20260730-023907 /opt/sdk/.env &&
+  cd /opt/sdk && sudo docker compose up -d --force-recreate --no-deps sdk-service'
+# reverts SDK_IMAGE to …compositedefault-2026-07-30 (shared fal-app offering table).
+```

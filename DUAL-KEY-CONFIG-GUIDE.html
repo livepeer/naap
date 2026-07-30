@@ -66,11 +66,24 @@
     <br><br>Folded into the same deploy: <code>LR_ORCH_DISCOVERY</code> repointed to the live v0.9.0 orch
     <code>https://liverunner-staging-1.daydream.monster:8936/discovery</code> (the old <code>:8935</code> + dead
     tailnet name were the Run 69 "outage"). Discovery now returns 13 runners and the SDK logs
-    <em>9 LR offerings active</em>. <strong>Remaining gap:</strong> the full green e2e still 502s — the
-    <code>:8936</code> orch advertises <em>per-model</em> apps (<code>storyboard/fal-flux-schnell</code>, …) while
-    the SDK filters on the shared <code>storyboard/fal-app</code>, so LR dispatch misses and falls back to BYOC.
-    Reconciling that app-name contract is a separate LR-integration change (orch advertises <code>fal-app</code>,
-    or SDK maps per-model apps via <code>LR_OFFERINGS_JSON</code>/code) — not part of this cutover.
+    <em>9 LR offerings active</em>.
+  </div>
+
+  <div class="card ok">
+    <strong>Update — Run 71 (SDK↔orch app-name mismatch closed).</strong>
+    The <code>:8936</code> orch advertises <em>per-model</em> fal apps (<code>storyboard/fal-flux-schnell</code>,
+    <code>…/fal-flux-dev</code>, <code>…/fal-gpt-image</code>, <code>…/fal-kontext-edit</code>,
+    <code>…/fal-pixverse-i2v</code>, <code>…/fal-seedance-mini-i2v</code>, <code>…/fal-veo-t2v</code>,
+    <code>…/fal-chatterbox-tts</code>) — <strong>no</strong> shared <code>storyboard/fal-app</code>. The SDK now maps
+    each fal cap to its per-model app (<code>lr_offerings.py</code> &rarr; <code>fal_app_for(cap)</code> =
+    <code>storyboard/fal-&lt;cap&gt;</code>; data-driven, overridable via <code>LR_OFFERINGS_JSON</code>) — simple-infra
+    <a href="https://github.com/livepeer/simple-infra/pull/119">PR #119</a>, merged &amp; deployed to
+    <code>sdk-staging-1</code> (<code>…compositedefault-permodelapp-2026-07-30</code>). <strong>Verified</strong>: the SDK's
+    own dispatch-selection now resolves <code>flux-schnell</code> &rarr;
+    <code>…/apps/runner_riljdzgh/app/generate</code> on <code>:8936</code> (no BYOC fallback). Endpoint (<code>/generate</code>),
+    <code>model_id</code>, and payment path are unchanged; Daydream/<code>sk_</code>, byoc, merit, and composite-default
+    are untouched. <strong>Final asset + metering</strong> just needs a funded composite bearer to POST through
+    <code>/inference</code> (not held in this session).
   </div>
 
   <!-- ============================================================ -->
