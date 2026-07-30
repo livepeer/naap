@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MCP Composite-Key Inference — End-to-End Plan</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #161d2e;
+    --panel-2: #1d2740;
+    --ink: #e8edf7;
+    --muted: #9aa7c2;
+    --line: #2a3654;
+    --day: #63a4ff;      /* daydream / RESOLVE blue */
+    --day-bg: #12233d;
+    --pmt: #ff8a8a;      /* pymthouse red */
+    --pmt-bg: #351a1f;
+    --ok: #63d78a;
+    --warn: #ffcf6b;
+    --accent: #ffd479;
+    --code: #cfe3ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--ink); line-height: 1.55; font-size: 15px;
+  }
+  header {
+    padding: 30px 40px 26px; background: linear-gradient(135deg, #16233f, #1c1230);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
+  header p { margin: 6px 0 0; color: var(--muted); max-width: 940px; }
+  main { padding: 8px 40px 80px; max-width: 1080px; }
+  h2 {
+    margin: 44px 0 12px; font-size: 20px; border-left: 4px solid var(--accent);
+    padding-left: 12px;
+  }
+  h3 { margin: 26px 0 8px; font-size: 16px; color: #dbe6ff; }
+  code {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 13px;
+    background: #0b1120; color: var(--code); padding: 1px 6px; border-radius: 5px;
+    border: 1px solid var(--line); word-break: break-word;
+  }
+  pre {
+    background: #0b1120; border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; color: var(--code);
+    font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.5;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .tldr {
+    background: linear-gradient(135deg, #14263f, #241733);
+    border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin: 22px 0;
+  }
+  .tldr strong { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel-2); color: #dbe6ff; }
+  .pill {
+    display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--line); font-weight: 600;
+  }
+  .pill.day { color: var(--day); border-color: #34547f; background: var(--day-bg); }
+  .pill.pmt { color: var(--pmt); border-color: #6d3339; background: var(--pmt-bg); }
+  .pill.ok  { color: #0f1420; background: var(--ok); border-color: var(--ok); }
+  .pill.warn{ color: #0f1420; background: var(--warn); border-color: var(--warn); }
+  .muted { color: var(--muted); }
+  .ok { color: var(--ok); font-weight: 700; }
+  .no { color: var(--pmt); font-weight: 700; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 5px 0; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 4px 20px 16px; margin: 16px 0;
+  }
+  .flow { width: 100%; margin: 18px 0; }
+  .flow .node rect { rx: 8; }
+  .callout {
+    border-left: 3px solid var(--warn); background: #23200f; padding: 10px 16px;
+    border-radius: 6px; margin: 14px 0; color: #f0e4bf;
+  }
+  .callout.pmt { border-left-color: var(--pmt); background: var(--pmt-bg); color: #ffd8d8; }
+  .src { font-size: 12px; color: var(--muted); }
+  .check { list-style: none; padding-left: 4px; }
+  .check li::before { content: "☐ "; color: var(--accent); font-weight: 700; }
+  a { color: var(--day); }
+</style>
+</head>
+<body>
+<header>
+  <h1>MCP&nbsp;→&nbsp;Composite-Key Inference — End-to-End Plan</h1>
+  <p>How to make the Storyboard MCP perform inference with a <em>pymthouse composite</em> bearer
+  (<code>app_&lt;clientId&gt;_pmth_&lt;secret&gt;</code>) so the SDK forwards it <strong>DIRECT</strong> to the
+  pymthouse signer — no re-validation. Planning &amp; investigation only; no code, deploy, or flag changes were made.</p>
+</header>
+
+<main>
+
+  <div class="tldr">
+    <strong>TL;DR —</strong> The composite key <em>is</em> the pymthouse signer credential. It travels as the MCP
+    caller's <code>Authorization: Bearer</code> and is <strong>forwarded verbatim</strong> to
+    <code>sdk.daydream.monster/inference</code>, where the pattern engine classifies <code>app_*_pmth_*</code> as
+    <span class="pill pmt">pymthouse</span> and — with <code>PYMTHOUSE_COMPOSITE_DIRECT=1</code> — <strong>skips
+    <code>/keys/validate</code></strong> and posts the composite straight to
+    <code>PYMTHOUSE_SIGNER_URL</code>. On the MCP side there is <strong>nothing to change but the bearer value</strong>:
+    the MCP server forwards whatever bearer the caller presents (per-call passthrough, provider-neutral).
+  </div>
+
+  <h2>1. Goal &amp; token recap</h2>
+  <div class="card">
+    <table>
+      <tr><th>Token</th><th>What it is</th><th>Who accepts it</th><th>Signer behavior</th></tr>
+      <tr>
+        <td><code>naap_xxx</code></td>
+        <td>NaaP front-door key</td>
+        <td>Only NaaP <code>/keys/validate</code></td>
+        <td><span class="pill day">RESOLVE</span> validate → mint session</td>
+      </tr>
+      <tr>
+        <td><code>app_&lt;clientId&gt;_pmth_&lt;secret&gt;</code></td>
+        <td><strong>Composite bearer</strong> — the session <em>output</em> the pymthouse signer accepts directly</td>
+        <td>The pymthouse <strong>signer</strong> directly</td>
+        <td><span class="pill pmt">DIRECT</span> forward as-is, no validate</td>
+      </tr>
+    </table>
+    <p class="muted">The composite <strong>cannot be re-validated</strong>: Run&nbsp;68 showed
+    composite&nbsp;→&nbsp;<code>/keys/validate</code>&nbsp;→&nbsp;404&nbsp;→&nbsp;BYOC fallback&nbsp;→&nbsp;502.
+    So the goal is to get the composite to the SDK and have the SDK take the DIRECT path (skip validate) to the signer.</p>
+  </div>
+
+  <h2>2. End-to-end flow</h2>
+
+  <svg class="flow" viewBox="0 0 1040 300" role="img" aria-label="Composite inference flow">
+    <defs>
+      <marker id="arw" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <path d="M0,0 L8,3 L0,6 Z" fill="#9aa7c2"/>
+      </marker>
+    </defs>
+    <style>
+      .n { fill:#161d2e; stroke:#2a3654; }
+      .n.pmt { fill:#351a1f; stroke:#6d3339; }
+      .n.dec { fill:#3a3211; stroke:#ffd479; }
+      .n.ok  { fill:#12331f; stroke:#63d78a; }
+      .t { fill:#e8edf7; font: 12px -apple-system, sans-serif; }
+      .t.s { fill:#9aa7c2; font-size:10px; }
+      .e { stroke:#9aa7c2; stroke-width:1.4; fill:none; marker-end:url(#arw); }
+      .el { fill:#9aa7c2; font: 10px monospace; }
+    </style>
+
+    <!-- Row 1 -->
+    <rect class="n" x="10"  y="20" width="150" height="54"/>
+    <text class="t" x="85" y="42" text-anchor="middle">MCP client</text>
+    <text class="t s" x="85" y="60" text-anchor="middle">bearer = composite</text>
+
+    <rect class="n" x="210" y="20" width="180" height="54"/>
+    <text class="t" x="300" y="42" text-anchor="middle">storyboard MCP</text>
+    <text class="t s" x="300" y="60" text-anchor="middle">/api/mcp — forwards bearer</text>
+
+    <rect class="n" x="440" y="20" width="200" height="54"/>
+    <text class="t" x="540" y="42" text-anchor="middle">SDK front door</text>
+    <text class="t s" x="540" y="60" text-anchor="middle">sdk.daydream.monster/inference</text>
+
+    <rect class="n dec" x="690" y="20" width="160" height="54"/>
+    <text class="t" x="770" y="40" text-anchor="middle" fill="#ffe6a6">classify</text>
+    <text class="t s" x="770" y="58" text-anchor="middle" fill="#ffe6a6">app_*_pmth_* → pymthouse</text>
+
+    <rect class="n pmt" x="890" y="20" width="140" height="54"/>
+    <text class="t" x="960" y="40" text-anchor="middle" fill="#ffd8d8">DIRECT</text>
+    <text class="t s" x="960" y="58" text-anchor="middle" fill="#ffd8d8">skip /keys/validate</text>
+
+    <!-- edges row1 -->
+    <line class="e" x1="160" y1="47" x2="208" y2="47"/>
+    <line class="e" x1="390" y1="47" x2="438" y2="47"/>
+    <line class="e" x1="640" y1="47" x2="688" y2="47"/>
+    <line class="e" x1="850" y1="47" x2="888" y2="47"/>
+
+    <!-- drop down -->
+    <line class="e" x1="960" y1="74" x2="960" y2="120"/>
+
+    <!-- Row 2 (right to left) -->
+    <rect class="n pmt" x="820" y="122" width="210" height="54"/>
+    <text class="t" x="925" y="144" text-anchor="middle" fill="#ffd8d8">pymthouse signer</text>
+    <text class="t s" x="925" y="162" text-anchor="middle" fill="#ffd8d8">pymthouse-production.up.railway.app</text>
+
+    <rect class="n" x="560" y="122" width="200" height="54"/>
+    <text class="t" x="660" y="144" text-anchor="middle">signed payment ticket</text>
+    <text class="t s" x="660" y="162" text-anchor="middle">RemoteType_Fixed</text>
+
+    <rect class="n" x="330" y="122" width="180" height="54"/>
+    <text class="t" x="420" y="144" text-anchor="middle">LR orch</text>
+    <text class="t s" x="420" y="162" text-anchor="middle">fixed caps</text>
+
+    <rect class="n ok" x="120" y="122" width="160" height="54"/>
+    <text class="t" x="200" y="144" text-anchor="middle" fill="#bff0cf">asset</text>
+    <text class="t s" x="200" y="162" text-anchor="middle" fill="#bff0cf">metered → clientId</text>
+
+    <line class="e" x1="820" y1="149" x2="762" y2="149"/>
+    <line class="e" x1="560" y1="149" x2="512" y2="149"/>
+    <line class="e" x1="330" y1="149" x2="282" y2="149"/>
+
+    <text class="el" x="300" y="14">Authorization: Bearer app_&lt;clientId&gt;_pmth_&lt;secret&gt;  (unchanged the whole way)</text>
+  </svg>
+
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>Hop</th><th>What happens</th></tr>
+      <tr><td>1</td><td>MCP client → MCP</td><td>Client sends <code>Authorization: Bearer app_&lt;clientId&gt;_pmth_&lt;secret&gt;</code> to <code>/api/mcp</code>.</td></tr>
+      <tr><td>2</td><td>MCP → SDK</td><td>MCP extracts the bearer and forwards it verbatim to <code>sdk.daydream.monster/inference</code>.</td></tr>
+      <tr><td>3</td><td>SDK classify</td><td>Pattern engine matches <code>app_*_pmth_*</code> → provider <span class="pill pmt">pymthouse</span>.</td></tr>
+      <tr><td>4</td><td>SDK DIRECT</td><td><code>PYMTHOUSE_COMPOSITE_DIRECT=1</code> ⇒ <strong>skip</strong> <code>/keys/validate</code>; forward the composite to <code>PYMTHOUSE_SIGNER_URL</code>.</td></tr>
+      <tr><td>5</td><td>Signer → orch</td><td>Signer emits a signed payment ticket (<code>RemoteType_Fixed</code>) to the live-runner orchestrator.</td></tr>
+      <tr><td>6</td><td>Result</td><td>Asset returns; usage metered to <code>&lt;clientId&gt;</code>.</td></tr>
+    </table>
+  </div>
+
+  <h2>3. Config surface — the actionable steps</h2>
+
+  <h3>3a. MCP side <span class="pill ok">only the bearer changes</span></h3>
+  <p>The Storyboard MCP is a <strong>stateless HTTP MCP server</strong> at
+  <code>https://storyboard.daydream.monster/api/mcp</code>. It is <strong>provider-neutral</strong>: it accepts any
+  opaque bearer ≥ 16 chars and forwards it downstream — it does <em>not</em> require an <code>sk_</code>/<code>naap_</code>
+  prefix. So the only MCP-side action is to set the client's outbound bearer to the composite.</p>
+
+  <p>The bearer is set in the MCP <strong>client</strong> config header. In this repo's checkout the header is templated
+  from the env var <code>LIVEPEER_AGENT_API_KEY</code>:</p>
+
+<pre><code>// .mcp.json  (Cursor / Claude Code / Codex)
+{
+  "mcpServers": {
+    "storyboard": {
+      "type": "http",
+      "url": "https://storyboard.daydream.monster/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${LIVEPEER_AGENT_API_KEY}"
+      }
+    }
+  }
+}</code></pre>
+
+<pre><code># Set the env the header expands to == the composite:
+export LIVEPEER_AGENT_API_KEY='app_&lt;clientId&gt;_pmth_&lt;secret&gt;'
+
+# Or add it inline (Claude Code CLI):
+claude mcp add storyboard \
+  https://storyboard.daydream.monster/api/mcp \
+  --header "Authorization: Bearer app_&lt;clientId&gt;_pmth_&lt;secret&gt;"</code></pre>
+
+  <div class="callout">
+    <strong>Header footgun (from the MCP README):</strong> Claude Desktop's <code>mcp-remote</code> needs
+    <code>Authorization:Bearer …</code> with <em>no space</em> after the colon; Claude Code / Cursor / Codex need a
+    <em>space</em>: <code>Authorization: Bearer …</code>. Getting this wrong is the #1 cause of a silent 401.
+  </div>
+
+  <p><strong>Per-call vs. static bearer:</strong> The MCP <em>server</em> supports per-call passthrough — every request's
+  bearer is forwarded independently (no server-pinned key on the hot path). The MCP <em>client</em> config, however, pins
+  <em>one</em> bearer per configured server entry (the <code>LIVEPEER_AGENT_API_KEY</code> header). To use the composite,
+  set that one header to the composite. There is <strong>no per-tool-call key override</strong> in the tool arguments —
+  the key is always the connection's <code>Authorization</code> header.</p>
+
+  <p class="muted">Base URL: the MCP resolves its outbound base via the server provider adapter; the default is
+  <code>https://sdk.daydream.monster</code>. With <code>STORYBOARD_PROVIDER_SWITCH</code> OFF (default) it returns the
+  Daydream/SDK base byte-for-byte, so the composite lands on <code>sdk.daydream.monster/inference</code> where
+  classification + DIRECT-forward run. (Overridable via <code>STORYBOARD_SDK_URL</code>/<code>SDK_URL</code> if ever pointed elsewhere.)</p>
+
+  <table>
+    <tr><th>Concern</th><th>Finding</th><th>Evidence</th></tr>
+    <tr><td>Outbound bearer field</td><td>MCP client header <code>Authorization: Bearer ${LIVEPEER_AGENT_API_KEY}</code>; forwarded verbatim on every call</td><td class="src"><code>storyboard-a3/.mcp.json:6-8</code>; <code>lib/mcp-server/auth.ts:60-116</code>; <code>lib/mcp-server/sdk-call.ts:199-201</code></td></tr>
+    <tr><td>Accepts composite prefix?</td><td class="ok">Yes — provider-neutral, any opaque bearer ≥ 16 chars; no prefix required</td><td class="src"><code>auth.ts:9-16, 78-93</code>; <code>key-validation.ts:28</code> (<code>MIN_KEY_LENGTH=16</code>)</td></tr>
+    <tr><td>Per-call override?</td><td>Server: yes (per-request passthrough). Client: one static header per server entry; no per-tool-arg key</td><td class="src"><code>auth.ts:53-116</code>; <code>app/api/mcp/route.ts:80-112</code></td></tr>
+    <tr><td>Base URL to SDK</td><td><code>https://sdk.daydream.monster</code> (default; provider-switch OFF)</td><td class="src"><code>lib/sdk/provider-server.ts:48-55, 108-111</code>; <code>sdk-call.ts:259</code></td></tr>
+  </table>
+
+  <h3>3b. SDK side <span class="pill warn">already being shipped (worker 4288c982)</span></h3>
+  <p>These are set on <code>sdk-staging-1</code>; nothing here is an action for the MCP owner — listed so the reader knows
+  the DIRECT path is live end-to-end:</p>
+  <ul>
+    <li><code>PYMTHOUSE_COMPOSITE_DIRECT=1</code> — enables the DIRECT branch (skip validate for composites).</li>
+    <li><code>PYMTHOUSE_SIGNER_URL=https://pymthouse-production.up.railway.app</code> — where the composite is forwarded.</li>
+    <li>Pattern engine (already ON): <code>KEY_PATTERN_PYMTHOUSE=naap_*,app_*_pmth_*</code> — must include
+    <code>app_*_pmth_*</code>; <code>KEY_PATTERN_DAYDREAM=sk_*</code>; <code>unmatched=daydream</code>; pins OFF.</li>
+  </ul>
+
+  <h2>4. Why validate is skipped for composites (Run 68 root cause)</h2>
+  <div class="card">
+    <p>A composite is the <em>output</em> of a signer session, not an input credential the front door can look up.
+    Sending it to <code>/keys/validate</code> yields <span class="no">404</span> (no such key), which then falls back to the
+    BYOC path and dies with <span class="no">502</span>. Hence two distinct behaviors:</p>
+    <table>
+      <tr><th>Path</th><th>Input</th><th>Steps</th><th>Result</th></tr>
+      <tr><td><span class="pill day">RESOLVE</span></td><td><code>naap_…</code></td><td>validate → mint signer session → sign → pay</td><td class="ok">works</td></tr>
+      <tr><td><span class="pill pmt">DIRECT</span></td><td><code>app_*_pmth_*</code></td><td><strong>skip validate</strong> → forward composite to signer → sign → pay</td><td class="ok">Run 68 Test 1: mint 200 + real asset</td></tr>
+    </table>
+    <p class="muted">Direct-to-signer with the composite is <span class="ok">PROVEN GREEN</span> (Run 68 Test 1). The DIRECT
+    flag simply teaches the SDK to reproduce that proven curl-<code>--token</code> behavior instead of re-validating.</p>
+  </div>
+
+  <h2>5. Contrast path — if you instead hold a <code>naap_</code> key</h2>
+  <p>Then you don't need a composite at all: present the <code>naap_</code> key as the MCP bearer and let the SDK take the
+  <span class="pill day">RESOLVE</span> path — it calls NaaP <code>/keys/validate</code>, mints a signer session, and signs.
+  The MCP-side steps are identical (set the bearer to the <code>naap_</code> key); only the SDK's internal branch differs
+  (validate instead of skip). Use the composite only when you already have a live session-output credential and want to
+  bypass validation.</p>
+
+  <h2>6. Verification checklist</h2>
+  <ul class="check">
+    <li>Run one inference via the MCP with the composite bearer (e.g. a small <code>create_media</code> image call).</li>
+    <li>Expect <span class="ok">HTTP 200</span> + a real asset URL in the tool result.</li>
+    <li>SDK logs show validate <strong>SKIPPED</strong> for the composite (DIRECT branch taken).</li>
+    <li>SDK logs show the forward target host = <code>pymthouse-production.up.railway.app</code>.</li>
+    <li>A signed payment ticket is generated (<code>RemoteType_Fixed</code>).</li>
+    <li>Metering debits <code>&lt;clientId&gt;</code>.
+      <span class="muted">Note: the usage-read endpoint was transiently 404 during redeploy — if so, rely on
+      signed-ticket generation as the proof of billing rather than the usage read.</span></li>
+  </ul>
+
+  <h2>7. Prerequisites &amp; risks</h2>
+  <ul>
+    <li><span class="pill pmt">Session-scoped</span> The composite is short-lived — NaaP's webhook refreshes/rotates it.
+      The MCP must be able to <strong>refresh the bearer</strong>; a static header (like <code>LIVEPEER_AGENT_API_KEY</code>)
+      will go stale when the session rotates. See open question below.</li>
+    <li><span class="pill warn">Flag dependency</span> <code>PYMTHOUSE_COMPOSITE_DIRECT=1</code> and
+      <code>PYMTHOUSE_SIGNER_URL</code> must be set on the SDK; pattern engine must include <code>app_*_pmth_*</code>.</li>
+    <li><span class="pill ok">Met</span> A <code>RemoteType_Fixed</code>-capable signer + LR orch serving the fixed caps.</li>
+    <li><span class="pill warn">Open dependency</span> Landing + deploy of worker <code>4288c982</code>'s SDK DIRECT change
+      (on <code>livepeer/simple-infra</code>). Until deployed to the SDK the MCP path will still hit RESOLVE and 404/502 on a composite.</li>
+    <li><span class="pill day">Routing</span> Keep <code>STORYBOARD_PROVIDER_SWITCH</code> in a state where the MCP's outbound
+      base is <code>sdk.daydream.monster</code> (the SDK that runs classify + DIRECT). If ever routed to a NaaP front door
+      that re-validates, the composite would 404.</li>
+  </ul>
+
+  <h2>8. Open questions for owners</h2>
+  <ol>
+    <li><strong>MCP bearer refresh:</strong> Does the Storyboard MCP client support a <em>rotating</em>/refreshable
+      composite bearer, or only a static header value? The <code>.mcp.json</code> header is a single static
+      <code>${LIVEPEER_AGENT_API_KEY}</code>; if the composite is session-scoped, who/what re-writes that header (or the env)
+      when NaaP rotates it? <span class="muted">(If only static, a short-lived composite will expire mid-session — need a
+      refresh mechanism or a longer-lived credential.)</span></li>
+    <li><strong>Deploy gate:</strong> Confirm worker <code>4288c982</code>'s DIRECT change is deployed to the SDK the MCP
+      actually targets (<code>sdk.daydream.monster</code>), not only to <code>sdk-staging-1</code>, before end users are told to use composites.</li>
+    <li><strong>Metering read:</strong> Is the usage-read 404 fully resolved post-redeploy, so the checklist can verify
+      <code>&lt;clientId&gt;</code> debits directly rather than inferring from ticket generation?</li>
+  </ol>
+
+  <p class="src" style="margin-top:34px">Plan is investigation-only. No code, deploys, flags, or PRs were changed. MCP
+  findings sourced from the <code>storyboard-a3</code> checkout (see file:line citations in §3a).</p>
+
+</main>
+</body>
+</html>
