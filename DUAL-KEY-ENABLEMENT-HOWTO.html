@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dual-Key (Option A) — Enablement How-To</title>
+<style>
+  :root{--bg:#0f1117;--panel:#171a23;--panel2:#1e222d;--ink:#e7e9ee;--muted:#9aa3b2;
+    --line:#2a2f3c;--accent:#5b9dff;--ok:#3ddc84;--warn:#ffb454;--bad:#ff6b6b;--code:#0b0d12;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.55;font-size:15px}
+  .wrap{max-width:960px;margin:0 auto;padding:38px 26px 90px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:20px;margin:36px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:20px 0 6px;color:#cfd5e0}
+  .sub{color:var(--muted);font-size:14px;margin-top:0}
+  p{margin:9px 0}
+  code{background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;
+    font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.5}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cfd5e0;font-weight:600}
+  tr:nth-child(even) td{background:#14171f}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin:14px 0}
+  .card.warn{border-color:rgba(255,180,84,.5);background:rgba(255,180,84,.06)}
+  .card.ok{border-color:rgba(61,220,132,.4);background:rgba(61,220,132,.05)}
+  .card.bad{border-color:rgba(255,107,107,.45);background:rgba(255,107,107,.06)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;font-weight:600;border:1px solid var(--line)}
+  .off{background:rgba(154,163,178,.14);color:var(--muted)}
+  .on{background:rgba(61,220,132,.14);color:var(--ok)}
+  .ok{color:var(--ok);font-weight:600}.warn{color:var(--warn);font-weight:600}.bad{color:var(--bad);font-weight:600}
+  .muted{color:var(--muted)}
+  .tag{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  ol{padding-left:20px}ol li{margin:6px 0}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Dual-Key (Option A) — Enablement How-To</h1>
+  <p class="sub">Operator guide for turning on per-key routing on <code>sdk-staging-1</code> (SDK service behind <code>sdk.daydream.monster</code>). Inspection-verified <span class="mono">2026-07-29</span>. Image <code>sdk-service:optA-lr-multi-dualkey-2026-07-29</code>.</p>
+
+  <div class="card ok">
+    <span class="tag">TL;DR</span>
+    <p style="margin:6px 0 0">The dual-key image is deployed and every supporting prerequisite is set. All <b>6 enable flags are OFF</b>, so behavior is byte-identical to the legacy <code>naap_</code> path. Enabling is a pure <code>.env</code> edit + <code>docker compose up -d sdk-service</code> — <b>no rebuild, no deploy</b>. Roll back by unsetting the flag and re-running <code>up -d</code>.</p>
+  </div>
+
+  <!-- ============================================================= -->
+  <h2>1 · Where to configure</h2>
+  <table>
+    <tr><th style="width:30%">Thing</th><th>Value</th></tr>
+    <tr><td>Host</td><td><code>sdk-staging-1</code> · zone <code>us-west1-b</code> · project <code>livepeer-simple-infra</code></td></tr>
+    <tr><td>Config file (live runtime)</td><td><code>/opt/sdk/.env</code> (root-owned, <code>0600</code>)</td></tr>
+    <tr><td>Compose file</td><td><code>/opt/sdk/docker-compose.yaml</code> — service <code>sdk-service</code>, image pinned to <code>${SDK_IMAGE}</code>, env sourced from <code>.env</code></td></tr>
+    <tr><td>How a change is applied</td><td>Edit <code>.env</code> → <code>cd /opt/sdk && sudo docker compose up -d sdk-service</code></td></tr>
+    <tr><td class="bad">Do NOT</td><td>Do <b>not</b> run <code>deploy-byoc.sh</code> and do <b>not</b> touch <code>byoc-staging-1</code>. Flags live in the SDK service, not BYOC. No image rebuild is needed — the tag already carries the code.</td></tr>
+  </table>
+
+  <h3>Apply &amp; roll back</h3>
+<pre>ssh sdk-staging-1              # gcloud compute ssh sdk-staging-1 --zone us-west1-b
+cd /opt/sdk
+
+# 1. Back up the live env FIRST (always)
+sudo cp .env .env.bak-dualkey-$(date +%Y%m%d-%H%M%S)
+
+# 2. Edit the flag(s)
+sudo nano .env
+
+# 3. Apply — recreates ONLY sdk-service with the new env, keeps the same image
+sudo docker compose up -d sdk-service
+
+# 4. Verify it came up healthy
+curl -s -o /dev/null -w '%{http_code}\n' https://sdk.daydream.monster/health   # expect 200
+
+# ROLLBACK (instant): remove/blank the flag line, then:
+sudo docker compose up -d sdk-service
+# or restore a backup:  sudo cp .env.bak-dualkey-YYYYMMDD-HHMMSS .env && sudo docker compose up -d sdk-service</pre>
+
+  <!-- ============================================================= -->
+  <h2>2 · The 6 flags</h2>
+  <p class="muted">Semantics per <code>key_routing.py</code>. All default OFF/empty; with defaults the routing decision is unchanged from legacy. Two independent planes are controlled: the <b>signer plane</b> (which wallet/session signs the job) and the <b>orch plane</b> (which orchestrator family serves it).</p>
+  <table>
+    <tr><th style="width:20%">Flag</th><th style="width:14%">Values / default</th><th>Effect when ON</th></tr>
+    <tr>
+      <td><code>KEY_ROUTING_FROM_ENV</code></td>
+      <td><code>0</code>/unset (def) · <code>1</code></td>
+      <td><b>Master gate.</b> OFF = legacy <code>naap_</code>-prefix discriminator decides the path. ON = use the CSV pattern engine below. With default patterns, ON is behavior-preserving.</td>
+    </tr>
+    <tr>
+      <td><code>KEY_PATTERN_PYMTHOUSE</code></td>
+      <td>CSV globs · def <code>naap_*</code></td>
+      <td>Keys matching any glob are the <b>pymthouse</b> path (dedicated signer + LR plane). Evaluated <b>first</b>. Comma-separated, <b>case-sensitive</b>, first-match-wins.</td>
+    </tr>
+    <tr>
+      <td><code>KEY_PATTERN_DAYDREAM</code></td>
+      <td>CSV globs · def <code>sk_*</code></td>
+      <td>Keys matching any glob are the <b>daydream</b> (shared/legacy) path. Evaluated <b>after</b> pymthouse. Same CSV / case-sensitive / first-match rules.</td>
+    </tr>
+    <tr>
+      <td><code>KEY_ROUTING_UNMATCHED</code></td>
+      <td><code>fail_closed</code> (def) · <code>daydream</code></td>
+      <td>What happens to a key matching <b>neither</b> pattern. <code>fail_closed</code> = reject the request. <code>daydream</code> = legacy fall-through to the shared path.</td>
+    </tr>
+    <tr>
+      <td><code>ORCH_PIN_BY_PATH</code></td>
+      <td><code>0</code>/unset (def) · <code>1</code></td>
+      <td><b>Symmetric orch pin.</b> pymthouse → LR-only, <b>reject on miss</b> (no BYOC fail-open). daydream → BYOC-only. Assumes the pymthouse signer plane is active (<code>SIGNER_FROM_VALIDATE=1</code>); enabling it with the signer plane off classifies all traffic as daydream and excludes it from LR.</td>
+    </tr>
+    <tr>
+      <td><code>NAAP_FAIL_CLOSED</code></td>
+      <td><code>0</code>/unset (def) · <code>1</code></td>
+      <td>For a <b>pymthouse-matched</b> key that resolves <b>no</b> session, reject instead of falling through to the shared wallet. Requires <code>SIGNER_FROM_VALIDATE=1</code>. Disjoint from <code>KEY_ROUTING_UNMATCHED</code> (that one is for keys matching no pattern; this one is for matched-but-no-session).</td>
+    </tr>
+  </table>
+
+  <!-- ============================================================= -->
+  <h2>3 · Setup / enablement order (safe)</h2>
+  <div class="card warn">
+    <span class="tag">Rule</span>
+    <p style="margin:6px 0 0">Enable one flag at a time, verify health + a real request between steps, and enable <code>ORCH_PIN_BY_PATH</code> <b>last</b>, one capability / tenant at a time. Instant rollback at every step = unset the flag + <code>docker compose up -d sdk-service</code>.</p>
+  </div>
+  <ol>
+    <li><b>Confirm the signer is <code>RemoteType_Fixed</code>-capable</b> (per-key fixed-price signing). <span class="muted">OQ-1 — prod signer already is; on staging this is provided by <code>SIGNER_FROM_VALIDATE=1</code> + <code>AUTH_VALIDATE_URL</code>/<code>SIGNER_URL</code>, all set.</span></li>
+    <li><b>Set the patterns + master gate:</b> add <code>KEY_PATTERN_PYMTHOUSE</code> / <code>KEY_PATTERN_DAYDREAM</code> (or accept defaults) and <code>KEY_ROUTING_FROM_ENV=1</code>. <span class="muted">With default patterns this is behavior-unchanged — the pattern engine reproduces the legacy split.</span></li>
+    <li><b>Tighten the signer plane:</b> <code>NAAP_FAIL_CLOSED=1</code> so a matched pymthouse key with no session is rejected rather than borrowing the shared wallet.</li>
+    <li><b>Pin the orch plane last:</b> <code>ORCH_PIN_BY_PATH=1</code>, rolled out one cap/tenant at a time. This removes the BYOC fail-open for pymthouse traffic (LR-only, reject-on-miss).</li>
+  </ol>
+  <p class="muted"><code>KEY_ROUTING_UNMATCHED</code> stays at its <code>fail_closed</code> default unless you deliberately want legacy fall-through for unmatched keys.</p>
+
+  <!-- ============================================================= -->
+  <h2>4 · Worked example — full pymthouse-LR lockdown</h2>
+  <p>Target <code>.env</code> additions (everything else on the host stays as-is):</p>
+<pre># --- dual-key (Option A) enablement ---
+KEY_ROUTING_FROM_ENV=1
+KEY_PATTERN_PYMTHOUSE=naap_*
+KEY_PATTERN_DAYDREAM=sk_*
+KEY_ROUTING_UNMATCHED=fail_closed
+NAAP_FAIL_CLOSED=1
+ORCH_PIN_BY_PATH=1
+# prerequisites (already set on sdk-staging-1):
+# SIGNER_FROM_VALIDATE=1 · AUTH_VALIDATE_URL=… · SIGNER_URL=… · LR_ORCH_DISCOVERY=…</pre>
+
+  <h3>Trace two sample keys</h3>
+  <table>
+    <tr><th>Key</th><th>Pattern match</th><th>Signer plane</th><th>Orch plane (<code>ORCH_PIN_BY_PATH=1</code>)</th></tr>
+    <tr>
+      <td class="mono">naap_abc</td>
+      <td>matches <code>KEY_PATTERN_PYMTHOUSE</code> (<code>naap_*</code>) — <b>pymthouse</b></td>
+      <td>dedicated signer via validate (<code>SIGNER_FROM_VALIDATE=1</code>). If no session resolves → <b>reject</b> (<code>NAAP_FAIL_CLOSED=1</code>), no shared-wallet fall-through.</td>
+      <td><b>LR-only</b>, reject on miss — no BYOC fail-open.</td>
+    </tr>
+    <tr>
+      <td class="mono">sk_live_xyz</td>
+      <td>fails pymthouse, matches <code>KEY_PATTERN_DAYDREAM</code> (<code>sk_*</code>) — <b>daydream</b></td>
+      <td>legacy shared path.</td>
+      <td><b>BYOC-only</b>.</td>
+    </tr>
+    <tr>
+      <td class="mono">foo_123</td>
+      <td>matches neither</td>
+      <td colspan="2"><b>Rejected</b> at classification (<code>KEY_ROUTING_UNMATCHED=fail_closed</code>). Set <code>=daydream</code> for legacy fall-through.</td>
+    </tr>
+  </table>
+
+  <!-- ============================================================= -->
+  <h2>5 · Current verified state <span class="pill off">read-only audit · 2026-07-29</span></h2>
+
+  <div class="card ok">
+    <p style="margin:0"><b class="ok">PASS —</b> everything is staged correctly and <b>only the 6 enable flags are OFF</b>. The dual-key image is deployed and running, all supporting prerequisites are set, health is 200, and no dual-key flag is present in <code>.env</code> or the running container.</p>
+  </div>
+
+  <h3>Deployment</h3>
+  <table>
+    <tr><th style="width:34%">Check</th><th>Result</th></tr>
+    <tr><td>Deployed image (compose <code>SDK_IMAGE</code>)</td><td class="mono ok">…/sdk-service:optA-lr-multi-dualkey-2026-07-29</td></tr>
+    <tr><td>Running container image (<code>docker inspect</code>)</td><td class="mono ok">…/sdk-service:optA-lr-multi-dualkey-2026-07-29 · Up ~1h</td></tr>
+    <tr><td><code>sdk.daydream.monster/health</code></td><td class="ok">HTTP 200</td></tr>
+    <tr><td><code>/capabilities</code> count</td><td class="ok">172</td></tr>
+  </table>
+
+  <h3>Supporting prerequisites — all set <span class="muted">(values masked)</span></h3>
+  <table>
+    <tr><th style="width:40%">Variable</th><th>State</th></tr>
+    <tr><td><code>SIGNER_FROM_VALIDATE</code></td><td class="ok">SET = 1</td></tr>
+    <tr><td><code>AUTH_VALIDATE_URL</code></td><td class="ok">SET (masked)</td></tr>
+    <tr><td><code>SIGNER_URL</code></td><td class="ok">SET (masked)</td></tr>
+    <tr><td><code>LR_ORCH_DISCOVERY</code></td><td class="ok">SET (masked)</td></tr>
+    <tr><td><code>SELECT_PROVIDER_MERIT</code></td><td class="ok">SET = 1 · <code>SELECT_PROVIDER_MERIT_TTL</code>=30</td></tr>
+    <tr><td><code>CAPABILITY_ORCH_OFFERINGS</code></td><td class="ok">SET (masked)</td></tr>
+    <tr><td><code>SELECT_PROVIDER_LR_CAPS</code> · <code>SELECT_PROVIDER_LR_PCT</code></td><td class="ok">SET · =100</td></tr>
+    <tr><td><code>LR_DESCRIPTOR_DISPATCH</code> · <code>SDK_MULTI_ORCH_ENABLED</code></td><td class="ok">SET = 1 · =1</td></tr>
+    <tr><td><code>CAPABILITY_ORCH_MAP</code> · <code>LR_OFFERINGS_JSON</code> · <code>BYOC_ORCH_URL</code> · <code>ADAPTER_URLS</code> · <code>DISCOVERY_URL</code></td><td class="ok">SET (masked)</td></tr>
+  </table>
+  <p class="muted">Note: discovery is wired via <code>LR_ORCH_DISCOVERY</code> (the singular var); no separate <code>LR_ORCH_DISCOVERY_URLS</code> is set — expected for this host.</p>
+
+  <h3>The 6 dual-key flags — all OFF</h3>
+  <table>
+    <tr><th style="width:40%">Flag</th><th><code>/opt/sdk/.env</code></th><th>Running container env</th></tr>
+    <tr><td><code>KEY_ROUTING_FROM_ENV</code></td><td><span class="pill off">ABSENT</span></td><td><span class="pill off">unset</span></td></tr>
+    <tr><td><code>KEY_PATTERN_PYMTHOUSE</code></td><td><span class="pill off">ABSENT</span></td><td><span class="pill off">unset</span></td></tr>
+    <tr><td><code>KEY_PATTERN_DAYDREAM</code></td><td><span class="pill off">ABSENT</span></td><td><span class="pill off">unset</span></td></tr>
+    <tr><td><code>KEY_ROUTING_UNMATCHED</code></td><td><span class="pill off">ABSENT</span> (default <code>fail_closed</code>)</td><td><span class="pill off">unset</span></td></tr>
+    <tr><td><code>ORCH_PIN_BY_PATH</code></td><td><span class="pill off">ABSENT</span></td><td><span class="pill off">unset</span></td></tr>
+    <tr><td><code>NAAP_FAIL_CLOSED</code></td><td><span class="pill off">ABSENT</span></td><td><span class="pill off">unset</span></td></tr>
+  </table>
+
+  <p class="muted" style="margin-top:26px">Read-only inspection via <code>gcloud compute ssh sdk-staging-1</code> as <code>qiang@livepeer.org</code>. No config was changed; no flag flipped; no deploy performed. Secret values masked throughout.</p>
+
+</div>
+</body>
+</html>
