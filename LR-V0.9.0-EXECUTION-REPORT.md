@@ -1927,3 +1927,41 @@ gcloud compute ssh sdk-staging-1 --zone us-west1-b --project livepeer-simple-inf
   cd /opt/sdk && sudo docker compose up -d --force-recreate --no-deps sdk-service'
 # reverts SDK_IMAGE to …compositedefault-2026-07-30 (shared fal-app offering table).
 ```
+
+---
+
+## Run 72 — full green e2e attempt (funded composite bearer) → NEW blocker (gateway missing `live_runner`)
+
+**Setup:** requester supplied a funded composite bearer (`app_98575870…`, **secret — not recorded**). Ran the live front-door e2e: `POST https://sdk.daydream.monster/inference`, `Authorization: Bearer <composite>`, body `{"capability":"flux-schnell","prompt":"a red bicycle…"}`. Bearer held in-memory only (never written to file/VM/commit/docs; session env cleared after).
+
+**What worked (composite-default + app-name fix confirmed live):**
+- ✅ **DIRECT fires** — SDK log: `signer: pymthouse composite DIRECT-to-signer — validate SKIPPED, signer_host=pymthouse-production.up.railway.app`.
+- ✅ App-name mapping (Run 71) is correct — per-model runner selection was already proven against live `:8936`.
+
+**What FAILED — HTTP 502, no asset, no metering.** Client response body:
+
+```json
+{"detail":{"error":"BYOC job rejected by orchestrator https://byoc-staging-1.daydream.monster:8935: No orchestrator available for capability 'flux-schnell': payment failed: BYOC payment generation failed: HTTP 400: {\"error\":{\"message\":\"invalid job type\"}}\n","rejections":[{"url":"https://byoc-staging-1.daydream.monster:8935","reason":"payment failed: BYOC payment generation failed: HTTP 400: {\"error\":{\"message\":\"invalid job type\"}}\n"}]}}
+```
+
+**Exact error chain (SDK logs, `sdk-staging-1`):**
+
+```
+signer: pymthouse composite DIRECT-to-signer — validate SKIPPED, signer_host=pymthouse-production.up.railway.app
+LR dispatch failed for flux-schnell (No module named 'livepeer_gateway.live_runner'); falling back to BYOC
+BYOC job 4f8a97e5-…: signing failed: sign-byoc-job failed: HTTP 404: 404 page not found
+BYOC job 4f8a97e5-…: payment creation failed …: BYOC payment generation failed: HTTP 400: {"error":{"message":"invalid job type"}}
+NoOrchestratorAvailableError: No orchestrator available for capability 'flux-schnell'
+```
+
+The identical `No module named 'livepeer_gateway.live_runner'` failure recurs for **every** paid fal cap (e.g. `chatterbox-tts` shows it repeatedly in the same log window) — so this is **not** flux-schnell-specific and **not** the app-name mapping.
+
+**Root cause (NEW blocker — distinct from Run 70b/71):** the native LR dispatch (`_dispatch_lr_v2` / `_dispatch_lr`) does `from livepeer_gateway.live_runner import call_runner`, but the **vendored gateway baked into the deployed image has no `live_runner` module and no `call_runner`**. Verified in-container: `livepeer_gateway/` ships `byoc.py, lv2v.py, orchestrator.py, remote_signer.py, …` but **no `live_runner.py`**; `importlib.util.find_spec("livepeer_gateway.live_runner") → None`; `grep call_runner` → none. The image was vendored from the local gateway checkout `feat/land-lr-native-dispatch-converge @ dad5455`, which omits `live_runner.py`. Because the import raises, LR is skipped and the request falls to BYOC — which is a dead end for the pymthouse plane: the pymthouse signer exposes **no `sign-byoc-job` endpoint** (HTTP 404) and the BYOC orch rejects the job (`invalid job type`) → 502.
+
+**The SDK code is correct; the gateway build is stale.** The exact `call_runner` the SDK imports **exists** on gateway branch **`jm/live-runner-session-payments` (`bd8e7807`)** — `src/livepeer_gateway/live_runner.py`, `async def call_runner(runner_url="", *, runner=None, payload=None, method="POST", signer_url=None, signer_headers=None, timeout=5.0, max_payment_challenge_retries=3) -> LiveRunnerCallResult` (line 624), matching `app.py`'s call. It carries the session-payment client (`LiveRunnerSession`, `LivePaymentSession`, `run_session_payments`, payment-challenge retries) that mints against the signer and POSTs to the single-shot runner.
+
+**Owner / action to unblock (STOP point — not done unilaterally; changes gateway/payment behavior + depends on the signer contract):**
+1. **simple-infra build (+ gateway ref):** re-vendor `sdk-service-build/livepeer-gateway/` to a ref that includes `live_runner.py` (the session-payments branch `jm/live-runner-session-payments`, or a merge of it into the converge branch), then do a **FULL base-image rebuild** (`pip install /sdk/` re-runs — not a thin `app.py`/`lr_offerings.py` overlay) and redeploy `sdk-staging-1`. Regression check the other gateway-backed paths (byoc, lv2v, capabilities) since the whole SDK swaps.
+2. **pymthouse signer owner (verify after #1):** `call_runner`'s session-payment handshake (payment challenge → `run_session_payments`) runs against `PYMTHOUSE_SIGNER_URL`. Confirm the deployed pymthouse signer supports that challenge/mint protocol for a paid single-shot LR call. If it does not, that is a signer-side deliverable (same class as the "signer lacks merged fixed+byoc support" gap) — coordinate, do not patch the signer from the SDK side.
+
+**Net:** composite-default ✅, LR discovery repoint ✅, app-name mapping ✅ (all live + verified) — but the **full green e2e does NOT pass**. Blocker moved one layer deeper: the deployed image's vendored gateway lacks the `call_runner` LR client, so native single-shot dispatch cannot execute and the pymthouse path falls to a BYOC dead-end (signer has no BYOC endpoint). No orch/signer changes made. `byoc-staging-1` untouched. Bearer never persisted.
