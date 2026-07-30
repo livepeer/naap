@@ -1606,3 +1606,137 @@ gcloud compute ssh sdk-staging-1 --zone us-west1-b --tunnel-through-iap --comman
 - **`byoc-staging-1` NEVER touched**; `deploy-byoc.sh` NOT run; only `sdk-service` recreated.
 - **Secrets env-only** — the composite bearer + `pmth_cs_…` M2M secret never
   echoed/logged/committed; `git grep` for the secret tails run before commit (0 matches).
+
+---
+
+## LR orch outage diagnosis (2026-07-29) — READ-ONLY
+
+**TL;DR: the LR orchestrator is NOT down.** The v0.9.0 orch is healthy and serving
+`/discovery` on host **`:8936`**. The Run 69 "outage" symptom is a **stale SDK config**:
+`sdk-staging-1`'s `LR_ORCH_DISCOVERY` still points at (a) the **retired** v1 orch on
+`:8935` (Connection refused) and (b) a **dead/rotated tailnet** MagicDNS name
+`lpt.tail3396e5.ts.net:8443` (NXDOMAIN). Neither points at the live `:8936` orch, so LR
+discovery returns zero runners and every LR-eligible cap falls back to BYOC. Fix is a
+**one-line SDK env edit + container recreate** — **no VM start, no orch redeploy, no
+re-provision.**
+
+### 1. VM state — **RUNNING** (not the problem)
+
+`gcloud compute instances list` (project `livepeer-simple-infra`):
+
+| Field | Value |
+|---|---|
+| Instance | `liverunner-staging-1` |
+| Zone / machine | `us-west1-b` / `e2-standard-8` |
+| Internal / external IP | `10.138.0.23` / **`136.66.21.17`** |
+| Status | **RUNNING** |
+| Host uptime | **11 days, 10h** (`uptime` via read-only SSH) |
+
+`byoc-staging-1` (`us-west1-b`, `8.229.77.130`) — **RUNNING**, untouched.
+
+### 2. DNS / port reachability
+
+| Endpoint | Result | Meaning |
+|---|---|---|
+| DNS `liverunner-staging-1.daydream.monster` | → **`136.66.21.17`** (matches VM external IP) | ✅ resolves correctly |
+| `:8935/discovery` (host) | **`http=000` / TCP Connection refused** | ❌ nothing listening on host `:8935` — the retired v1 orch |
+| **`:8936/discovery`** (host) | **`http=200`** — full per-cap runner list (flux-schnell, flux-dev, gpt-image, seedance, ffmpeg×3, blender, kontext, pixverse, veo, chatterbox-tts, hyper…) | ✅ **live LR orch, healthy** |
+| `:8936/health` | `http=404` (no `/health` route; port open & serving) | ✅ orch up (health path just isn't wired) |
+| `:8443` (Caddy) | `http=000` | closed on host |
+| DNS `lpt.tail3396e5.ts.net` | **NXDOMAIN** ("Name or service not known") | ❌ stale/rotated tailnet MagicDNS name — never resolvable from the SDK |
+
+The two failing endpoints match Run 69 **exactly**: `:8935` = "Connection refused";
+`lpt.tail3396e5.ts.net:8443` = "Name or service not known". The **live** `:8936` endpoint
+is **not in the SDK's discovery list at all.**
+
+### 3. Container state on `liverunner-staging-1` (read-only `docker ps -a`)
+
+| Container | Image | Status | Host ports |
+|---|---|---|---|
+| **`liverunner-v09-orch`** | `livepeer/go-livepeer:v0.9.0` | **Up 25 hours** | **`0.0.0.0:8936->8935/tcp`** ← the live LR orch |
+| `liverunner-v2-orch` | `go-livepeer:3975-singleshot` | **Exited (0)** 26h ago | — (byoc-derived, kept for rollback) |
+| `liverunner-orch` | `go-livepeer:3975-singleshot` | **Exited (0)** 25h ago | — (**old v1 orch that served host `:8935`**) |
+| `liverunner-caddy` | `caddy:2` | Up 25 hours | — |
+| `liverunner-v2-fal-app` / `liverunner-fal-app` / `-ffmpeg-app` / `-blender-app` / `-hyperframes-app` | live-runner apps | Up (11d / 29h) | app-internal |
+
+`ss -ltnp` on the VM: **only `:8936` is listening** (docker-proxy). Nothing on host
+`:8935` or `:8443`. The two exited orch containers exited with **code 0 = clean/intentional
+stop** (the v1-retirement / v0.9.0 cutover ~25h ago), **not a crash or OOM.**
+
+### 4. ROOT CAUSE — stale SDK discovery config, not an orch outage
+
+The v0.9.0 cutover (~25h ago, documented in *Step ii* + *Dispatch-fix addendum*) moved the
+LR orch to host **`:8936`** and stopped the old v1 orch on `:8935`. The SDK on
+`sdk-staging-1` was **never repointed on the shared staging service** (Step vi decision:
+config apply gated on owner approval). Read-only `docker inspect sdk-service` confirms the
+running container (image `sdk-service:optA-lr-multi-dualkey-composite-2026-07-30`, recreated
+~13 min before this probe) still carries the stale value, sourced from **`/opt/sdk/.env`
+line 16**:
+
+```
+LR_ORCH_DISCOVERY=https://liverunner-staging-1.daydream.monster:8935/discovery,https://lpt.tail3396e5.ts.net:8443/discovery
+```
+
+- `:8935/discovery` → the **retired v1 orch** (`liverunner-orch`, Exited 0) → **Connection refused**.
+- `lpt.tail3396e5.ts.net:8443/discovery` → **stale tailnet MagicDNS** → **NXDOMAIN**.
+- The **live** `:8936` orch is **absent** from the list → LR discovery yields 0 runners →
+  every LR-eligible cap **falls back to BYOC**.
+
+The compose reads `LR_ORCH_DISCOVERY: ${LR_ORCH_DISCOVERY:-}` from `/opt/sdk/.env`, so the
+~13-min-ago recreate carried the stale `.env` value forward — the image was refreshed but
+the env was not.
+
+### 5. Restart vs redeploy vs re-provision → **NONE of those**
+
+This is **not** a VM start (VM is RUNNING), **not** an orch container restart (`:8936` orch
+is Up 25h and healthy), **not** an orch redeploy, **not** a re-provision. It is a **SDK
+config fix**: correct one env var and recreate the SDK container.
+
+### 6. EXACT remediation (SDK / infra owner — GREEN-LIGHT REQUIRED, NOT executed)
+
+Edit `/opt/sdk/.env` line 16 to point at the live `:8936` orch and drop the dead tailnet
+host, then recreate only `sdk-service`:
+
+```bash
+gcloud compute ssh sdk-staging-1 --zone us-west1-b --tunnel-through-iap --command '
+  sudo cp /opt/sdk/.env /opt/sdk/.env.bak.pre-lr8936-$(date +%Y%m%d-%H%M%S) &&
+  sudo sed -i "s#^LR_ORCH_DISCOVERY=.*#LR_ORCH_DISCOVERY=https://liverunner-staging-1.daydream.monster:8936/discovery#" /opt/sdk/.env &&
+  cd /opt/sdk && sudo docker compose up -d --force-recreate sdk-service'
+```
+
+Verify after:
+
+```bash
+curl -sk https://liverunner-staging-1.daydream.monster:8936/discovery | jq '.[0].runners | length'   # expect 8+ runners
+# then re-run the Run 69 LR-eligible cap (flux-schnell) and confirm it dispatches to :8936 (no "falling back to BYOC")
+```
+
+- **Owner:** SDK / simple-infra owner (the `sdk-staging-1` service owner). No orch-side or
+  on-chain action; the orch is already live and on-chain-active on `:8936`.
+- **Prerequisites:** none new — wallet is funded, cert/challenge/reserve on `:8936` are
+  already proven (see *Re-test* / *Fixed-payment* addenda). No gateway pin change needed;
+  the deployed image (`…composite-2026-07-30`) already vendors `call_runner`.
+- **Consequential caveat:** **low blast radius.** This only changes which discovery URL the
+  SDK reads; `byoc-staging-1` (`ORCH_URL`/`CAPABILITY_ORCH_MAP` on `:8935`) is untouched and
+  `sk_`/daydream routing is unaffected. It is reversible (`.env` backup taken above).
+  Restoring native LR dispatch means LR-eligible caps stop falling back to BYOC and take the
+  `:8936` mint path — which requires the merged `fixed`+`byoc` pymthouse signer to be live
+  for a fully-green billed asset (tracked separately in the *Fixed-payment* addendum); the
+  discovery fix itself is safe and independent of that.
+
+### 7. Blast radius (confirmed)
+
+With LR discovery broken, LR-eligible caps **fail open to BYOC** (`app.py` LR dispatch →
+BYOC fallback). So **Daydream / `sk_` traffic still works** via `byoc-staging-1` (RUNNING),
+but the **pymthouse-signer native LR path 502s / cannot complete** because there is no BYOC
+signer endpoint for that path and the SDK never reaches the live `:8936` mint path.
+Confirmed consistent with Runs 68–69 and the addenda above.
+
+### 8. Confirmation — nothing mutated
+
+**READ-ONLY throughout.** Only: `gcloud compute instances list`, `nslookup`/`dig`, `curl`
+GET on `/discovery`+`/health`, and read-only SSH (`docker ps -a`, `docker inspect`,
+`ss -ltnp`, `uptime`, `ls`, `grep`). No `docker restart/up/down`, no VM
+start/stop, no `.env`/compose edits on any VM, no redeploy, no flag flips, no on-chain
+action. `byoc-staging-1` and `liverunner-v09-orch` (`:8936`) stayed healthy and untouched.
+The remediation command in §6 is **recommended, not executed** — awaiting green light.
