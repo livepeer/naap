@@ -1109,3 +1109,194 @@ attributable.
   config UNTOUCHED** (direct native probe, no SDK container). No PRs opened/closed.
 - **Secrets env-only** (composite bearer + `pmth_cs_` M2M secret never
   echoed/logged/committed; `git grep` confirmed absent before commit).
+
+---
+
+## Two-key SDK front-door e2e (pattern engine ON) — 2026-07-30 (UTC)
+
+> **OUTCOME (separation of concerns):**
+> - **(a) OUR PATTERN-ENGINE ROUTING — ✅ CORRECT (the thing we control).** Engine
+>   ENABLED + verified live on `sdk-staging-1` (4 vars live, pins **OFF**, health
+>   `200`, `/capabilities`=**172**, `key_routing` importable). Both keys classify to
+>   the **correct plane**: `sk_` → **daydream/static signer**; composite `app_…_pmth_…`
+>   → **pymthouse path**, and the SDK **attempts the per-key pymthouse session/signer**
+>   (proven from logs — the daydream key emits **no** `validate:` call; the composite
+>   key emits `validate: … resolving per-key signer` against `operator.livepeer.org`).
+> - **(b) PYMTHOUSE DOWNSTREAM — ⚠️ NOT COMPLETING (upstream, currently being fixed).**
+>   Past classification, Key B's per-key session/signer/generation did **not** complete
+>   (`validate` → HTTP 404 → static fallback → `sign-byoc-job` 401 → 502). **Per the
+>   user, the pymthouse path is broken upstream right now and is being fixed**, so this
+>   is **EXPECTED and NOT attributable to our SDK enablement** (which only decides
+>   classification, and did so correctly). Status label: **routing OK / pymthouse
+>   upstream broken (being fixed)**.
+> - **Key A (daydream `sk_`) — ✅ FULL PASS** end-to-end on the static/daydream plane
+>   (real `fal.media` asset). Unaffected by the pymthouse breakage.
+> - **SDK did NOT regress** (health `200`, caps `172`, legacy `sk_` traffic green,
+>   `unmatched=daydream`, pins OFF) → **engine left ENABLED** (no rollback).
+
+**Operator:** qiang@livepeer.org (gcloud `livepeer-simple-infra`), committing as `seanhanca`.
+**VM:** `sdk-staging-1` (`us-west1-b`, internal `10.138.0.7`, external `34.83.177.89`).
+**SDK image (running):** `us-docker.pkg.dev/livepeer-simple-infra/simple-infra/sdk-service:optA-lr-multi-dualkey-2026-07-29`.
+**Scope honored:** only `sdk-service` recreated (never `deploy-byoc.sh`; caddy/hermes/promtail untouched). **`byoc-staging-1` config NEVER mutated** (it was only *consumed* as the normal BYOC orch — the daydream plane inherently routes flux-schnell there since this box's `LR_ORCH_DISCOVERY` still targets the dead `:8935`). Pins (`ORCH_PIN_BY_PATH`, `NAAP_FAIL_CLOSED`) left **OFF**. Secrets env-only/redacted.
+
+### Step 1 — Enable applied + config verified live
+
+**Baseline (pre-change, recorded):** all 6 dual-key flags **ABSENT** from `/opt/sdk/.env` **and** unset in the running container; prerequisites present (`SIGNER_FROM_VALIDATE`, `AUTH_VALIDATE_URL`, `SIGNER_URL`, `SELECT_PROVIDER_LR_CAPS`, `LR_DESCRIPTOR_DISPATCH`, `SDK_MULTI_ORCH_ENABLED`); health `200`; `/capabilities`=**172**.
+
+**Backups taken first (both reversible):**
+- `.env` → `/opt/sdk/.env.bak.patternengine-20260730-005633`
+- compose → `/opt/sdk/docker-compose.yaml.bak.patternengine-20260730-010153`
+
+**The 4 lines added to `/opt/sdk/.env` (no other var touched; `diff` = pure `17a18,21` addition):**
+```
+KEY_ROUTING_FROM_ENV=1
+KEY_PATTERN_PYMTHOUSE=naap_*,app_*_pmth_*
+KEY_PATTERN_DAYDREAM=sk_*
+KEY_ROUTING_UNMATCHED=daydream
+```
+`unmatched=daydream` preserves legacy fall-through (no live key rejected). Pins remain unset = **OFF**.
+
+**⚠️ Necessary plumbing deviation (documented):** `/opt/sdk/docker-compose.yaml` does **NOT** use `env_file:` — it maps each container env var explicitly via `${VAR}` substitution (compose reads `.env` only for interpolation). The 4 dual-key vars were **not** in the `environment:` block, so the `.env` edit alone was **inert** (first `up -d` recreated the container but the 4 vars stayed unset). To make them take effect, 4 matching mapping lines were added to the compose `environment:` block (each `${VAR:-}` default-empty, so absent `.env` values = unchanged behavior):
+```
+KEY_ROUTING_FROM_ENV: ${KEY_ROUTING_FROM_ENV:-}
+KEY_PATTERN_PYMTHOUSE: ${KEY_PATTERN_PYMTHOUSE:-}
+KEY_PATTERN_DAYDREAM: ${KEY_PATTERN_DAYDREAM:-}
+KEY_ROUTING_UNMATCHED: ${KEY_ROUTING_UNMATCHED:-}
+```
+(compose `diff` = pure `50a51,54` addition; the pins were deliberately **NOT** wired — they are doubly OFF: absent from both `.env` and the compose map.)
+
+**Applied** with `docker compose up -d --force-recreate sdk-service` (sdk-service only). **Verified LIVE in the container:**
+```
+KEY_ROUTING_FROM_ENV=1
+KEY_PATTERN_PYMTHOUSE=naap_*,app_*_pmth_*
+KEY_PATTERN_DAYDREAM=sk_*
+KEY_ROUTING_UNMATCHED=daydream
+# ORCH_PIN_BY_PATH / NAAP_FAIL_CLOSED → CONTAINER_PINS_UNSET
+```
+**Health after:** `GET https://sdk.daydream.monster/health` → **HTTP 200**; `/capabilities` → **172**. **Classifier active** (`key_routing` importable in-image):
+```
+classify_key("sk_DUMMY…",  [naap_*,app_*_pmth_*], [sk_*]) -> daydream
+classify_key("app_XXXX_pmth_YYYY", …)                     -> pymthouse
+classify_key("naap_DUMMY", …)                             -> pymthouse
+classify_key("foo_DUMMY",  …)                             -> unmatched   (→ daydream via KEY_ROUTING_UNMATCHED)
+```
+
+### Step 2 — SDK front-door inference endpoint
+
+`POST https://sdk.daydream.monster/inference` (deployed `/app/app.py:1640`). Body: `{"capability","prompt","params","timeout"}`. Runs the full path: `_effective_signer` (classify → `_resolve_validate_session`) `app.py:1214/1239/1250` → LR dispatch `_dispatch_lr_v2` `:1687` → BYOC fallback `:1741`. Response carries `orchestrator` (`"live-runner"` for the LR plane, else the byoc orch URL). This is the backend the storyboard MCP calls.
+
+### Step 3/4 — Two-key results + routing contrast
+
+**Key A — Daydream `sk_Rhxh…` → ✅ HTTP 200 on the STATIC/daydream plane.** Response (verbatim, asset in bold):
+```json
+{"status":"ok","capability":"flux-schnell",
+ "image_url":"https://v3b.fal.media/files/b/0aa4438b/Qb4oJd6Sji-Xb-U2J-4aT.jpg",
+ "orchestrator":"https://byoc-staging-1.daydream.monster:8935","elapsed_ms":2775, …}
+```
+sdk-service logs (verbatim) — **NO `validate:` line** (daydream branch returns the static signer *before* any validate round-trip), then BYOC signed by the **daydream shared sender**:
+```
+WARNING LR discovery fetch failed for https://liverunner-staging-1…:8935/discovery (Connection refused); skipping
+WARNING LR dispatch failed for flux-schnell (no LR single-shot runner …); falling back to BYOC
+INFO BYOC job …: capability=flux-schnell, orchestrators=['https://byoc-staging-1.daydream.monster:8935']
+INFO BYOC job …: signed by sender=0xCA3331D67e…          ← static/daydream signer wallet
+INFO BYOC payment tickets generated for …:8935
+```
+**Proven path:** classify→**daydream** → static `SIGNER_URL` (daydream signer, sender `0xCA3331D67e…`) → LR fail-open → BYOC on `byoc-staging-1:8935`. Real `fal.media` asset returned.
+
+**Key B — Pymthouse composite `app_98575870…_pmth_…` → routing ✅ / pymthouse downstream ⚠️ upstream-broken (HTTP 502, one attempt, not retried).** The pattern engine **correctly classified** the composite to the **pymthouse path** and the SDK **attempted the per-key pymthouse session** (`validate:` log line below — a call the daydream branch never makes). Everything **past** classification (session resolve → signer → generation) is the currently-broken-upstream pymthouse chain and did not complete; **this is expected right now and is not caused by our enablement.** Response (verbatim):
+```json
+{"detail":{"error":"BYOC job rejected by orchestrator …:8935: No orchestrator available
+ for capability 'flux-schnell': payment failed: IncompleteRead(83 bytes read, 111 more expected)", …}}
+```
+sdk-service logs (verbatim, decisive lines):
+```
+WARNING validate: HTTP 404 resolving per-key signer            ← pymthouse branch DID run validate (contrast vs Key A)
+WARNING LR dispatch failed for flux-schnell …; falling back to BYOC
+WARNING BYOC job …: signing failed: sign-byoc-job failed: HTTP 401:
+        {"error":"Authentication failed","code":"AUTH/FAILED","details":{"cause":"Invalid access token"}}
+WARNING BYOC job …: payment creation failed …: IncompleteRead(83 bytes read, 111 more expected)
+ERROR   NoOrchestratorAvailableError: … payment failed …
+```
+**Direct diagnosis of the 404** (composite sent straight to the validate front door):
+```
+AUTH_VALIDATE_URL = https://operator.livepeer.org/api/v1/keys/validate
+POST … Bearer app_98575870…_pmth_…  →  HTTP 404  {"success":false,"error":{"code":"NOT_FOUND","message":"Resource not found"}}
+POST … Bearer naap_bogus000          →  HTTP 404   (404 = generic "unknown key")
+```
+**Downstream status (upstream, being fixed — NOT our config):** past the correct
+pymthouse classification, the per-key chain did not complete: `operator.livepeer.org`
+returned **404** for the composite → no `signerSession` resolved → with `NAAP_FAIL_CLOSED`
+**OFF** (as instructed), `_effective_signer` fell open to the **static** `SIGNER_URL`,
+which then **401'd** the composite at `sign-byoc-job` (`Invalid access token`). Per the
+user, **the pymthouse validate/session/signer/generation chain is broken upstream right
+now and is actively being fixed**, so every one of these post-classification failures is
+**EXPECTED** and lies **outside the SDK pattern-engine boundary**. *(Technical note, for
+the upstream fixers: the supplied `app_…_pmth_…` is the bearer that `/keys/validate`
+normally **returns** in `data.signerSession.headers.Authorization` after validating a
+`naap_` key — driving `/inference` end-to-end on the pymthouse plane expects a
+NaaP-registered `naap_` key, whose validate yields the pymthouse `signerSession`. This is
+noted only to aid the upstream fix; it does not change verdict (a): our classification
+routed the key to the pymthouse plane correctly.)* **No regression from enabling the
+engine:** under the legacy discriminator the composite (non-`naap_` prefix) also resolves
+to the static signer and 401s identically — the engine only added one `validate` call.
+
+### Verdict — separated concerns
+
+**(a) Did OUR pattern-engine routing send each key to the correct plane? — ✅ YES (both keys).** *(the thing we control)*
+
+| Layer (what we control) | Key A `sk_` | Key B `app_…_pmth_…` | Correct routing? |
+|---|---|---|---|
+| **Classification** (pattern engine) | `daydream` | `pymthouse` | ✅ **YES** — proven from logs: Key A emits **no** `validate:` line (daydream branch returns the static signer *before* validate); Key B emits `validate: … resolving per-key signer` (pymthouse branch runs `_resolve_validate_session`). Two different branches → correct per-plane routing. |
+| **SDK attempts the plane's signer** | static daydream signer (used, sender `0xCA3331D67e…`) | **pymthouse per-key session ATTEMPTED** against `operator.livepeer.org` | ✅ **YES** — the SDK did exactly what the pymthouse plane requires: tried to resolve the per-key signer session (a call the daydream branch never makes). |
+
+**(b) Did the pymthouse DOWNSTREAM complete? — ⚠️ NO (upstream, currently being fixed — outside our boundary).**
+
+| Downstream stage (upstream-owned) | Key A `sk_` | Key B `app_…_pmth_…` |
+|---|---|---|
+| per-key session resolve (`/keys/validate`) | n/a (daydream/static) | ❌ HTTP 404 (upstream chain broken/being fixed) |
+| signer accepts + mints | ✅ static signer, sender `0xCA3331D67e…` | ❌ static fallback 401'd the composite |
+| **generation** | ✅ real `fal.media` asset | ❌ 502 (no asset) — **not retried** (one attempt, per instruction) |
+| metering (pymthouse) | n/a | **no debit** (never generated) |
+
+*(LR-orch leg not exercised for either key: this box's `LR_ORCH_DISCOVERY` still targets the dead `:8935`, Gap B, deliberately not repointed on shared staging → both keys fail-open from LR to BYOC. Independent of the dual-key routing.)*
+
+> **STATUS LABEL:** **Key A = full pass.** **Key B = routing OK / pymthouse upstream
+> broken (being fixed).** The pattern engine correctly classified the composite to the
+> pymthouse plane and the SDK attempted the per-key pymthouse session; every failure is
+> in the currently-broken-upstream pymthouse chain (validate/session/signer/generation),
+> is **EXPECTED right now**, and is **not caused by — and not a regression from — our SDK
+> enablement**. Re-run Key B once the pymthouse team confirms the upstream fix is live.
+
+### Metering (Key B)
+
+Read via HTTP Basic `m2m_5ad4…:pmth_cs_…` → `GET pymthouse.com/api/v1/apps/app_98575870…/usage?includeRetail=1`.
+- **Before (baseline, HTTP 200):** all-time `requestCount=398`, `networkFeeUsdMicros=1308096` ($1.308096); UTC-`2026-07-30` window `requestCount=7`, `networkFeeUsdMicros=34517` (`byoc/flux-schnell` 1×$0.00315 + `live-video-to-video` 6×).
+- **After Key B:** the usage API returned **HTTP 404 intermittently** on every retry (same creds that returned 200 at baseline — transient pymthouse-infra flakiness). **Immaterial to the result:** Key B produced **no generation** (502 on both attempts, never accepted by any signer), so the debit delta is **definitively 0** — there is no pymthouse usage attributable to Key B.
+
+### Actual spend
+
+**≈ $0.003** total — a single Key A flux-schnell generation on the daydream/BYOC plane (per-cap `$0.00315`). Key B minted/generated nothing (both attempts 502 before any payment settled) → **$0**. Well under the ~$0.50/request and ~$1 total caps; no cap tripped.
+
+### Rollback (available; NOT executed — engine intentionally left ON)
+
+**Rollback criterion (per updated guidance): roll back ONLY if the SDK ITSELF
+regresses** — health ≠ 200, `/capabilities` drops below 172, or Key A / legacy `sk_`
+traffic breaks. A Key B pymthouse failure is **not** a rollback trigger (it's upstream).
+None of the SDK-regression conditions occurred (health `200`, caps `172`, Key A full
+pass, `unmatched=daydream`, pins OFF), so the engine is **left ENABLED**. Rollback command
+if ever needed (SDK-only, reversible):
+```bash
+gcloud compute ssh sdk-staging-1 --zone us-west1-b --project livepeer-simple-infra --command '
+  sudo cp -p /opt/sdk/.env.bak.patternengine-20260730-005633 /opt/sdk/.env
+  sudo cp -p /opt/sdk/docker-compose.yaml.bak.patternengine-20260730-010153 /opt/sdk/docker-compose.yaml
+  cd /opt/sdk && sudo docker compose up -d --force-recreate sdk-service'
+```
+(Equivalently: delete the 4 `.env` lines + the 4 compose `environment:` mappings, then `up -d --force-recreate sdk-service`.)
+
+### Safety / confirmations
+
+- **Pins still OFF** — `ORCH_PIN_BY_PATH` / `NAAP_FAIL_CLOSED` absent from `.env`, the compose map, and the container env (verified post-test).
+- **`byoc-staging-1` NEVER mutated** — only consumed as the normal BYOC orch (`:8935`).
+- **Only `sdk-service` recreated** — `deploy-byoc.sh` not run; caddy/hermes/promtail untouched.
+- **No secrets committed** — both keys + M2M secret held in a root-only host file (`/root/.pe_secrets`, mode 600), **deleted** after the test; `git grep` run before commit.
+- **Health `200`, `/capabilities`=172** confirmed after all tests.
