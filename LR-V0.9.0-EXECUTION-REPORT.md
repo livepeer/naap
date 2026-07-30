@@ -1000,3 +1000,112 @@ export PMTH_M2M_SECRET="pmth_cs_…"                     # secret; env-only, nev
 curl -sS -u "$PMTH_M2M_ID:$PMTH_M2M_SECRET" -H 'Accept: application/json' \
   "https://pymthouse.com/api/v1/apps/$PMTH_APP/usage?includeRetail=1&startDate=2026-07-29&endDate=2026-07-30&groupBy=pipeline_model"
 ```
+
+---
+
+## Run 67 — pymthouse e2e re-verify (2026-07-29 PM / UTC 2026-07-30) — ✅ FULL PASS re-confirmed
+
+> **OUTCOME:** ✅ **FULL PASS re-confirmed.** A fresh real single-shot through the
+> native `type=fixed` live-runner path (`:8936` → PRODUCTION signer
+> `pymthouse-production.up.railway.app`, `remote_ip 69.46.46.126`) minted (HTTP 200,
+> `numTickets=2`), **generated a real `fal.media` asset (HTTP 200)**, and produced a
+> **metered debit** in pymthouse/OpenMeter (+1 `requestCount`, +`$0.003149`
+> `networkFeeUsdMicros`, `pipeline=byoc modelId=flux-schnell`). Nothing regressed
+> vs the [Run 65](#run-65--fixed-full-generation--metering-probe-closes-the-run64-model_id-gap)
+> + [Run 66](#run-66--metering-read-closes-the-run65-metering-gap--full-pass) FULL PASS.
+
+**Purpose:** re-run the real pymthouse-path e2e ONE more time to re-confirm the
+FULL PASS (generation + metering) established last time. **READ-ONLY except a tiny
+capped generation spend.** No product-code edit, no deploy/rebuild, no flag flip,
+`byoc-staging-1` / `sdk-staging-1` config untouched. Reused the existing scripts
+verbatim (no code changes).
+
+**Scripts (reused, unchanged):**
+[`scripts/run65-lr-fixed-full-generation-probe.py`](./scripts/run65-lr-fixed-full-generation-probe.py)
+(generation, with `MAX_TICKETS=5` + `MAX_SPEND_USD=1.0` fail-safes) and the
+Run 66 usage-API metering read (HTTP Basic `m2m_…:pmth_cs_…` →
+`GET pymthouse.com/api/v1/apps/app_98575870…/usage`).
+
+**Target signer confirmed:** production `https://pymthouse-production.up.railway.app`
+(the mint response carried `server: railway-hikari`, `x-railway-edge: ord1`,
+`x-railway-request-id: SMVP6GIqRKWtxUf9EuroCg`). `:8936` flux-schnell runner is
+still `runner_riljdzgh`, discovery price `1650218614675 wei fixed` (≈ $0.00315).
+
+### Stage results (verbatim)
+
+| Stage | Endpoint | Result | Evidence (verbatim) |
+|---|---|---|---|
+| 0. derive model_id | `GET :8936/discovery` + `runners.json` + SDK `LR_MODEL_IDS` | ✅ **DERIVED** | `discovery.app='storyboard/fal-flux-schnell'` (`runner_riljdzgh`, price `1650218614675 wei fixed`) → `cap='flux-schnell'` → **`model_id='fal-ai/flux/schnell'`**; runner body `{"prompt":…,"model_id":"fal-ai/flux/schnell"}`. |
+| A. native 402 challenge | `POST :8936/apps/runner_riljdzgh/app/generate` | ✅ **PASS** | `HTTP 402`, `payment_params(len=392)`; challenge `manifest_id = fc98208d`; decoded `session_id = fc98208d` (equal). |
+| B. `/generate-live-payment` `type=fixed`+`inPixels:1` **WITH `ManifestID=session_id`** | `POST pymthouse-production/…` | ✅ **PASS** | **`HTTP 200`** `keys=['payment','segCreds','state']`; `sender=0x6cae3c7aa09adf84c0ed1c3a53465364cecb7260`; **`numTickets=2`**; `expected_price=1650218614675/1`; `faceValue=2414160000000000 wei`; `server: railway-hikari`, `x-railway-request-id: SMVP6GIqRKWtxUf9EuroCg`, `x-railway-edge: ord1`. |
+| B. manifest echo | decode `segCreds` (`net.SegData`) | ✅ **ECHOED** | `segCreds.manifestId = fc98208d == session_id fc98208d` → the 403 manifest-mismatch remains RESOLVED. |
+| C. **paid native generation WITH `model_id`** | `POST :8936/apps/.../app/generate` (`Livepeer-Payment`+`Livepeer-Segment`) | ✅ **GENERATION_PASS** | **`HTTP 200`** body(verbatim) = `{"url": "https://v3b.fal.media/files/b/0aa44296/cCtUmnrlLI4au1w4iRCq1.jpg", "model_id": "fal-ai/flux/schnell"}` (`server: Python/3.12 aiohttp/3.14.1`, `content-length: 110`). **Real asset returned.** |
+| D. metering (probe, composite key) | `GET pymthouse.com/api/v1/apps/{clientId}/usage` (Basic, composite key) | ⛔ **404 (expected)** | `HTTP 404 {"error":"Not found"}` — the composite `app_…_pmth_…` bearer is an app API key, not the OIDC/M2M credential the usage API requires. Read instead with the M2M client below. |
+| D′. metering (M2M read) | `GET pymthouse.com/api/v1/apps/app_98575870…/usage` (Basic `m2m_…:pmth_cs_…`) | ✅ **CONFIRMED** | Debit incremented — see before/after table. |
+
+### Asset (verbatim)
+
+```json
+{"url": "https://v3b.fal.media/files/b/0aa44296/cCtUmnrlLI4au1w4iRCq1.jpg", "model_id": "fal-ai/flux/schnell"}
+```
+
+A real fal.media JPEG — a genuine flux-schnell text-to-image generation served
+through the paid native live-runner path.
+
+### Metering — before vs after (M2M read, HTTP 200)
+
+The mint/generation completed at `Thu, 30 Jul 2026 00:25:07 GMT`, so the new debit
+landed in the **UTC `2026-07-30`** day-window (local time was still 2026-07-29 PM):
+
+| Metric | BEFORE | AFTER | Δ |
+|---|---|---|---|
+| all-time `totals.requestCount` | **391** | **392** | **+1** |
+| all-time `totals.networkFeeUsdMicros` | **1273581** ($1.273581) | **1276730** ($1.276730) | **+3149** (**$0.003149**) |
+| `byUser` `a80a7b4e-8ea0-41e3-9ec3-5829656badff` `requestCount` | 2 | **3** | +1 |
+| `byUser` `a80a7b4e…` `networkFeeUsdMicros` | 6244 | **9393** | +3149 ($0.003149) |
+
+**UTC `2026-07-30` window (this run's isolated debit), verbatim:**
+
+```json
+{"clientId":"app_98575870d7ae33589a3f0660","source":"openmeter","period":{"start":"2026-07-30","end":"2026-07-31"},"totals":{"requestCount":1,"currency":"USD","networkFeeUsdMicros":"3150","ownerChargeUsdMicros":"3150","platformFeeUsdMicros":"0","endUserBillableUsdMicros":"3150"},"byPipelineModel":[{"pipeline":"byoc","modelId":"flux-schnell","currency":"USD","requestCount":1,"networkFeeUsdMicros":"3150","ownerChargeUsdMicros":"3150","retailRateUsd":"0.000001","endUserBillableUsdMicros":"3150"}]}
+```
+
+The isolated new debit is **1 request, `networkFeeUsdMicros=3150` ($0.00315),
+`pipeline=byoc modelId=flux-schnell`** — exactly this run's fixed flux-schnell
+live-runner generation. (`$0.00315` = the configured per-cap flux-schnell price.)
+The prior `2026-07-29` window is unchanged (`requestCount=8`, `networkFeeUsdMicros=211047`),
+confirming this run's debit is cleanly additive and attributable.
+
+### Expected vs actual spend
+
+- **Expected (probe estimate):** fixed fee `1650218614675 wei = 1.650e-6 ETH =
+  $0.004048`/generation; mint total (`2×` tickets) `= 3300437229350 wei =
+  $0.008096` — well under the `MAX_SPEND_USD=$1.00` cap (assertion passed).
+- **Actual metered debit:** **`networkFeeUsdMicros` +3149 = $0.003149** (`$0.00315`,
+  the canonical per-cap price). The wei-derived estimate drifts slightly with the
+  live ETH/USD feed; the metered fee is the authoritative charge.
+- **Actual on-chain spend:** winProb-gated probabilistic micropayment (faceValue
+  `2414160000000000 wei` × tiny winProb → EV = the fee). No winning ticket expected
+  → **≈ $0 on-chain redemption**; metered network fee **$0.00315**. Well under $1.
+
+### Verdict — ✅ **FULL PASS** (generation + metering, re-confirmed)
+
+`type=fixed` mint **HTTP 200** (`numTickets=2`), generation **HTTP 200 + real
+`fal.media` asset**, AND the metering read shows a **debit consistent with this run**
+(`requestCount` 391→392, `networkFeeUsdMicros` +$0.003149, isolated `2026-07-30`
+window = 1 request / $0.00315 byoc-flux-schnell). **No regression vs the prior FULL
+PASS** — every stage green, identical asset shape, manifest echo intact, metering
+attributable.
+
+### Safety / spend
+
+- **Actual spend:** metered network fee **$0.003149** (`$0.00315`); on-chain
+  redemption EV ≈ $0. Hard caps enforced (`MAX_TICKETS=5`, mint had `numTickets=2`;
+  `MAX_SPEND_USD=$1.00`, expected mint total $0.008096 < cap). No cap tripped.
+- **No product-code edit, no deploy/rebuild, no flag flipped.** Reused
+  `run65`/`run66` scripts unchanged. Hit only `:8936` `/discovery` +
+  `/apps/.../app/generate`, the signer `/generate-live-payment`, and (read-only)
+  `pymthouse.com/api/v1/apps/.../usage`. **`byoc-staging-1` / `sdk-staging-1`
+  config UNTOUCHED** (direct native probe, no SDK container). No PRs opened/closed.
+- **Secrets env-only** (composite bearer + `pmth_cs_` M2M secret never
+  echoed/logged/committed; `git grep` confirmed absent before commit).
