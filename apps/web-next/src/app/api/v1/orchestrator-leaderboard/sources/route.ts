@@ -11,6 +11,7 @@ import { validateSession } from '@/lib/api/auth';
 import { getAuthToken } from '@/lib/api/response';
 import { SOURCE_KINDS } from '@/lib/orchestrator-leaderboard/sources';
 import type { SourceKind } from '@/lib/orchestrator-leaderboard/sources';
+import { isSignerBundleConfigSourceKind } from '@/lib/orchestrator-leaderboard/signer-bundle-config';
 import { z } from 'zod';
 
 const DEFAULT_SOURCES: { kind: SourceKind; priority: number; enabled: boolean }[] = [
@@ -67,9 +68,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     await ensureSeeded();
-    const sources = await prisma.leaderboardSource.findMany({
-      orderBy: { priority: 'asc' },
-    });
+    const sources = (
+      await prisma.leaderboardSource.findMany({
+        orderBy: { priority: 'asc' },
+      })
+    ).filter((s) => !isSignerBundleConfigSourceKind(s.kind));
 
     // Fetch connector details for each source
     const connectorSlugs = sources.map((s) => SOURCE_TO_CONNECTOR[s.kind]).filter(Boolean);

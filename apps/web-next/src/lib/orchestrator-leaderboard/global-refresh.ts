@@ -10,12 +10,13 @@
 import { prisma } from '@/lib/db';
 import { Prisma } from '@naap/database';
 import type { SourceKind, NormalizedOrch, SourceStats } from './sources/types';
-import { getAdapter } from './sources';
+import { getAdapter, SOURCE_KINDS } from './sources';
 import { resolve, type ResolverConfig, type AuditEntry } from './resolver';
 import { getGlobalDatasetStats, writeGlobalDataset } from './global-dataset';
 import { getMembershipStrategy, getRefreshIntervalMs } from './config';
 import { clearPlanCache } from './refresh';
 import { syncPymthouseManifestSnapshot } from '@/lib/pymthouse-manifest';
+import { isSignerBundleConfigSourceKind } from './signer-bundle-config';
 
 // ---------------------------------------------------------------------------
 // Load resolver config from DB (LeaderboardSource table)
@@ -48,12 +49,17 @@ async function loadResolverConfig(): Promise<ResolverConfig> {
       orderBy: { priority: 'asc' },
     });
 
+    // Ignore sentinel config rows (e.g. signer-bundle-config) and unknown kinds
+    // so admin-persisted JSON never enters the refresh adapter pipeline.
+    const known = new Set<string>(SOURCE_KINDS);
     return {
-      sources: rows.map((r) => ({
-        kind: r.kind as SourceKind,
-        priority: r.priority,
-        enabled: r.enabled,
-      })),
+      sources: rows
+        .filter((r) => known.has(r.kind) && !isSignerBundleConfigSourceKind(r.kind))
+        .map((r) => ({
+          kind: r.kind as SourceKind,
+          priority: r.priority,
+          enabled: r.enabled,
+        })),
     };
   } catch {
     // DB not migrated yet — fall back to defaults
