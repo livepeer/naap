@@ -136,6 +136,37 @@ fallback** merged into the tier shuffle so no known orchestrator is dropped.
 
 ---
 
+## Signer discovery bundles (Daydream-BYOC vs pymthouse-LR)
+
+Two **configurable**, plane-scoped python-gateway endpoints return the right
+orchestrator shortlist for each signer stack. Additive and flag-gated — existing
+`/python-gateway`, `/plans/{id}/python-gateway`, and `storyboard-default` are
+unchanged.
+
+| Slug | Signer stack | Default categories | Default static fleet |
+| --- | --- | --- | --- |
+| `daydream-byoc` | Daydream signer + BYOC | `byoc`, `tool` | `byoc-staging-1`, `tool-staging-1` |
+| `pymthouse-live-runner` | pymthouse remote signer | `lr` | `liverunner-staging-1` |
+
+- **Endpoints**:
+  - `GET /api/v1/orchestrator-leaderboard/bundles/daydream-byoc/python-gateway`
+  - `GET /api/v1/orchestrator-leaderboard/bundles/pymthouse-live-runner/python-gateway`
+- **Response**: bare `[{ "address": "<orchUri>" }]` (BPP discovery shape).
+- **Auth**: Bearer (`gw_…` or session JWT), same as other python-gateway routes.
+- **Master flag**: `SIGNER_BUNDLE_DISCOVERY_ENABLED` (default **OFF** → `404`).
+- **Config**: code defaults from `STORYBOARD_DEFAULT_PLAN`; admin overrides via
+  `GET/PUT /api/v1/orchestrator-leaderboard/bundles/config` (persisted on a
+  sentinel `LeaderboardSource` row `signer-bundle-config`, ignored by refresh).
+  Optional env hotfix: `SIGNER_BUNDLE_OVERRIDES='{"bundles":[...]}'`.
+- **Provider filter**: fixed per bundle (`daydream` vs `pymthouse` manifest).
+- **Isolation**: parity tests assert no cross-contamination between the two
+  shortlists (BYOC/tool hosts never appear in the LR bundle and vice versa).
+
+Point an SDK node's `DISCOVERY_URL` at the matching bundle when ready; no
+Storyboard/pymthouse code changes are required for the NaaP-only MVP.
+
+---
+
 ## Audit log
 
 Every refresh writes a `LeaderboardRefreshAudit` record to the database with:
