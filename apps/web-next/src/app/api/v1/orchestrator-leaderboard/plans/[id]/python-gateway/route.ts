@@ -5,6 +5,10 @@
  * `[{ "address": "<orchUri>" }, ...]`
  *
  * Auth: same as plan results (NaaP `gw_…` gateway API key or NaaP session token).
+ *
+ * Signer-bundle public plans (`naap-default-daydream-byoc`,
+ * `naap-default-pymthouse-live-runner`) reuse the signer-bundle shortlist
+ * builder (static-fleet aware) so they match `/bundles/{slug}/python-gateway`.
  */
 
 export const runtime = 'nodejs';
@@ -12,15 +16,25 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { authorize } from '@/lib/gateway/authorize';
+import { getAuthToken } from '@/lib/api/response';
 import { DISCOVERY_RESPONSE_CACHE_CONTROL } from '@/lib/orchestrator-leaderboard/discovery-constants';
 import { getPlan } from '@/lib/orchestrator-leaderboard/plans';
 import { evaluateAndCache } from '@/lib/orchestrator-leaderboard/refresh';
 import { tieredShuffleDiscoveryAddresses } from '@/lib/orchestrator-leaderboard/discovery-order';
 import { resolvePlanCapabilitiesForProvider } from '@/lib/orchestrator-leaderboard/provider-restrictions';
+import { fetchLeaderboard } from '@/lib/orchestrator-leaderboard/query';
+import { getSignerBundle } from '@/lib/orchestrator-leaderboard/signer-bundle-config';
+import {
+  buildSignerBundleDiscovery,
+  type CapabilityFetchResult,
+} from '@/lib/orchestrator-leaderboard/signer-bundle-discovery';
+import { signerBundleSlugForPlanBillingId } from '@/lib/orchestrator-leaderboard/signer-bundle-plan-ids';
 import {
   type BillingProviderSlug,
   BillingProviderSlugSchema,
+  type DiscoveryPlan,
 } from '@/lib/orchestrator-leaderboard/types';
+import { ensurePymthouseManifestFresh } from '@/lib/pymthouse-manifest';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -78,6 +92,11 @@ export async function GET(
     });
   }
 
+  const bundleSlug = signerBundleSlugForPlanBillingId(plan.billingPlanId);
+  if (bundleSlug) {
+    return serveSignerBundlePlan(request, plan, bundleSlug);
+  }
+
   const allowedCaps = resolvePlanCapabilitiesForProvider(plan);
   if (allowedCaps.length === 0) {
     return NextResponse.json([], {
@@ -120,6 +139,73 @@ export async function GET(
     });
   } catch (err) {
     console.error('[plans/python-gateway] evaluateAndCache failed:', err);
+    return new NextResponse('Internal server error', {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+}
+
+async function serveSignerBundlePlan(
+  request: NextRequest,
+  plan: DiscoveryPlan,
+  bundleSlug: NonNullable<ReturnType<typeof signerBundleSlugForPlanBillingId>>,
+): Promise<Response> {
+  const bundle = await getSignerBundle(bundleSlug);
+  if (!bundle || !bundle.enabled) {
+    return new NextResponse('Not found', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+
+  if (bundle.billingProviderSlug === 'pymthouse') {
+    try {
+      await ensurePymthouseManifestFresh();
+    } catch (err) {
+      console.warn('[plans/python-gateway] pymthouse manifest refresh failed', err);
+    }
+  }
+
+  const authToken = getAuthToken(request) || '';
+  const cookieHeader = request.headers.get('cookie');
+  const fetchCapabilityAddresses = async (
+    leaderboardCap: string,
+  ): Promise<CapabilityFetchResult> => {
+    const result = await fetchLeaderboard(leaderboardCap, authToken, request.url, cookieHeader);
+    const addresses: string[] = [];
+    for (const row of result.rows) {
+      const address = row.orch_uri?.trim();
+      if (address) addresses.push(address);
+    }
+    return { addresses, fromCache: result.fromCache, cachedAt: result.cachedAt };
+  };
+
+  try {
+    const { addresses, meta } = await buildSignerBundleDiscovery({
+      bundle,
+      fetchCapabilityAddresses,
+      topN: plan.topN ?? bundle.topN,
+    });
+
+    return NextResponse.json(
+      addresses.map((address) => ({ address })),
+      {
+        headers: {
+          'Cache-Control': DISCOVERY_RESPONSE_CACHE_CONTROL,
+          'X-Cache': meta.fromCache ? 'HIT' : 'MISS',
+          'X-Cache-Age': String(meta.cacheAgeMs),
+          'X-Discovery-Bundle': bundleSlug,
+          'X-Discovery-Mode': 'signer-bundle-plan',
+        },
+      },
+    );
+  } catch (err) {
+    console.error('[plans/python-gateway] signer-bundle plan failed', {
+      billingPlanId: plan.billingPlanId,
+      bundleSlug,
+      err,
+    });
     return new NextResponse('Internal server error', {
       status: 500,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },

@@ -23,11 +23,64 @@ interface DefaultPlanTemplate {
   description: string;
   capabilities: string[];
   topN: number;
+  /** Defaults to pymthouse when omitted (legacy templates). */
+  billingProviderSlug?: 'daydream' | 'pymthouse';
   slaWeights?: Record<string, number>;
   slaMinScore?: number;
   sortBy?: string;
   filters?: Record<string, number>;
 }
+
+/** Keep in sync with STORYBOARD_DEFAULT_PLAN / SIGNER_BUNDLE_DEFAULTS. */
+const DAYDREAM_BYOC_CAPS = [
+  'nano-banana',
+  'recraft-v4',
+  'flux-schnell',
+  'flux-dev',
+  'ltx-t2v',
+  'ltx-i2v',
+  'kontext-edit',
+  'bg-remove',
+  'topaz-upscale',
+  'chatterbox-tts',
+  'gemini-image',
+  'gemini-text',
+  'ffmpeg-concat',
+  'ffmpeg-trim',
+  'ffmpeg-overlay',
+  'ffmpeg-export',
+  'ffmpeg-audio-mix',
+  'ffmpeg-loop',
+  'ffmpeg-burn-subtitles',
+  'ffmpeg-grid',
+  'ffmpeg-mux',
+  'pillow-resize',
+  'pillow-watermark',
+  'pillow-format',
+  'pillow-palette',
+  'pillow-grid',
+  'obscura-extract-text',
+  'obscura-extract-markdown',
+  'obscura-extract-links',
+  'hyperframes-caption',
+  'hyperframes-lower-third',
+  'hyperframes-render',
+  'yolo-detect',
+  'yolo-segment',
+  'cad-render',
+  'cad-validate',
+];
+
+const PYMTHOUSE_LR_CAPS = [
+  'flux-dev',
+  'flux-schnell',
+  'gpt-image',
+  'kontext-edit',
+  'pixverse-i2v',
+  'seedance-mini-i2v',
+  'veo-t2v',
+  'chatterbox-tts',
+];
 
 const DEFAULT_PLAN_TEMPLATES: DefaultPlanTemplate[] = [
   {
@@ -68,6 +121,28 @@ const DEFAULT_PLAN_TEMPLATES: DefaultPlanTemplate[] = [
     capabilities: ['noop', 'streamdiffusion', 'streamdiffusion-sdxl', 'streamdiffusion-sdxl-v2v'],
     topN: 50,
     sortBy: 'avail',
+  },
+  {
+    slug: 'daydream-byoc',
+    name: 'Daydream Signer · BYOC / Tool',
+    description:
+      'Orchestrators for the Daydream remote-signer path (BYOC + tool hosts). ' +
+      'Same shortlist as /bundles/daydream-byoc/python-gateway — set DISCOVERY_URL to this plan’s python-gateway URL.',
+    capabilities: DAYDREAM_BYOC_CAPS,
+    topN: 100,
+    billingProviderSlug: 'daydream',
+    sortBy: 'slaScore',
+  },
+  {
+    slug: 'pymthouse-live-runner',
+    name: 'pymthouse Signer · Live Runner',
+    description:
+      'Orchestrators for the pymthouse per-key remote-signer path (Live Runner hosts). ' +
+      'Same shortlist as /bundles/pymthouse-live-runner/python-gateway — set DISCOVERY_URL to this plan’s python-gateway URL.',
+    capabilities: PYMTHOUSE_LR_CAPS,
+    topN: 100,
+    billingProviderSlug: 'pymthouse',
+    sortBy: 'slaScore',
   },
 ];
 
@@ -139,7 +214,7 @@ async function main() {
       await prisma.discoveryPlan.create({
         data: {
           billingPlanId,
-          billingProviderSlug: 'pymthouse',
+          billingProviderSlug: tpl.billingProviderSlug ?? 'pymthouse',
           name: tpl.name,
           description: tpl.description,
           visibility: 'public',
@@ -158,7 +233,36 @@ async function main() {
       created++;
     }
 
-    console.log(`[seed-plans] Done — created: ${created}, skipped: ${skipped}, total: ${existingPlans.length + created}`);
+    // Keep signer-bundle plans in sync if they already exist (capabilities /
+    // provider / description may evolve with STORYBOARD_DEFAULT_PLAN).
+    let updated = 0;
+    for (const tpl of DEFAULT_PLAN_TEMPLATES) {
+      if (tpl.slug !== 'daydream-byoc' && tpl.slug !== 'pymthouse-live-runner') {
+        continue;
+      }
+      const billingPlanId = defaultPlanId(tpl.slug);
+      if (!existingIds.has(billingPlanId)) continue;
+      await prisma.discoveryPlan.update({
+        where: { billingPlanId },
+        data: {
+          name: tpl.name,
+          description: tpl.description,
+          billingProviderSlug: tpl.billingProviderSlug ?? 'pymthouse',
+          capabilities: tpl.capabilities,
+          topN: tpl.topN,
+          sortBy: tpl.sortBy ?? undefined,
+          enabled: true,
+          visibility: 'public',
+        },
+      });
+      console.log(`[seed-plans] Updated: ${tpl.name} (${billingPlanId})`);
+      updated++;
+    }
+
+    console.log(
+      `[seed-plans] Done — created: ${created}, skipped: ${skipped}, updated: ${updated}, ` +
+        `total: ${existingPlans.length + created}`,
+    );
   } finally {
     await prisma.$disconnect();
   }

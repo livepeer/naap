@@ -165,6 +165,10 @@ unchanged.
 Point an SDK node's `DISCOVERY_URL` at the matching bundle when ready; no
 Storyboard/pymthouse code changes are required for the NaaP-only MVP.
 
+**Config guides:**
+- Human / ops HTML: [`signer-bundle-infra-guide.html`](./signer-bundle-infra-guide.html)
+- Agent markdown: [`signer-bundle-infra-guide.md`](./signer-bundle-infra-guide.md)
+
 ---
 
 ## Audit log

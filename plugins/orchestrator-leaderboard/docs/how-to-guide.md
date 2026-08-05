@@ -17,6 +17,10 @@ The full machine-readable contract lives in
 [`./api-reference.md`](./api-reference.md). This document is the *integration
 playbook*.
 
+**Daydream vs pymthouse signer planes** (point `DISCOVERY_URL` at a bundle
+endpoint): see [`signer-bundle-infra-guide.html`](./signer-bundle-infra-guide.html)
+or the agent copy [`signer-bundle-infra-guide.md`](./signer-bundle-infra-guide.md).
+
 ---
 
 ## 1. Concepts in 30 seconds
