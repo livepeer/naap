@@ -37,19 +37,21 @@ test.describe('Leaderboard Posture — API (live) @pre-release', () => {
     expect(body.success).toBe(true);
 
     const plans = body.data?.plans ?? [];
-    expect(plans.length).toBeGreaterThanOrEqual(4);
+    expect(plans.length).toBeGreaterThanOrEqual(6);
 
     const publicPlans = plans.filter(
       (p: { visibility?: string; billingPlanId?: string }) =>
         p.visibility === 'public' || p.billingPlanId?.startsWith('naap-default-'),
     );
-    expect(publicPlans.length).toBeGreaterThanOrEqual(4);
+    expect(publicPlans.length).toBeGreaterThanOrEqual(6);
 
     const expectedSlugs = [
       'naap-default-high-perf-video',
       'naap-default-budget-image',
       'naap-default-balanced-stream',
       'naap-default-max-avail',
+      'naap-default-daydream-byoc',
+      'naap-default-pymthouse-live-runner',
     ];
     for (const slug of expectedSlugs) {
       const match = publicPlans.find(

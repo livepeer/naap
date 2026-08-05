@@ -76,6 +76,12 @@ Base path: `/api/v1/orchestrator-leaderboard`. Full host comes from the user
 | `GET`    | `/sources`                    | JWT or `gw_`            | List data source priority & status.             |
 | `PUT`    | `/sources`                    | JWT (`system:admin`)    | Reorder / enable / disable data sources.        |
 | `GET`    | `/audits`                     | JWT or `gw_`            | Recent refresh audit log.                       |
+| `GET`    | `/bundles/daydream-byoc/python-gateway` | JWT or `gw_` | Daydream signer → BYOC/tool orch shortlist. **Flag:** `SIGNER_BUNDLE_DISCOVERY_ENABLED`. |
+| `GET`    | `/bundles/pymthouse-live-runner/python-gateway` | JWT or `gw_` | pymthouse signer → Live Runner orch shortlist. Same flag. |
+| `GET/PUT`| `/bundles/config`             | JWT (`system:admin`)    | Read/update signer-bundle overrides.            |
+
+**Signer-plane wiring (ops):** [`signer-bundle-infra-guide.md`](./signer-bundle-infra-guide.md)
+(HTML: [`signer-bundle-infra-guide.html`](./signer-bundle-infra-guide.html)).
 
 ---
 
