@@ -96,6 +96,8 @@ describe('parseCreateSubscriptionBody', () => {
       providerPlanId: null,
       accountId: null,
       appId: null,
+      successUrl: null,
+      cancelUrl: null,
     });
   });
 
@@ -111,5 +113,26 @@ describe('parseCreateSubscriptionBody', () => {
     expect(r.value.providerPlanId).toBe('plan-9');
     expect(r.value.accountId).toBe('acct_7');
     expect(r.value.appId).toBe('storyboard');
+  });
+
+  it('accepts http(s) checkout redirect URLs', () => {
+    const r = parseCreateSubscriptionBody({
+      providerInstanceId: 'inst-1',
+      successUrl: 'https://naap.example/ok',
+      cancelUrl: 'http://localhost:3000/cancel',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('expected ok');
+    expect(r.value.successUrl).toBe('https://naap.example/ok');
+    expect(r.value.cancelUrl).toBe('http://localhost:3000/cancel');
+  });
+
+  it('rejects non-http checkout redirect URLs', () => {
+    expect(
+      parseCreateSubscriptionBody({
+        providerInstanceId: 'inst-1',
+        successUrl: 'javascript:alert(1)',
+      }).ok,
+    ).toBe(false);
   });
 });

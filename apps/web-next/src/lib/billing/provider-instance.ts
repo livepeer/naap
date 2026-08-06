@@ -16,12 +16,14 @@
 import 'server-only';
 
 import { decryptV1 } from '@naap/crypto';
+import { getBuilderApiV1BaseFromIssuerUrl } from '@pymthouse/builder-sdk/config';
 
 import { prisma } from '@/lib/db';
 import { createPmtHouseClient } from '@/lib/pymthouse-client';
 
 import type { BillingProviderAdapter } from './adapter';
 import { PymthouseAdapter, PYMTHOUSE_ADAPTER_SLUG } from './pymthouse-adapter';
+import type { PymthouseBillingCheckoutCreds } from './pymthouse-billing-checkout';
 
 /** Minimal `ProviderInstance` shape the registry needs to build an adapter. */
 export interface ProviderInstanceRecord {
@@ -117,10 +119,26 @@ export async function buildAdapterForProviderInstance(
     if (!m2mClientSecret) {
       return undefined;
     }
+    let apiV1Base: string;
+    try {
+      apiV1Base = getBuilderApiV1BaseFromIssuerUrl(config.issuerUrl);
+    } catch {
+      return undefined;
+    }
+    if (!apiV1Base) {
+      return undefined;
+    }
+    const billingCheckoutCreds: PymthouseBillingCheckoutCreds = {
+      apiV1Base,
+      publicClientId: config.publicClientId,
+      m2mClientId: config.m2mClientId,
+      m2mClientSecret,
+    };
     const client = createPmtHouseClient({ ...config, m2mClientSecret });
     return new PymthouseAdapter({
       client,
       isConfigured: () => true,
+      billingCheckoutCreds,
       // Per-instance signer-session exchange binds to THIS app's issuer/creds so
       // the opaque `pmth_…` mint targets the right token endpoint (not global env).
       signerExchange: {

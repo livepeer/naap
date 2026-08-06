@@ -4,8 +4,9 @@
  * Wraps the existing `getPmtHouseServerClient()` BEHIND the BillingProviderAdapter
  * SPI. This is the ONLY place that may import the pymthouse client; all other NaaP
  * code goes through the adapter + registry. Methods the NaaP side does not yet
- * support (BPP validate/plans/curation/manifest — PYMT-3/5/7 pending) throw
- * AdapterNotImplementedError rather than fabricating a response.
+ * support (BPP curation/manifest — PYMT-7 pending) throw
+ * AdapterNotImplementedError rather than fabricating a response. BPP ④
+ * `getPlans` and optional `subscribe` (checkout) are implemented.
  */
 
 import 'server-only';
@@ -40,10 +41,18 @@ import {
   type ProviderSpendScope,
   type SignerSessionEndpoint,
   type SignerSessionToken,
+  type SubscribeInput,
+  type SubscribeResult,
   type UsageForExternalUserInput,
   type ValidateContext,
   type ValidateResult,
 } from './adapter';
+import {
+  createPymthouseBillingCheckout,
+  resolveGlobalPymthouseBillingCheckoutCreds,
+  type PymthouseBillingCheckoutCreds,
+} from './pymthouse-billing-checkout';
+import { mapBillingProductsToPlans } from './pymthouse-plans';
 
 export const PYMTHOUSE_ADAPTER_SLUG = 'pymthouse';
 
@@ -74,6 +83,12 @@ export interface PymthouseAdapterOptions {
    * adapter resolves it lazily from `PYMTHOUSE_API_KEY` (unset ⇒ legacy path).
    */
   apiKeyExchange?: PymthouseApiKeyExchangeConfig;
+  /**
+   * M2M creds for `POST …/billing/checkout` (per-instance). When omitted the
+   * adapter falls back to global `PYMTHOUSE_*` env via
+   * {@link resolveGlobalPymthouseBillingCheckoutCreds}.
+   */
+  billingCheckoutCreds?: PymthouseBillingCheckoutCreds;
 }
 
 export class PymthouseAdapter implements BillingProviderAdapter {
@@ -83,12 +98,14 @@ export class PymthouseAdapter implements BillingProviderAdapter {
   private readonly isConfiguredOverride?: () => boolean;
   private readonly signerExchange?: PymthouseSignerExchangeConfig;
   private readonly apiKeyExchange?: PymthouseApiKeyExchangeConfig;
+  private readonly billingCheckoutCreds?: PymthouseBillingCheckoutCreds;
 
   constructor(options: PymthouseAdapterOptions = {}) {
     this.clientOverride = options.client;
     this.isConfiguredOverride = options.isConfigured;
     this.signerExchange = options.signerExchange;
     this.apiKeyExchange = options.apiKeyExchange;
+    this.billingCheckoutCreds = options.billingCheckoutCreds;
   }
 
   /**
@@ -130,8 +147,37 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     };
   }
 
+  /**
+   * BPP ④ — live plan catalogue from pymthouse `GET …/plans` (SDK
+   * `listBillingProducts`). Active products only; capability bundles are
+   * taxonomy-normalized to `"<pipeline>:<model>"`.
+   */
   async getPlans(): Promise<Plan[]> {
-    throw new AdapterNotImplementedError(this.slug, 'getPlans');
+    const { products } = await this.client().listBillingProducts();
+    return mapBillingProductsToPlans(products ?? []);
+  }
+
+  /**
+   * Start pymthouse end-user checkout (`POST …/billing/checkout`) for a plan.
+   * Returns the Stripe Checkout URL; the provider creates the OpenMeter
+   * subscription before returning.
+   */
+  async subscribe(input: SubscribeInput): Promise<SubscribeResult> {
+    const creds =
+      this.billingCheckoutCreds ?? resolveGlobalPymthouseBillingCheckoutCreds();
+    if (!creds) {
+      throw new AdapterNotImplementedError(this.slug, 'subscribe');
+    }
+    const result = await createPymthouseBillingCheckout(creds, {
+      planId: input.planId,
+      externalUserId: input.externalUserId,
+      ...(input.successUrl ? { successUrl: input.successUrl } : {}),
+      ...(input.cancelUrl ? { cancelUrl: input.cancelUrl } : {}),
+    });
+    return {
+      checkoutUrl: result.checkoutUrl,
+      ...(result.subscriptionRef ? { subscriptionRef: result.subscriptionRef } : {}),
+    };
   }
 
   async getUsageForExternalUser(input: UsageForExternalUserInput): Promise<unknown> {

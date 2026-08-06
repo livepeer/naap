@@ -25,7 +25,17 @@ Point PymtHouse at the NaaP public origin (e.g. `https://naap.example.com`) plus
 
 ## Marketplace and subscribe
 
-NaaP does not mirror the billing marketplace. Use `PYMTHOUSE_MARKETPLACE_URL`, or `PMTHOUSE_BASE_URL` (appends `/marketplace`), or `PYMTHOUSE_ISSUER_URL` (marketplace path defaults to `/marketplace` on the non-`api.` host).
+NaaP does **not** mirror the pymthouse marketplace UI. Prefer the billing adapter
+surface (when `provider_adapters` is ON):
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/v1/billing/pymthouse/plans` | BPP plan catalogue (`listBillingProducts` → BPP `Plan[]`) |
+| `POST` | `/api/v1/billing/pymthouse/subscribe` | Start end-user checkout (`planId`, optional `externalUserId` / redirect URLs) → `{ checkoutUrl, subscriptionRef? }` |
+
+Team multi-subscribe (`POST /api/v1/teams/{teamId}/subscriptions` with `providerPlanId`, when `multi_subscription` is ON) calls the same provider checkout before persisting the NaaP subscription row, and returns `checkoutUrl` when the provider supports it.
+
+Fallback redirect (no adapter / flag OFF): use `PYMTHOUSE_MARKETPLACE_URL`, or `PMTHOUSE_BASE_URL` (appends `/marketplace`), or `PYMTHOUSE_ISSUER_URL` (marketplace path defaults to `/marketplace` on the non-`api.` host).
 
 ## Billing provider — user access tokens (Builder API)
 

@@ -27,6 +27,17 @@ vi.mock('@/lib/pymthouse-keys-bff', () => ({
   createPymthouseApiKey: (input: unknown) => createPymthouseApiKey(input),
 }));
 
+const createPymthouseBillingCheckout = vi.fn();
+const resolveGlobalPymthouseBillingCheckoutCreds = vi.fn(() => null);
+vi.mock('./pymthouse-billing-checkout', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./pymthouse-billing-checkout')>();
+  return {
+    ...actual,
+    createPymthouseBillingCheckout: (...a: unknown[]) => createPymthouseBillingCheckout(...a),
+    resolveGlobalPymthouseBillingCheckoutCreds: () => resolveGlobalPymthouseBillingCheckoutCreds(),
+  };
+});
+
 // Default: no global PYMTHOUSE_API_KEY → legacy per-user mint path (zero
 // regression). Tests that exercise the new endpoint pass `apiKeyExchange`
 // explicitly via the adapter options instead.
@@ -57,6 +68,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetPymthouseCapabilityCacheForTests();
   isFeatureEnabled.mockResolvedValue(false);
+  resolveGlobalPymthouseBillingCheckoutCreds.mockReturnValue(null);
   globalSignerExchangeConfig.mockReturnValue({
     issuerUrl: 'https://pymthouse.com/api/v1/oidc',
     m2mClientId: 'm2m_test',
@@ -128,6 +140,85 @@ describe('PymthouseAdapter.validate (BPP ② live capabilities, flag-gated)', ()
     isFeatureEnabled.mockResolvedValue(true);
     getUserSubscription.mockRejectedValue(new Error('provider down'));
     await expect(adapter.validate('acct_om_1')).rejects.toThrow('provider down');
+  });
+});
+
+describe('PymthouseAdapter.getPlans + subscribe', () => {
+  it('getPlans maps listBillingProducts into BPP plans', async () => {
+    listBillingProducts.mockResolvedValue({
+      apiVersion: 2,
+      products: [
+        {
+          id: 'plan_pro',
+          name: 'Pro',
+          type: 'subscription',
+          status: 'active',
+          priceAmount: '29.00',
+          priceCurrency: 'USD',
+          allowance: { billingCycle: 'monthly' },
+          capabilities: [{ pipeline: 'text-to-image', modelId: 'flux-dev' }],
+        },
+        {
+          id: 'plan_draft',
+          name: 'Draft',
+          status: 'draft',
+          capabilities: [],
+        },
+      ],
+    });
+
+    const plans = await adapter.getPlans();
+    expect(listBillingProducts).toHaveBeenCalled();
+    expect(plans).toEqual([
+      {
+        id: 'plan_pro',
+        name: 'Pro',
+        price: { amount: 29, interval: 'month', currency: 'USD' },
+        bundles: [{ capability: 'text-to-image:flux-dev' }],
+      },
+    ]);
+  });
+
+  it('subscribe calls billing checkout with injected creds', async () => {
+    createPymthouseBillingCheckout.mockResolvedValue({
+      checkoutUrl: 'https://checkout.stripe.com/c/pay_test',
+      subscriptionRef: 'sub_om_9',
+    });
+    const a = new PymthouseAdapter({
+      billingCheckoutCreds: {
+        apiV1Base: 'https://pymthouse.example/api/v1',
+        publicClientId: 'app_x',
+        m2mClientId: 'm2m_x',
+        m2mClientSecret: 'secret_x',
+      },
+    });
+
+    const result = await a.subscribe({
+      planId: 'plan_pro',
+      externalUserId: 'acct_user_1',
+      successUrl: 'https://naap.example/ok',
+    });
+
+    expect(createPymthouseBillingCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ publicClientId: 'app_x' }),
+      {
+        planId: 'plan_pro',
+        externalUserId: 'acct_user_1',
+        successUrl: 'https://naap.example/ok',
+      },
+    );
+    expect(result).toEqual({
+      checkoutUrl: 'https://checkout.stripe.com/c/pay_test',
+      subscriptionRef: 'sub_om_9',
+    });
+  });
+
+  it('subscribe without creds throws AdapterNotImplementedError', async () => {
+    resolveGlobalPymthouseBillingCheckoutCreds.mockReturnValue(null);
+    await expect(
+      adapter.subscribe({ planId: 'plan_pro', externalUserId: 'acct_1' }),
+    ).rejects.toBeInstanceOf(AdapterNotImplementedError);
+    expect(createPymthouseBillingCheckout).not.toHaveBeenCalled();
   });
 });
 

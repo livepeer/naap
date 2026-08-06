@@ -135,6 +135,9 @@ export interface CreateSubscriptionInput {
   /** Caller-supplied provider account pointer; null ⇒ derive from team binding. */
   accountId: string | null;
   appId: string | null;
+  /** Optional Checkout redirect URLs when the provider supports subscribe. */
+  successUrl: string | null;
+  cancelUrl: string | null;
 }
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -147,10 +150,18 @@ function optionalTrimmed(value: unknown, max = 256): string | null {
   return v.slice(0, max);
 }
 
+function optionalUrl(value: unknown, max = 2048): string | null {
+  const v = optionalTrimmed(value, max);
+  if (!v) return null;
+  if (!/^https?:\/\//i.test(v)) return null;
+  return v;
+}
+
 /**
  * Validate a create-subscription body. `providerInstanceId` is required;
- * `providerPlanId`, `accountId`, and `appId` are optional. Returns a typed
- * error string (never throws) so the route can 400 with a clear message.
+ * `providerPlanId`, `accountId`, `appId`, and checkout URLs are optional.
+ * Returns a typed error string (never throws) so the route can 400 with a
+ * clear message.
  */
 export function parseCreateSubscriptionBody(body: unknown): ParseResult<CreateSubscriptionInput> {
   if (!body || typeof body !== 'object') {
@@ -161,6 +172,12 @@ export function parseCreateSubscriptionBody(body: unknown): ParseResult<CreateSu
   if (!providerInstanceId) {
     return { ok: false, error: 'providerInstanceId is required' };
   }
+  if (b.successUrl != null && optionalUrl(b.successUrl) == null) {
+    return { ok: false, error: 'successUrl must be an http(s) URL' };
+  }
+  if (b.cancelUrl != null && optionalUrl(b.cancelUrl) == null) {
+    return { ok: false, error: 'cancelUrl must be an http(s) URL' };
+  }
   return {
     ok: true,
     value: {
@@ -168,6 +185,8 @@ export function parseCreateSubscriptionBody(body: unknown): ParseResult<CreateSu
       providerPlanId: optionalTrimmed(b.providerPlanId),
       accountId: optionalTrimmed(b.accountId),
       appId: optionalTrimmed(b.appId),
+      successUrl: optionalUrl(b.successUrl),
+      cancelUrl: optionalUrl(b.cancelUrl),
     },
   };
 }

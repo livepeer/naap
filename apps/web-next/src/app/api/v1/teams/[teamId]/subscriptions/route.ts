@@ -28,6 +28,8 @@ import {
   parseCreateSubscriptionBody,
   toSubscriptionView,
 } from '@/lib/billing/subscription-catalog';
+import { buildAdapterForProviderInstance } from '@/lib/billing/provider-instance';
+import { PymthouseCheckoutError } from '@/lib/billing/pymthouse-billing-checkout';
 
 interface RouteParams {
   params: Promise<{ teamId: string }>;
@@ -138,7 +140,14 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     // The instance must exist + be enabled (tenant-neutral catalog row).
     const instance = await prisma.providerInstance.findUnique({
       where: { id: input.providerInstanceId },
-      select: { id: true, enabled: true },
+      select: {
+        id: true,
+        enabled: true,
+        adapterType: true,
+        slug: true,
+        config: true,
+        secretRef: true,
+      },
     });
     if (!instance || !instance.enabled) {
       return noStore(errors.badRequest('Unknown or disabled provider instance'));
@@ -161,6 +170,41 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       );
     }
 
+    // When a plan is selected and the provider implements subscribe, start
+    // checkout before persisting the NaaP subscription row so a failed
+    // checkout never leaves an orphan local sub.
+    let checkoutUrl: string | undefined;
+    let subscriptionRef: string | undefined;
+    if (input.providerPlanId) {
+      const adapter = await buildAdapterForProviderInstance({
+        id: instance.id,
+        adapterType: instance.adapterType,
+        slug: instance.slug,
+        config: instance.config,
+        secretRef: instance.secretRef,
+        enabled: instance.enabled,
+      });
+      if (adapter && typeof adapter.subscribe === 'function') {
+        try {
+          const checkout = await adapter.subscribe({
+            planId: input.providerPlanId,
+            externalUserId: accountId,
+            ...(input.successUrl ? { successUrl: input.successUrl } : {}),
+            ...(input.cancelUrl ? { cancelUrl: input.cancelUrl } : {}),
+          });
+          checkoutUrl = checkout.checkoutUrl;
+          subscriptionRef = checkout.subscriptionRef;
+        } catch (err) {
+          if (err instanceof PymthouseCheckoutError) {
+            if (err.status === 400) return noStore(errors.badRequest(err.message));
+            if (err.status === 403) return noStore(errors.forbidden(err.message));
+            return noStore(errors.serviceUnavailable(err.message || 'Checkout failed'));
+          }
+          throw err;
+        }
+      }
+    }
+
     const created = await prisma.subscription.create({
       data: {
         teamId,
@@ -179,9 +223,16 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       correlationId,
       subscriptionId: created.id,
       providerInstanceId: created.providerInstanceId,
+      checkoutStarted: Boolean(checkoutUrl),
     });
 
-    return noStore(success({ subscription: toSubscriptionView(created) }));
+    return noStore(
+      success({
+        subscription: toSubscriptionView(created),
+        ...(checkoutUrl ? { checkoutUrl } : {}),
+        ...(subscriptionRef ? { subscriptionRef } : {}),
+      }),
+    );
   } catch (err) {
     log('error', 'subscriptions.create.error', {
       correlationId,
