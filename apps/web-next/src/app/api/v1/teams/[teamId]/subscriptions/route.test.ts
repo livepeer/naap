@@ -184,9 +184,9 @@ describe('POST create (flag ON)', () => {
   });
 
   it('does not create a local subscription when checkout fails', async () => {
-    const { PymthouseCheckoutError } = await import('@/lib/billing/pymthouse-billing-checkout');
+    const { PmtHouseError } = await import('@pymthouse/builder-sdk');
     buildAdapterForProviderInstance.mockResolvedValue({
-      subscribe: vi.fn().mockRejectedValue(new PymthouseCheckoutError('Plan not found', 400)),
+      subscribe: vi.fn().mockRejectedValue(new PmtHouseError('Plan not found', { status: 400 })),
     });
     const res = await POST(
       req({

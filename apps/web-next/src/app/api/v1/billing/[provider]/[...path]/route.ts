@@ -22,8 +22,8 @@ import { validateCSRF } from '@/lib/api/csrf';
 import { enforceRateLimit } from '@/lib/api/rate-limit';
 import { error, errors, getAuthToken, success } from '@/lib/api/response';
 import { isFeatureEnabled } from '@/lib/feature-flags';
+import { PmtHouseError } from '@pymthouse/builder-sdk';
 import { AdapterNotImplementedError, type BillingProviderAdapter } from '@/lib/billing/adapter';
-import { PymthouseCheckoutError } from '@/lib/billing/pymthouse-billing-checkout';
 import { resolveBillingProviderAdapterDetailed } from '@/lib/billing/registry-db';
 
 const PROVIDER_ADAPTERS_FLAG = 'provider_adapters';
@@ -107,7 +107,7 @@ function mapAdapterError(
     log('warn', event, { provider, correlationId, reason: 'not_implemented', method: e.method });
     return error('NOT_IMPLEMENTED', 'Operation not supported by this provider', 501);
   }
-  if (e instanceof PymthouseCheckoutError) {
+  if (e instanceof PmtHouseError) {
     log('warn', event, { provider, correlationId, reason: 'checkout', status: e.status });
     if (e.status === 400) return errors.badRequest(e.message);
     if (e.status === 403) return errors.forbidden(e.message);

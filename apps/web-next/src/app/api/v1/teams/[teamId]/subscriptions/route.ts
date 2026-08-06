@@ -28,8 +28,8 @@ import {
   parseCreateSubscriptionBody,
   toSubscriptionView,
 } from '@/lib/billing/subscription-catalog';
+import { PmtHouseError } from '@pymthouse/builder-sdk';
 import { buildAdapterForProviderInstance } from '@/lib/billing/provider-instance';
-import { PymthouseCheckoutError } from '@/lib/billing/pymthouse-billing-checkout';
 
 interface RouteParams {
   params: Promise<{ teamId: string }>;
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
           checkoutUrl = checkout.checkoutUrl;
           subscriptionRef = checkout.subscriptionRef;
         } catch (err) {
-          if (err instanceof PymthouseCheckoutError) {
+          if (err instanceof PmtHouseError) {
             if (err.status === 400) return noStore(errors.badRequest(err.message));
             if (err.status === 403) return noStore(errors.forbidden(err.message));
             return noStore(errors.serviceUnavailable(err.message || 'Checkout failed'));

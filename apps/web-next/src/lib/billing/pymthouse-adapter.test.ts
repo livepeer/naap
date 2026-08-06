@@ -6,6 +6,7 @@ const fetchUsageForExternalUser = vi.fn();
 const getUsage = vi.fn();
 const getUserSubscription = vi.fn();
 const listBillingProducts = vi.fn();
+const createBillingCheckout = vi.fn();
 const getSignerRouting = vi.fn();
 const createPymthouseApiKey = vi.fn();
 const globalSignerExchangeConfig = vi.fn();
@@ -17,6 +18,7 @@ vi.mock('@/lib/pymthouse-client', () => ({
     getUsage,
     getUserSubscription,
     listBillingProducts,
+    createBillingCheckout,
     getSignerRouting,
   }),
   globalSignerExchangeConfig: () => globalSignerExchangeConfig(),
@@ -26,17 +28,6 @@ vi.mock('@/lib/pymthouse-client', () => ({
 vi.mock('@/lib/pymthouse-keys-bff', () => ({
   createPymthouseApiKey: (input: unknown) => createPymthouseApiKey(input),
 }));
-
-const createPymthouseBillingCheckout = vi.fn();
-const resolveGlobalPymthouseBillingCheckoutCreds = vi.fn(() => null);
-vi.mock('./pymthouse-billing-checkout', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./pymthouse-billing-checkout')>();
-  return {
-    ...actual,
-    createPymthouseBillingCheckout: (...a: unknown[]) => createPymthouseBillingCheckout(...a),
-    resolveGlobalPymthouseBillingCheckoutCreds: () => resolveGlobalPymthouseBillingCheckoutCreds(),
-  };
-});
 
 // Default: no global PYMTHOUSE_API_KEY → legacy per-user mint path (zero
 // regression). Tests that exercise the new endpoint pass `apiKeyExchange`
@@ -68,7 +59,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetPymthouseCapabilityCacheForTests();
   isFeatureEnabled.mockResolvedValue(false);
-  resolveGlobalPymthouseBillingCheckoutCreds.mockReturnValue(null);
   globalSignerExchangeConfig.mockReturnValue({
     issuerUrl: 'https://pymthouse.com/api/v1/oidc',
     m2mClientId: 'm2m_test',
@@ -179,18 +169,14 @@ describe('PymthouseAdapter.getPlans + subscribe', () => {
     ]);
   });
 
-  it('subscribe calls billing checkout with injected creds', async () => {
-    createPymthouseBillingCheckout.mockResolvedValue({
+  it('subscribe calls SDK createBillingCheckout on the client', async () => {
+    const instanceCheckout = vi.fn().mockResolvedValue({
       checkoutUrl: 'https://checkout.stripe.com/c/pay_test',
-      subscriptionRef: 'sub_om_9',
+      subscriptionId: 'sub_om_9',
     });
     const a = new PymthouseAdapter({
-      billingCheckoutCreds: {
-        apiV1Base: 'https://pymthouse.example/api/v1',
-        publicClientId: 'app_x',
-        m2mClientId: 'm2m_x',
-        m2mClientSecret: 'secret_x',
-      },
+      client: { createBillingCheckout: instanceCheckout } as never,
+      isConfigured: () => true,
     });
 
     const result = await a.subscribe({
@@ -199,26 +185,23 @@ describe('PymthouseAdapter.getPlans + subscribe', () => {
       successUrl: 'https://naap.example/ok',
     });
 
-    expect(createPymthouseBillingCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({ publicClientId: 'app_x' }),
-      {
-        planId: 'plan_pro',
-        externalUserId: 'acct_user_1',
-        successUrl: 'https://naap.example/ok',
-      },
-    );
+    expect(instanceCheckout).toHaveBeenCalledWith({
+      planId: 'plan_pro',
+      externalUserId: 'acct_user_1',
+      successUrl: 'https://naap.example/ok',
+    });
     expect(result).toEqual({
       checkoutUrl: 'https://checkout.stripe.com/c/pay_test',
       subscriptionRef: 'sub_om_9',
     });
   });
 
-  it('subscribe without creds throws AdapterNotImplementedError', async () => {
-    resolveGlobalPymthouseBillingCheckoutCreds.mockReturnValue(null);
+  it('subscribe when not configured throws AdapterNotImplementedError', async () => {
+    const a = new PymthouseAdapter({ isConfigured: () => false });
     await expect(
-      adapter.subscribe({ planId: 'plan_pro', externalUserId: 'acct_1' }),
+      a.subscribe({ planId: 'plan_pro', externalUserId: 'acct_1' }),
     ).rejects.toBeInstanceOf(AdapterNotImplementedError);
-    expect(createPymthouseBillingCheckout).not.toHaveBeenCalled();
+    expect(createBillingCheckout).not.toHaveBeenCalled();
   });
 });
 
