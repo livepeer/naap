@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MCP OAuth + PymtHouse Signer — Design Proposal</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --border:#2b3441;
+    --ink:#e6edf3; --mut:#9aa7b4; --accent:#4fa3ff; --accent2:#7ee787;
+    --warn:#f0b429; --bad:#ff6b6b; --ok:#4fd08a; --mid:#ffb454;
+    --chip:#222b38;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 28px 96px}
+  header.hero{
+    background:linear-gradient(135deg,#12203a,#1a1030 60%,#0e1116);
+    border:1px solid var(--border); border-radius:16px; padding:32px 34px; margin-bottom:28px;
+  }
+  header.hero h1{margin:0 0 6px; font-size:28px; letter-spacing:-.4px}
+  header.hero .sub{color:var(--mut); font-size:15px}
+  header.hero .meta{margin-top:16px; display:flex; flex-wrap:wrap; gap:8px}
+  .chip{background:var(--chip); border:1px solid var(--border); color:var(--mut);
+    border-radius:999px; padding:4px 12px; font-size:12.5px}
+  .chip b{color:var(--ink); font-weight:600}
+  h2{font-size:21px; margin:40px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+  h3{font-size:16.5px; margin:24px 0 8px; color:#cbd6e2}
+  p{margin:10px 0}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:#0b0f14; border:1px solid var(--border); border-radius:5px;
+    padding:1px 6px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.8px; color:#e3b341}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin:16px 0}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px}
+  .card h4{margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--mut)}
+  .card .big{font-size:22px; font-weight:700}
+  .verdict{border-left:4px solid var(--accent); background:var(--panel2); border-radius:0 10px 10px 0;
+    padding:14px 18px; margin:16px 0}
+  .verdict.no{border-left-color:var(--bad)}
+  .verdict.yes{border-left-color:var(--ok)}
+  .verdict.cond{border-left-color:var(--warn)}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px; background:var(--panel); border-radius:10px; overflow:hidden}
+  th,td{padding:9px 11px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top}
+  th{background:var(--panel2); color:#cbd6e2; font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.4px}
+  tr:last-child td{border-bottom:none}
+  td.mono,th.mono{font-family:ui-monospace,Menlo,monospace; font-size:12.4px}
+  .tag{display:inline-block; padding:2px 8px; border-radius:6px; font-size:11.5px; font-weight:600; white-space:nowrap}
+  .t-yes{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  .t-no{background:#3a1418; color:var(--bad); border:1px solid #63232a}
+  .t-part{background:#3a2e12; color:var(--mid); border:1px solid #6b5320}
+  .t-keep{background:#122a33; color:#5ad1e0; border:1px solid #1e4f5c}
+  .t-new{background:#12331f; color:var(--ok); border:1px solid #1e5637}
+  ul.clean{margin:8px 0; padding-left:22px}
+  ul.clean li{margin:5px 0}
+  .note{background:#1a2436; border:1px dashed #365; border-radius:10px; padding:12px 16px; margin:14px 0; color:#bcd}
+  .note.warn{background:#2a2312; border-color:#6b5320; color:#f2d999}
+  .note.bad{background:#231314; border-color:#63232a; color:#f2b8b8}
+  .toc{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 20px; margin:20px 0; columns:2; column-gap:30px}
+  .toc a{display:block; padding:3px 0; color:var(--mut)}
+  .toc a:hover{color:var(--accent)}
+  .foot{margin-top:56px; padding-top:18px; border-top:1px solid var(--border); color:var(--mut); font-size:12.5px}
+  .phase{border-left:3px solid var(--accent); padding:4px 0 4px 18px; margin:14px 0}
+  .phase h3{margin:0 0 4px}
+  .gate{font-size:12.5px; color:var(--accent2)}
+  pre.diagram{background:#0b0f14; border:1px solid var(--border); border-radius:10px; padding:16px 18px;
+    overflow-x:auto; font-family:ui-monospace,Menlo,monospace; font-size:12.3px; line-height:1.5; color:#cbd6e2}
+  pre.code{background:#0b0f14; border:1px solid var(--border); border-radius:10px; padding:14px 16px;
+    overflow-x:auto; font-family:ui-monospace,Menlo,monospace; font-size:12.3px; line-height:1.5; color:#c9d4e0}
+  .mermaid-wrap{background:#0b0f14;border:1px solid var(--border);border-radius:10px;padding:20px;margin:16px 0;overflow-x:auto}
+</style>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', securityLevel: 'loose' });
+</script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>MCP OAuth + PymtHouse Signer — Design Proposal</h1>
+  <div class="sub">Let users connect Claude (or similar MCP clients) to the Livepeer Agent / Storyboard MCP endpoint via <b>OAuth sign-in</b> — no pasted composite <code>app_&lt;id&gt;_pmth_&lt;secret&gt;</code> key — while preserving the <b>existing billed path</b>: composite bearer → pymthouse remote signer <code>/generate-live-payment</code> → orchestrator → metering.</div>
+  <div class="meta">
+    <span class="chip">Branch: <b class="mono">feat/signer-bundle-discovery-plans</b></span>
+    <span class="chip">Evidence: <b>NaaP</b> · <b>livepeer/storyboard</b> · <b>pymthouse</b> · <b>simple-infra</b></span>
+    <span class="chip">Design only · no code changes in this doc</span>
+    <span class="chip">Investigated: <b>2026-08-07</b></span>
+  </div>
+</header>
+
+<div class="toc">
+  <a href="#exec">1. Executive summary</a>
+  <a href="#current">2. Current state (as-is)</a>
+  <a href="#gap">3. Problem / gap</a>
+  <a href="#proposed">4. Proposed OAuth architecture</a>
+  <a href="#journey">5. User journey</a>
+  <a href="#tokens">6. Token flow (reuse map)</a>
+  <a href="#owners">7. Components &amp; owners</a>
+  <a href="#security">8. Security</a>
+  <a href="#phases">9. Phased plan (MVP first)</a>
+  <a href="#delta">10. What stays vs changes</a>
+  <a href="#open">11. Open questions</a>
+</div>
+
+<!-- ================= EXEC ================= -->
+<h2 id="exec">1. Executive summary</h2>
+
+<div class="verdict yes">
+  <b>Recommendation:</b> Add a <b>Storyboard-hosted MCP OAuth broker</b> (extend the existing PR-E plan in <span class="mono">storyboard/docs/superpowers/plans/2026-07-14-pr-e-oauth-connect.md</span>) with a <b>pymthouse/NaaP credential provider</b>. After browser sign-in, the broker <b>server-side</b> mints or resolves the same credential the billed path already accepts — preferably a <b>composite</b> <code>app_&lt;24hex&gt;_pmth_&lt;secret&gt;</code> via NaaP's existing <code>createPymthouseApiKey</code> — and binds it to a short-lived <b>MCP session token</b>. Storyboard continues to forward an opaque bearer to the SDK service; Claude never sees the composite secret.
+</div>
+
+<p>
+Today, Storyboard MCP is <b>bearer-only</b>: the client must paste a long-lived API key into the connector's <code>Authorization</code> header (<span class="mono">livepeer/storyboard/lib/mcp-server/auth.ts</span>). The pymthouse billed path expects either (a) a composite bearer forwarded <b>directly</b> to the remote signer DMZ identity webhook, or (b) a <code>naap_</code> key resolved through NaaP <code>POST /api/v1/keys/validate</code> into endpoint-form <code>signerSession.{url, headers}</code> with composite inside <code>headers.Authorization</code> (<span class="mono">apps/web-next/src/lib/billing/pymthouse-adapter.ts :: resolveSignerEndpoint</span>). OAuth for MCP (RFC 9728 + Claude connector requirements) is <b>not implemented</b>; Storyboard deliberately returns JSON 404 stubs at <code>/.well-known/oauth-*</code> stating bearer-only auth.
+</p>
+
+<div class="grid">
+  <div class="card"><h4>MVP outcome</h4><div class="big">URL + Sign in</div><div class="flabel">Claude connector · no key paste</div></div>
+  <div class="card"><h4>Signer credential</h4><div class="big">Composite bearer</div><div class="flabel">Reuse #430 / exchange path</div></div>
+  <div class="card"><h4>New surface area</h4><div class="big">OAuth broker only</div><div class="flabel">No signer / pymthouse rewrite</div></div>
+  <div class="card"><h4>Primary owner</h4><div class="big">Storyboard</div><div class="flabel">NaaP mint · SDK routing flags</div></div>
+</div>
+
+<!-- ================= CURRENT ================= -->
+<h2 id="current">2. Current state (as-is)</h2>
+
+<h3>2.1 Storyboard MCP — bearer passthrough</h3>
+<p>Verified via <span class="mono">livepeer/storyboard</span> on GitHub (<code>main</code>, 2026-08-07):</p>
+<ul class="clean">
+  <li><span class="mono">app/api/mcp/route.ts</span> — stateless MCP endpoint; auth = caller <code>Authorization: Bearer …</code>.</li>
+  <li><span class="mono">lib/mcp-server/auth.ts</span> — extracts bearer; <b>no</b> composite parsing, exchange, or OAuth. Accepts opaque tokens (<code>sk_</code>, <code>naap_</code>, <code>app_*_pmth_*</code>, etc.).</li>
+  <li><span class="mono">lib/mcp-server/sdk-call.ts</span> — forwards <code>apiKey</code> unchanged to SDK <code>/inference</code>.</li>
+  <li><span class="mono">lib/sdk/provider-server.ts</span> (SB-4) — when <code>STORYBOARD_PROVIDER_SWITCH=1</code> + <code>NAAP_PROVIDER=naap</code>, targets NaaP SDK front door (<code>NAAP_BASE_URL</code>); default OFF → <code>sdk.daydream.monster</code>.</li>
+  <li><span class="mono">app/.well-known/oauth-protected-resource/route.ts</span> — returns 404 JSON: <em>"Bearer-only auth; no OAuth."</em></li>
+</ul>
+
+<h3>2.2 NaaP — validate front door &amp; pymthouse adapter</h3>
+<ul class="clean">
+  <li><span class="mono">POST /api/v1/keys/validate</span> (<span class="mono">apps/web-next/src/app/api/v1/keys/validate/route.ts</span>) — accepts <b>native <code>naap_</code> keys only</b> (provider-token passthrough disabled at line 114–117). Returns <code>signerSession</code> when <code>per_key_remote_signer</code> flag ON.</li>
+  <li><span class="mono">PymthouseAdapter.resolveSignerEndpoint</span> (<span class="mono">pymthouse-adapter.ts:300–374</span>) — emits endpoint form with composite Bearer (fast path via <code>PYMTHOUSE_API_KEY</code> env) or mints composite via <code>createPymthouseApiKey</code>.</li>
+  <li><span class="mono">exchangeApiKeyForSignerSession</span> (<span class="mono">pymthouse-client.ts:323–404</span>) — RFC 8693 at <code>POST …/apps/{clientId}/oidc/token</code>; composite forwarded verbatim to DMZ without exchange.</li>
+  <li><span class="mono">POST /api/v1/auth/providers/pymthouse/start</span> (<span class="mono">auth/providers/…/start/route.ts</span>) — NaaP session + CSRF → server mints long-lived composite via <code>createPymthouseApiKey</code> (Dashboard parity).</li>
+  <li><span class="mono">POST /api/pymthouse/keys/exchange</span> — public composite → signer JWT exchange (<span class="mono">@pymthouse/builder-sdk/signer/server</span>).</li>
+  <li>NaaP login OAuth (Google/GitHub) exists for the <b>web dashboard</b> (<span class="mono">apps/web-next/src/lib/api/auth.ts</span>) — <b>not</b> wired to MCP.</li>
+</ul>
+
+<h3>2.3 pymthouse — OIDC, composite, signer</h3>
+<ul class="clean">
+  <li>Composite format: <code>app_&lt;24hex&gt;_pmth_&lt;secret&gt;</code> (Builder API 0.6.0; <span class="mono">pymthouse/docs/builder-api.md</span>).</li>
+  <li>Public <code>app_</code> client: device flow + token exchange; <b>no</b> authorization-code redirects on <code>app_</code> (auth-code lives on confidential <code>web_</code> sibling).</li>
+  <li>RFC 8693 token exchange: user JWT or API key → signer JWT or opaque session (<span class="mono">pymthouse-client.ts</span>, <span class="mono">mintOpaqueSignerSessionForExternalUser</span>).</li>
+  <li>Remote signer DMZ identity webhook accepts <b>JWT or composite Bearer</b>; bare opaque <code>pmth_</code> rejected on <code>/generate-live-payment</code> (<span class="mono">pymthouse-adapter.ts:271–277</span>, <span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span> Run 50).</li>
+  <li>Device flow (RFC 8628) + NaaP-side approval already implemented (<span class="mono">pymthouse-device-initiate.ts</span>, <span class="mono">docs/pymthouse-integration.md</span> §Device login).</li>
+</ul>
+
+<h3>2.4 simple-infra SDK service — signer routing</h3>
+<p>From <span class="mono">STORYBOARD-SIGNER-ROUTING.md</span> (code refs to <span class="mono">livepeer/simple-infra/sdk-service-build/app.py</span>):</p>
+<ul class="clean">
+  <li><b>Decision node:</b> <code>_effective_signer</code> — pymthouse path only when <code>SIGNER_FROM_VALIDATE=1</code>, <code>AUTH_VALIDATE_URL</code> set, bearer is <code>naap_</code>, and validate returns endpoint-form <code>signerSession</code>.</li>
+  <li><b>Production default:</b> static <code>SIGNER_URL=https://signer.daydream.live</code> (lv2v / Daydream metering).</li>
+  <li>Gateway <code>_payment_type_for_signer</code>: hostname <code>signer.daydream.live</code> → <code>lv2v</code>; else → <code>byoc</code>.</li>
+  <li><b>Composite direct</b> to DMZ signer verified in probe scripts (<span class="mono">pymthouse-e2e.md</span>, Run 50–57) — bypasses validate; hosted SDK node may still need explicit composite routing (gap — see §11).</li>
+</ul>
+
+<h3>2.5 As-is diagram</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  subgraph Client["MCP client (Claude)"]
+    C1["Paste composite or naap_ key<br/>Authorization: Bearer …"]
+  end
+
+  subgraph SB["Storyboard MCP"]
+    A1["extractAuth()<br/>lib/mcp-server/auth.ts"]
+    A2["sdkCall(apiKey)<br/>lib/mcp-server/sdk-call.ts"]
+    A3[".well-known/oauth-* → 404<br/>bearer-only stub"]
+  end
+
+  subgraph SDK["SDK service app.py"]
+    D1{"SIGNER_FROM_VALIDATE=1<br/>+ naap_ bearer<br/>+ validate endpoint?"}
+    D2["Static SIGNER_URL<br/>signer.daydream.live"]
+    D3["signerSession.url + headers<br/>composite Bearer"]
+  end
+
+  subgraph NAAP["NaaP"]
+    V["POST /api/v1/keys/validate<br/>naap_ only"]
+    R["resolveSignerEndpoint()<br/>→ composite in headers"]
+  end
+
+  subgraph PMT["pymthouse"]
+    DMZ["Remote signer DMZ<br/>/generate-live-payment"]
+    WH["Identity webhook<br/>JWT or composite Bearer"]
+  end
+
+  C1 --> A1 --> A2
+  A3 -.-> C1
+  A2 --> D1
+  D1 -->|no prod default| D2
+  D1 -->|canary| V --> R --> D3
+  D3 --> DMZ --> WH
+  D2 --> Daydream["signer.daydream.live<br/>lv2v / shared wallet"]
+</pre>
+</div>
+
+<!-- ================= GAP ================= -->
+<h2 id="gap">3. Problem / gap</h2>
+
+<div class="verdict no">
+  <b>Why composite key paste is required today:</b> MCP clients authenticate to Storyboard with a static bearer. Claude's OAuth connector expects RFC 9728 Protected Resource Metadata, an authorization server, and a token the MCP server verifies — Storyboard explicitly advertises <em>no OAuth</em>. There is no bridge from "user signed into NaaP/pymthouse in a browser" to "MCP request carries a signer-accepted credential."
+</div>
+
+<table>
+  <thead><tr><th>Gap</th><th>Evidence</th><th>Impact</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>No MCP OAuth metadata / broker</td>
+      <td class="mono">storyboard/app/.well-known/oauth-protected-resource/route.ts</td>
+      <td>Claude cannot run sign-in flow; users paste keys</td>
+    </tr>
+    <tr>
+      <td>PR-E plan targets Daydream <code>sk_</code>, not pymthouse composite</td>
+      <td class="mono">storyboard/docs/…/2026-07-14-pr-e-oauth-connect.md</td>
+      <td>Existing OAuth design doesn't fund pymthouse wallet</td>
+    </tr>
+    <tr>
+      <td>SDK service ignores composite for routing unless validate path</td>
+      <td class="mono">STORYBOARD-SIGNER-ROUTING.md · app.py _effective_signer</td>
+      <td>OAuth-bound composite may still hit Daydream signer in prod</td>
+    </tr>
+    <tr>
+      <td>Validate accepts <code>naap_</code> only, not composite passthrough</td>
+      <td class="mono">keys/validate/route.ts:114–117</td>
+      <td>Composite OAuth token cannot use validate unless wrapped as naap_ or SDK adds direct branch</td>
+    </tr>
+    <tr>
+      <td>Prod SB-4 + SIGNER_FROM_VALIDATE OFF</td>
+      <td class="mono">STORYBOARD-SIGNER-ROUTING.md §Production</td>
+      <td>Even with keys, billed pymthouse path inactive in prod MCP</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================= PROPOSED ================= -->
+<h2 id="proposed">4. Proposed OAuth architecture (to-be)</h2>
+
+<h3>4.1 Design principles</h3>
+<ul class="clean">
+  <li><b>Reuse, don't reinvent:</b> composite mint (<code>createPymthouseApiKey</code>), RFC 8693 exchange, DMZ webhook auth, and SDK gateway payment types stay unchanged.</li>
+  <li><b>Secrets server-side:</b> Claude receives an MCP session token (opaque, short TTL); composite never returned to the client.</li>
+  <li><b>Flag-gated zero regression:</b> <code>MCP_OAUTH_ENABLED</code> default OFF — bearer path byte-identical (<span class="mono">PR-E INV-1</span> pattern).</li>
+  <li><b>Provider plug-in:</b> extend PR-F provider registry with <code>pymthouse</code> / <code>naap</code> credential issuers.</li>
+</ul>
+
+<h3>4.2 Architecture</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  subgraph Claude["Claude MCP connector"]
+    O1["Paste MCP URL only"]
+    O2["OAuth PKCE sign-in"]
+  end
+
+  subgraph SB["Storyboard MCP — OAuth broker NEW"]
+    PRM["GET /.well-known/oauth-protected-resource<br/>resource = MCP URL"]
+    AS["GET /.well-known/oauth-authorization-server<br/>→ /api/mcp/oauth/*"]
+    TOK["POST /api/mcp/oauth/token<br/>→ MCP access token"]
+    STORE["oauth-store: token → credential binding"]
+    AUTH["extractAuth(): MCP token → apiKey<br/>(composite or naap_)"]
+  end
+
+  subgraph IdP["Upstream identity — pick one MVP"]
+    N1["NaaP login OAuth<br/>Google/GitHub · existing"]
+    N2["pymthouse device flow<br/>RFC 8628 · optional phase 2"]
+  end
+
+  subgraph Mint["Credential mint — server-side"]
+    M1["NaaP: createPymthouseApiKey<br/>pymthouse-keys-bff.ts"]
+    M2["or: mint naap_ dev key<br/>native-key.ts"]
+  end
+
+  subgraph Infra["Existing billed path UNCHANGED"]
+    SDK["SDK service + gateway"]
+    DMZ["pymthouse DMZ /generate-live-payment"]
+  end
+
+  O1 --> PRM
+  O2 --> AS --> IdP
+  IdP --> TOK
+  TOK --> Mint --> STORE
+  Claude -->|MCP tools/call + Bearer MCP token| AUTH
+  AUTH --> SDK --> DMZ
+</pre>
+</div>
+
+<h3>4.3 Two supported upstream options</h3>
+<table>
+  <thead><tr><th>Option</th><th>Upstream sign-in</th><th>Bound credential</th><th>SDK path</th><th>MVP?</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>A — NaaP-first (recommended)</b></td>
+      <td>Storyboard OAuth broker → NaaP session (Google/GitHub or email)</td>
+      <td>Composite via <code>createPymthouseApiKey({ externalUserId: naapUserId })</code></td>
+      <td><b>Composite-direct branch</b> in SDK <code>app.py</code> <em>or</em> mint <code>naap_</code> + validate path</td>
+      <td><span class="tag t-yes">Phase 1</span></td>
+    </tr>
+    <tr>
+      <td><b>B — pymthouse device</b></td>
+      <td>Broker surfaces pymthouse RFC 8628 device URL; user approves on NaaP/pymthouse</td>
+      <td>Device token → RFC 8693 → composite or signer JWT</td>
+      <td>Same as today for JWT; composite if minted</td>
+      <td><span class="tag t-part">Phase 2</span></td>
+    </tr>
+    <tr>
+      <td><b>C — pymthouse portal SSO</b></td>
+      <td>Confidential <code>web_</code> client authorization-code</td>
+      <td>Builder user key mint after SSO</td>
+      <td>Composite-direct</td>
+      <td><span class="tag t-no">Later</span> — needs portal OAuth app registration</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Why not point Claude directly at pymthouse OIDC?</b> The public <code>app_</code> client is device/token-exchange oriented (<span class="mono">pymthouse/docs/builder-api.md</span> §Client types). MCP connectors expect authorization-code + PKCE against an AS advertised in PRM. A Storyboard broker adapts MCP OAuth ↔ existing NaaP/pymthouse mint APIs without changing pymthouse client topology.
+</div>
+
+<!-- ================= JOURNEY ================= -->
+<h2 id="journey">5. Step-by-step user journey</h2>
+
+<ol class="clean">
+  <li><b>Add connector in Claude</b> — URL: <code>https://storyboard.daydream.monster/api/mcp</code> (or role-scoped variant). No Authorization header field (OAuth mode).</li>
+  <li><b>Claude probes PRM</b> — <code>GET /.well-known/oauth-protected-resource</code> → JSON listing Storyboard AS + scopes (e.g. <code>sign:job mcp:tools</code>).</li>
+  <li><b>Lazy auth on first tool call</b> — unauthenticated request → <b>401</b> + <code>WWW-Authenticate: Bearer resource_metadata="…"</code> (Claude lazy-auth spec).</li>
+  <li><b>Browser OAuth</b> — Claude opens <code>/api/mcp/oauth/authorize</code> (PKCE S256) → redirect to NaaP login (or pymthouse device approval in phase 2).</li>
+  <li><b>Credential bind (server)</b> — on success, broker calls NaaP internal mint:
+    <pre class="code">POST (internal) createPymthouseApiKey
+  externalUserId = naapUser.sub
+→ composite app_&lt;24hex&gt;_pmth_&lt;secret&gt;  // never sent to Claude</pre>
+  </li>
+  <li><b>Token issue</b> — Claude receives MCP access token (opaque, ~1h TTL, refresh optional).</li>
+  <li><b>MCP inference</b> — <code>tools/call create_media</code> with <code>Authorization: Bearer &lt;mcp-token&gt;</code> → <code>extractAuth</code> resolves composite → <code>sdkCall</code> → SDK <code>/inference</code>.</li>
+  <li><b>Payment</b> — SDK forwards composite Bearer to pymthouse DMZ <code>/generate-live-payment</code> → identity webhook validates composite → ticket signed → orchestrator → asset URL → OpenMeter ingest.</li>
+</ol>
+
+<!-- ================= TOKENS ================= -->
+<h2 id="tokens">6. Token flow — map to existing mechanisms</h2>
+
+<table>
+  <thead><tr><th>Stage</th><th>Token shape</th><th>Existing code / endpoint</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Claude ↔ Storyboard MCP</td>
+      <td class="mono">mcp_at_… (opaque session)</td>
+      <td class="mono">NEW oauth-store + extractAuth branch</td>
+      <td>Server-side map → composite</td>
+    </tr>
+    <tr>
+      <td>NaaP user identity</td>
+      <td class="mono">naap session JWT / OAuth sub</td>
+      <td class="mono">lib/api/auth.ts · validateSession</td>
+      <td>Existing dashboard auth</td>
+    </tr>
+    <tr>
+      <td>Billing credential</td>
+      <td class="mono">app_&lt;24hex&gt;_pmth_&lt;secret&gt;</td>
+      <td class="mono">createPymthouseApiKey · pymthouse-keys-bff.ts</td>
+      <td>Same as Developer API "Create key"</td>
+    </tr>
+    <tr>
+      <td>Alternative credential</td>
+      <td class="mono">naap_&lt;lookup&gt;_&lt;secret&gt;</td>
+      <td class="mono">dev-api/native-key.ts</td>
+      <td>Enables validate path without SDK composite branch</td>
+    </tr>
+    <tr>
+      <td>Validate → endpoint (naap_ path)</td>
+      <td class="mono">{ url, headers: { Authorization: Bearer app_…_pmth_… } }</td>
+      <td class="mono">keys/validate/route.ts · resolveSignerEndpoint</td>
+      <td>Requires <code>per_key_remote_signer</code> + composite env/mint</td>
+    </tr>
+    <tr>
+      <td>Exchange (optional)</td>
+      <td>Signer JWT <code>eyJ…</code></td>
+      <td class="mono">exchangeApiKeyForSignerSession · /api/pymthouse/keys/exchange</td>
+      <td>Only if bare <code>pmth_</code>; composite skips exchange</td>
+    </tr>
+    <tr>
+      <td>Signer DMZ auth</td>
+      <td>Composite Bearer or JWT</td>
+      <td class="mono">pymthouse composite-app-api-key-bearer.ts · identity webhook</td>
+      <td>Proven Run 50–57</td>
+    </tr>
+    <tr>
+      <td>Payment payload</td>
+      <td class="mono">type:byoc · capabilities proto</td>
+      <td class="mono">livepeer-python-gateway/byoc.py</td>
+      <td>Derived from non-Daydream signer host</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>6.1 Sequence (MVP option A)</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+sequenceDiagram
+  participant U as User browser
+  participant C as Claude MCP
+  participant SB as Storyboard MCP
+  participant NA as NaaP
+  participant SDK as SDK service
+  participant DMZ as pymthouse signer
+
+  C->>SB: tools/call (no auth)
+  SB-->>C: 401 WWW-Authenticate + PRM URL
+  C->>SB: OAuth authorize (PKCE)
+  SB->>NA: NaaP login (Google/GitHub)
+  U->>NA: Sign in
+  NA-->>SB: session / code
+  SB->>NA: createPymthouseApiKey(externalUserId)
+  NA-->>SB: composite app_*_pmth_*
+  SB-->>C: MCP access token
+  C->>SB: tools/call + Bearer mcp_at_*
+  SB->>SB: resolve → composite
+  SB->>SDK: /inference Authorization composite
+  SDK->>DMZ: /generate-live-payment Bearer composite
+  DMZ-->>SDK: payment + segCreds
+  SDK-->>SB: asset result
+  SB-->>C: MCP tool result
+</pre>
+</div>
+
+<!-- ================= OWNERS ================= -->
+<h2 id="owners">7. Components &amp; owners</h2>
+
+<table>
+  <thead><tr><th>Component</th><th>Owner</th><th>Work</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>MCP OAuth broker (PRM, AS metadata, authorize/callback/token, store)</td>
+      <td><b>Storyboard</b></td>
+      <td>Extend PR-E plan; flag <code>MCP_OAUTH_ENABLED</code></td>
+    </tr>
+    <tr>
+      <td><code>pymthouse</code> / <code>naap</code> BillingProvider <code>issueCredential</code></td>
+      <td><b>Storyboard + NaaP API</b></td>
+      <td>Server-to-server call to mint composite (new internal route or reuse BFF pattern)</td>
+    </tr>
+    <tr>
+      <td><code>extractAuth</code> MCP-token resolution</td>
+      <td><b>Storyboard</b></td>
+      <td>Flag-gated branch in <span class="mono">lib/mcp-server/auth.ts</span></td>
+    </tr>
+    <tr>
+      <td>Composite-direct routing in SDK <code>_effective_signer</code></td>
+      <td><b>simple-infra</b></td>
+      <td>Detect <code>app_*_pmth_*</code> bearer → pymthouse DMZ URL from env/routing (parallel to naap_ validate)</td>
+    </tr>
+    <tr>
+      <td>SB-4 prod enablement</td>
+      <td><b>Storyboard ops</b></td>
+      <td><code>STORYBOARD_PROVIDER_SWITCH=1</code>, <code>NAAP_PROVIDER=naap</code>, <code>NAAP_BASE_URL</code></td>
+    </tr>
+    <tr>
+      <td>Validate / composite env</td>
+      <td><b>NaaP ops</b></td>
+      <td><code>PYMTHOUSE_API_KEY</code> composite, <code>per_key_remote_signer</code>, front door flags</td>
+    </tr>
+    <tr>
+      <td>Signer webhook + wallet funding</td>
+      <td><b>pymthouse ops</b></td>
+      <td>Composite verifier on prod DMZ; sender reserve funded</td>
+    </tr>
+    <tr>
+      <td>Claude connector registration</td>
+      <td><b>Storyboard / Livepeer</b></td>
+      <td><code>oauth_cimd</code> or DCR; egress IP allowlist if needed</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================= SECURITY ================= -->
+<h2 id="security">8. Security considerations</h2>
+
+<ul class="clean">
+  <li><b>Never expose composite to MCP clients.</b> Bind server-side; MCP tokens are revocable, short-lived, and useless without Storyboard verification.</li>
+  <li><b>PKCE S256 mandatory</b> on MCP OAuth (Claude requirement; PR-E already specifies).</li>
+  <li><b>PRM <code>resource</code> must match</b> the exact MCP URL users enter (including path) — Claude validates strictly.</li>
+  <li><b>Authorization server discovery:</b> list pymthouse/NaaP issuer first in <code>authorization_servers</code>; avoid path-only issuers that break Claude.ai fallback (see anthropics/claude-ai-mcp#82).</li>
+  <li><b>Rate limits</b> on OAuth token endpoint and mint calls (mirror <span class="mono">auth/providers/pymthouse/start</span> rate limit).</li>
+  <li><b>Team / billing isolation:</b> composite mint must bind to the signed-in NaaP user's billing account; no cross-user credential reuse in <code>oauth-store</code>.</li>
+  <li><b>Audit:</b> log mint events without secrets (<span class="mono">[billing-auth:pymthouse]</span> pattern).</li>
+  <li><b>CSRF:</b> NaaP mint endpoints stay session+CSRF protected; Storyboard broker uses separate OAuth state/nonce store.</li>
+</ul>
+
+<!-- ================= PHASES ================= -->
+<h2 id="phases">9. Phased implementation plan</h2>
+
+<div class="phase">
+  <h3>Phase 0 — Preconditions (ops, no OAuth code)</h3>
+  <p class="gate">Gate: billed composite path green on staging</p>
+  <ul class="clean">
+    <li>Enable SB-4 canary + <code>SIGNER_FROM_VALIDATE=1</code> on staging SDK node.</li>
+    <li>Confirm validate emits endpoint form with composite (<span class="mono">pymthouse-e2e.md</span> Stage 0).</li>
+    <li>Confirm DMZ <code>/generate-live-payment</code> accepts composite (Run 50 baseline).</li>
+  </ul>
+</div>
+
+<div class="phase">
+  <h3>Phase 1 — MVP OAuth (NaaP sign-in → composite bind)</h3>
+  <p class="gate">Gate: Claude URL-only connector → one billed <code>flux-schnell</code> image</p>
+  <ol class="clean">
+    <li>Storyboard: real PRM + AS metadata when <code>MCP_OAUTH_ENABLED=1</code> (Task 1, PR-E).</li>
+    <li>Storyboard: OAuth broker routes + encrypted/KV session store (Task 2).</li>
+    <li>NaaP: thin <code>POST /api/v1/internal/mcp/mint-credential</code> — session auth + mint composite (wraps existing <code>createPymthouseApiKey</code>).</li>
+    <li>Storyboard: <code>naap</code> provider <code>issueCredential</code> calls internal mint.</li>
+    <li>Storyboard: <code>extractAuth</code> resolves MCP token → composite (Task 4).</li>
+    <li>simple-infra: <code>_effective_signer</code> branch for composite bearer OR use <code>naap_</code> mint + validate path.</li>
+    <li>E2E: Claude connector → sign in → <code>create_media</code> → OpenMeter delta.</li>
+  </ol>
+</div>
+
+<div class="phase">
+  <h3>Phase 2 — pymthouse-native device login option</h3>
+  <ul class="clean">
+    <li>Broker provider uses existing RFC 8628 + NaaP <code>pymthouse-device-approve</code> flow.</li>
+    <li>Map device user JWT → composite via same Builder mint APIs.</li>
+    <li>Emit URL-only connector docs on get-started page.</li>
+  </ul>
+</div>
+
+<div class="phase">
+  <h3>Phase 3 — Production hardening</h3>
+  <ul class="clean">
+    <li>Prod SB-4 + SDK env rollout (<span class="mono">STORYBOARD-SIGNER-ROUTING.md</span> checklist).</li>
+    <li>Claude connector review (<code>mcp-review@anthropic.com</code> if custom auth mode).</li>
+    <li>Refresh token rotation, credential rotation policy, per-user spend caps.</li>
+  </ul>
+</div>
+
+<!-- ================= DELTA ================= -->
+<h2 id="delta">10. What stays the same vs what changes</h2>
+
+<table>
+  <thead><tr><th>Area</th><th>Stays</th><th>Changes</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Composite bearer format &amp; mint API</td>
+      <td><span class="tag t-keep">Same</span></td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>pymthouse RFC 8693 exchange &amp; DMZ webhook</td>
+      <td><span class="tag t-keep">Same</span></td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Gateway <code>byoc</code> payment type selection</td>
+      <td><span class="tag t-keep">Same</span></td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Storyboard MCP tool surface</td>
+      <td><span class="tag t-keep">Same</span></td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Bearer-only connector mode</td>
+      <td><span class="tag t-keep">Same</span> when flag OFF</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td><code>/.well-known/oauth-*</code></td>
+      <td>404 stub when OFF</td>
+      <td><span class="tag t-new">Real metadata when ON</span></td>
+    </tr>
+    <tr>
+      <td><code>extractAuth</code></td>
+      <td>Opaque bearer path</td>
+      <td><span class="tag t-new">+ MCP OAuth token resolution</span></td>
+    </tr>
+    <tr>
+      <td>SDK <code>_effective_signer</code></td>
+      <td><code>naap_</code> + validate</td>
+      <td><span class="tag t-new">+ composite-direct detection (recommended)</span></td>
+    </tr>
+    <tr>
+      <td>NaaP public API</td>
+      <td>validate, exchange, start</td>
+      <td><span class="tag t-new">Internal mint-for-MCP route (server-only)</span></td>
+    </tr>
+    <tr>
+      <td>User onboarding UX</td>
+      <td>Paste key in Claude</td>
+      <td><span class="tag t-new">Paste URL + OAuth</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================= OPEN ================= -->
+<h2 id="open">11. Open questions (honest code gaps)</h2>
+
+<table>
+  <thead><tr><th>#</th><th>Question</th><th>Why it matters</th><th>Suggested resolution</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>Does hosted <code>sdk.daydream.monster</code> route composite Bearer to pymthouse DMZ today?</td>
+      <td><span class="mono">_effective_signer</span> only special-cases <code>naap_</code> + validate (<span class="mono">STORYBOARD-SIGNER-ROUTING.md</span>)</td>
+      <td>Read/deploy <span class="mono">simple-infra/sdk-service-build/app.py</span>; add composite branch or always use <code>naap_</code> + validate</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Internal mint API: session cookie vs service token from Storyboard?</td>
+      <td><code>createPymthouseApiKey</code> requires M2M secrets — must not expose to Storyboard client bundle</td>
+      <td>NaaP internal route with Storyboard service API key + user delegation JWT</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>PR-E <code>issueCredential</code> mock — is NaaP pymthouse start flow sufficient?</td>
+      <td>PR-E assumed Daydream <code>sk_</code> mint via Clerk</td>
+      <td>Replace mock with NaaP internal mint; drop Clerk dependency for pymthouse MVP</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Prod validate still token-bundle in some runs?</td>
+      <td><span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span> Runs 47–49 regression</td>
+      <td>Ops: <code>PYMTHOUSE_API_KEY</code> underscore composite + <code>per_key_remote_signer</code> before OAuth MVP demo</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Claude.ai external AS discovery bug (#82 / #214)</td>
+      <td>Path-aware issuers may synthesize wrong endpoints</td>
+      <td>Prefer issuer origin without path in PRM; test with Claude + Claude Code</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>Multi-tenant: one Storyboard MCP URL, many pymthouse apps?</td>
+      <td>Composite embeds <code>app_</code> client id</td>
+      <td>MVP: single Livepeer app id via env; later per-team provider registry</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>Credential rotation / revoke on MCP logout</td>
+      <td>Long-lived composite behind short MCP token</td>
+      <td>Phase 3: revoke Builder key on disconnect; or use <code>naap_</code> keys with seat revoke</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <b>Scope boundary:</b> This design does <em>not</em> replace pymthouse wallet funding, orchestrator ticket validation, or OpenMeter metering fixes documented in <span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span>. OAuth solves <b>authentication UX</b> and credential delivery; ops must still keep the signer path green.
+</div>
+
+<div class="foot">
+  Evidence files (NaaP repo): <span class="mono">STORYBOARD-SIGNER-ROUTING.md</span>, <span class="mono">docs/pymthouse-integration.md</span>, <span class="mono">apps/web-next/src/lib/pymthouse-client.ts</span>, <span class="mono">apps/web-next/src/lib/billing/pymthouse-adapter.ts</span>, <span class="mono">apps/web-next/src/app/api/v1/keys/validate/route.ts</span>, <span class="mono">pymthouse-e2e.md</span>, <span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span>. Storyboard (GitHub <span class="mono">livepeer/storyboard</span>): <span class="mono">lib/mcp-server/auth.ts</span>, <span class="mono">lib/sdk/provider-server.ts</span>, <span class="mono">app/.well-known/oauth-protected-resource/route.ts</span>, <span class="mono">docs/superpowers/plans/2026-07-14-pr-e-oauth-connect.md</span>. pymthouse: <span class="mono">docs/builder-api.md</span>. Claude MCP OAuth: <a href="https://claude.com/docs/connectors/building/authentication">claude.com/docs/connectors/building/authentication</a>.
+</div>
+
+</div>
+</body>
+</html>
