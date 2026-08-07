@@ -38,7 +38,10 @@
   .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
   .card h4{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut)}
   .card .big{font-size:20px;font-weight:700}
-  .card-a{border-top:3px solid var(--a)}.card-b{border-top:3px solid var(--b)}
+  .card-a{border-top:3px solid var(--a)}.card-b{border-top:3px solid var(--b)}.card-c{border-top:3px solid var(--ok)}
+  .card-k{border-top:3px solid var(--mid)}
+  .t-c{background:#12331f;color:var(--ok);border:1px solid #1e5637}
+  .t-k{background:#3a2e12;color:var(--mid);border:1px solid #6b5320}
   .verdict{border-left:4px solid var(--accent);background:var(--panel2);border-radius:0 10px 10px 0;padding:14px 18px;margin:16px 0}
   .verdict.no{border-left-color:var(--bad)}.verdict.yes{border-left-color:var(--ok)}.verdict.cond{border-left-color:var(--warn)}
   table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px;background:var(--panel);border-radius:10px;overflow:hidden}
@@ -154,8 +157,9 @@ flowchart LR
   <a href="#owners">11. Components &amp; owners</a>
   <a href="#security">12. Security</a>
   <a href="#phases">13. Phased plans</a>
-  <a href="#delta">14. What stays vs changes</a>
-  <a href="#open">15. Open questions</a>
+  <a href="#tri-mode">14. Tri-mode coexistence</a>
+  <a href="#delta">15. What stays vs changes</a>
+  <a href="#open">16. Open questions</a>
 </div>
 
 <!-- ================= EXEC ================= -->
@@ -858,8 +862,191 @@ flowchart LR
   </div>
 </div>
 
+<!-- ================= TRI-MODE ================= -->
+<h2 id="tri-mode">14. Tri-mode coexistence — API key + OAuth A + OAuth B</h2>
+
+<div class="verdict yes">
+  <b>Feasibility: YES — all three can coexist on one Storyboard MCP deployment.</b>
+  They are orthogonal entry modes that converge on the same two billing planes (Daydream <code>sk_*</code> → shared signer; pymthouse composite <code>app_*_pmth_*</code> → DMZ signer). Code already supports multi-scheme bearer passthrough at Storyboard (<span class="mono">storyboard/lib/mcp-server/auth.ts</span>, <span class="mono">key-validation.ts</span> — <code>naap</code> | <code>pmth</code> | <code>sk</code> | <code>opaque</code> schemes, prefix never gates acceptance). OAuth is explicitly designed as additive behind <code>MCP_OAUTH_ENABLED</code> with INV-1 zero-regression (<span class="mono">storyboard/docs/superpowers/plans/2026-07-10-mcp-gap-closure.md</span>: <em>"OAuth becomes a second way… never replaces bearer"</em>). SDK dual-key routing (<span class="mono">livepeer/simple-infra/sdk-service-build/key_routing.py</span>) classifies the <b>forwarded credential shape</b>, not how it was obtained.
+</div>
+
+<h3>14.1 The three modes (what the user chooses)</h3>
+<div class="grid">
+  <div class="card card-k">
+    <h4><span class="tag t-k">Mode 3 — API key</span> (today)</h4>
+    <div class="big">Paste Bearer in connector</div>
+    <ul class="clean" style="font-size:13.5px;margin-top:8px">
+      <li><code>sk_*</code> → Daydream / lv2v plane</li>
+      <li><code>app_*_pmth_*</code> → pymthouse DIRECT plane</li>
+      <li><code>naap_*</code> → accepted at Storyboard; SDK unmatched unless pattern added</li>
+    </ul>
+  </div>
+  <div class="card card-a">
+    <h4><span class="tag t-a">Mode 1 — OAuth A</span></h4>
+    <div class="big">URL-only · NaaP sign-in</div>
+    <ul class="clean" style="font-size:13.5px;margin-top:8px">
+      <li>Claude OAuth connector (no header field)</li>
+      <li>Broker mints composite via NaaP</li>
+      <li>SDK sees composite → pymthouse plane</li>
+    </ul>
+  </div>
+  <div class="card card-b">
+    <h4><span class="tag t-b">Mode 2 — OAuth B</span></h4>
+    <div class="big">URL-only · pymthouse sign-in</div>
+    <ul class="clean" style="font-size:13.5px;margin-top:8px">
+      <li>Same MCP URL, different OAuth provider env</li>
+      <li>Broker mints composite via Storyboard M2M</li>
+      <li>SDK sees composite → pymthouse plane</li>
+    </ul>
+  </div>
+</div>
+
+<p><b>Can the user choose?</b> Yes — but at the <b>connector configuration</b> level, not per-request inside one connector:</p>
+<ul class="clean">
+  <li><b>API key mode:</b> Claude connector with <code>Authorization: Bearer &lt;key&gt;</code> (or Claude <code>static_headers</code> beta) — documented in get-started as "Power users / CI".</li>
+  <li><b>OAuth mode:</b> Claude URL-only connector → browser sign-in. User picks Scenario A or B by which connector template / deployment they use (<code>MCP_OAUTH_PROVIDER=naap|pymthouse</code> on Storyboard).</li>
+  <li><b>Not in one Claude connector:</b> Claude OAuth connectors do not combine interactive OAuth with user-editable bearer keys in the same config (<a href="https://claude.com/docs/connectors/building/authentication">Claude auth docs</a>: OAuth vs <code>static_headers</code> are separate auth modes). The <b>server</b> accepts both simultaneously; the <b>client</b> picks one.</li>
+</ul>
+
+<h3>14.2 Architecture — tri-mode on one endpoint</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+  subgraph Clients["Claude connectors — user picks ONE"]
+    K["Mode 3: Bearer sk_* or app_*_pmth_*"]
+    OA["Mode 1: OAuth URL → NaaP login"]
+    OB["Mode 2: OAuth URL → pymthouse login"]
+  end
+
+  subgraph SB["Storyboard POST /api/mcp — single endpoint"]
+    RESOLVE{"extractAuth resolution<br/>(see §14.3)"}
+    FWD["sdkCall(apiKey)<br/>always forwards billing credential"]
+  end
+
+  subgraph SDK["SDK KEY_ROUTING_FROM_ENV=1"]
+    CLS{"classify_key()<br/>key_routing.py"}
+    DD["sk_* → DAYDREAM<br/>static SIGNER_URL"]
+    PM["app_*_pmth_* → PYMTHOUSE<br/>PYMTHOUSE_SIGNER_URL DIRECT"]
+  end
+
+  subgraph Bill["Billing planes"]
+    DSign["signer.daydream.live lv2v"]
+    PSign["pymthouse DMZ byoc"]
+  end
+
+  K -->|Bearer key| RESOLVE
+  OA -->|Bearer mcp_at_*| RESOLVE
+  OB -->|Bearer mcp_at_*| RESOLVE
+  RESOLVE --> FWD --> CLS
+  CLS --> DD --> DSign
+  CLS --> PM --> PSign
+</pre>
+</div>
+
+<h3>14.3 Auth resolution order (recommended)</h3>
+<p>Storyboard <code>extractAuth</code> — additive branch when <code>MCP_OAUTH_ENABLED=1</code> (<span class="mono">PR-E Task 4</span>). When flag OFF, steps 1–2 collapse to today's opaque-bearer path (INV-1).</p>
+
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  START["Incoming Authorization header?"] -->|missing| DEMO{"Demo key enabled?"}
+  DEMO -->|yes| DEMOKEY["Use DEMO_RENDER_KEY"]
+  DEMO -->|no| CH401["401 + WWW-Authenticate<br/>→ Claude OAuth flow"]
+
+  START -->|Bearer present| PARSE["Parse Bearer token"]
+  PARSE --> KEYCHK{"Matches known API-key<br/>shape? sk_* · app_*_pmth_* · naap_* · pmth_*"}
+  KEYCHK -->|yes| KEYPATH["Mode 3: use token as apiKey<br/>(explicit key wins)"]
+  KEYCHK -->|no| OAUTHCHK{"Starts with mcp_at_*<br/>AND OAuth enabled?"}
+  OAUTHCHK -->|yes| STORE["Lookup oauth-store<br/>→ bound composite or sk_*"]
+  OAUTHCHK -->|no| OPAQUE["Mode 3 fallback: opaque bearer<br/>(today's default path)"]
+  STORE -->|valid| KEYPATH
+  STORE -->|invalid/expired| ERR["AuthError 401"]
+
+  KEYPATH --> SDK["Forward to SDK /inference"]
+  DEMOKEY --> SDK
+</pre>
+</div>
+
+<table>
+  <thead><tr><th>Priority</th><th>Condition</th><th>Mode</th><th>Credential forwarded to SDK</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Bearer matches <code>sk_*</code>, <code>app_*_pmth_*</code>, <code>naap_*</code>, or <code>pmth_*</code></td><td>API key</td><td>Same token (verbatim)</td></tr>
+    <tr><td>2</td><td>Bearer is <code>mcp_at_*</code> + valid oauth-store entry</td><td>OAuth A or B</td><td>Bound composite (or <code>sk_*</code> for Daydream OAuth legacy)</td></tr>
+    <tr><td>3</td><td>Other opaque bearer ≥16 chars (prefix-neutral)</td><td>API key</td><td>Verbatim (downstream decides)</td></tr>
+    <tr><td>4</td><td>No Bearer + demo enabled</td><td>Demo</td><td>Server-held demo key</td></tr>
+    <tr><td>5</td><td>No Bearer + OAuth enabled</td><td>—</td><td>401 → triggers OAuth connect</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Why explicit API key wins over OAuth session:</b> If a power user configures both (e.g. admin <code>static_headers</code> plus OAuth), the pasted/configured key must take precedence — it is intentional. OAuth session tokens use a dedicated <code>mcp_at_*</code> prefix that cannot collide with <code>sk_*</code> or <code>app_*_pmth_*</code>.
+</div>
+
+<h3>14.4 SDK routing after Storyboard (credential shape only)</h3>
+<p>From <span class="mono">livepeer/simple-infra/sdk-service-build/key_routing.py</span> + <span class="mono">app.py::_effective_signer</span> (when <code>KEY_ROUTING_FROM_ENV=1</code>):</p>
+<table>
+  <thead><tr><th>Forwarded Bearer</th><th>Pattern</th><th>Signer decision</th><th>Billing plane</th><th>Auth mode that produced it</th></tr></thead>
+  <tbody>
+    <tr><td><code>sk_*</code></td><td class="mono">KEY_PATTERN_DAYDREAM</td><td>STATIC → <code>SIGNER_URL</code></td><td>Daydream shared wallet</td><td>API key paste · Daydream OAuth (legacy PR-E)</td></tr>
+    <tr><td><code>app_*_pmth_*</code></td><td class="mono">KEY_PATTERN_PYMTHOUSE</td><td>DIRECT → <code>PYMTHOUSE_SIGNER_URL</code></td><td>User pymthouse wallet</td><td>API key paste · OAuth A · OAuth B</td></tr>
+    <tr><td><code>naap_*</code></td><td>UNMATCHED (default)</td><td>REJECT (<code>fail_closed</code>)</td><td>—</td><td>API key paste only — validate path retired in key_routing</td></tr>
+    <tr><td><code>mcp_at_*</code></td><td>—</td><td><span class="tag t-no">Must NOT reach SDK</span></td><td>—</td><td>Resolve at Storyboard first</td></tr>
+  </tbody>
+</table>
+
+<h3>14.5 What must NOT conflict</h3>
+<table>
+  <thead><tr><th>Constraint</th><th>Why</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr><td><b>Never forward <code>mcp_at_*</code> to SDK</b></td><td><code>classify_key</code> would UNMATCH → 401 fail_closed</td><td><code>extractAuth</code> resolves to composite/<code>sk_*</code> before <code>sdkCall</code></td></tr>
+    <tr><td><b>OAuth A vs B on one deployment</b></td><td>Single broker needs one upstream IdP per authorize flow</td><td><code>MCP_OAUTH_PROVIDER=naap|pymthouse</code> env; or separate Storyboard preview URLs per provider</td></tr>
+    <tr><td><b>Signer routing vs auth method</b></td><td>Must not branch on "how user logged in"</td><td>SDK keys off bearer shape only (<code>is_composite_bearer</code> checks <code>_pmth_</code> segment)</td></tr>
+    <tr><td><b>Orch pinning</b></td><td><code>ORCH_PIN_BY_PATH</code> pins by resolved signer path, not auth mode</td><td>Composite → pymthouse path → LR-only when pin ON; same for paste and OAuth</td></tr>
+    <tr><td><b>Token storage isolation</b></td><td>oauth-store maps session → credential per user</td><td>Key by <code>mcp_at_*</code> hash; store provider tag (<code>naap</code>|<code>pymthouse</code>) for audit; never return composite in OAuth token response</td></tr>
+    <tr><td><b>INV-1 regression</b></td><td>Live connectors use bearer keys today</td><td><code>MCP_OAUTH_ENABLED</code> default OFF; bearer path byte-identical when off</td></tr>
+  </tbody>
+</table>
+
+<h3>14.6 Comparison — tri-mode at a glance</h3>
+<table>
+  <thead><tr><th></th><th>Mode 3 API key</th><th>Mode 1 OAuth A (NaaP)</th><th>Mode 2 OAuth B (pymthouse)</th></tr></thead>
+  <tbody>
+    <tr><td>Claude connector setup</td><td>Bearer header / static_headers</td><td>URL + OAuth sign-in</td><td>URL + OAuth sign-in</td></tr>
+    <tr><td>NaaP in path</td><td>Only if <code>naap_*</code> key (limited SDK support)</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-no">No</span></td></tr>
+    <tr><td>Typical billing credential</td><td><code>sk_*</code> or composite paste</td><td>Composite mint</td><td>Composite mint</td></tr>
+    <tr><td>Secret exposed to Claude</td><td><span class="tag t-no">Yes</span> (long-lived key)</td><td><span class="tag t-yes">No</span> (<code>mcp_at_*</code> only)</td><td><span class="tag t-yes">No</span></td></tr>
+    <tr><td>SDK routing gate</td><td><code>KEY_ROUTING_FROM_ENV</code></td><td>Same</td><td>Same</td></tr>
+    <tr><td>Shipped today</td><td><span class="tag t-yes">Yes</span></td><td><span class="tag t-no">Design</span></td><td><span class="tag t-no">Design</span></td></tr>
+    <tr><td>Best for</td><td>CI, scripts, power users</td><td>Livepeer org / NaaP seats</td><td>External users, pymthouse-only tenants</td></tr>
+  </tbody>
+</table>
+
+<h3>14.7 Recommendation — maximum agent-framework flexibility</h3>
+<div class="verdict yes">
+  <b>Best approach: one MCP endpoint, three connector templates, credential-shape routing downstream.</b>
+</div>
+<ol class="clean">
+  <li><b>Keep Mode 3 (API key) forever</b> — zero-regression default for Cursor, Claude Code, CI, and scripts. Document <code>sk_*</code> (Daydream) and <code>app_*_pmth_*</code> (pymthouse billed) as separate get-started tabs.</li>
+  <li><b>Ship OAuth as additive (PR-E + provider registry PR-F)</b> — default <code>MCP_OAUTH_ENABLED=0</code>; enable per environment after E2E.</li>
+  <li><b>Default OAuth provider by audience:</b> Scenario A (<code>MCP_OAUTH_PROVIDER=naap</code>) for <code>storyboard.daydream.monster</code> prod; Scenario B for a pymthouse-branded or external-facing MCP URL (separate Vercel env or preview).</li>
+  <li><b>Do not merge A + B into one OAuth flow</b> without an explicit authorize-time provider picker — unnecessary complexity; separate connectors or deployments are simpler.</li>
+  <li><b>Require <code>KEY_ROUTING_FROM_ENV=1</code></b> on SDK nodes before promoting OAuth pymthouse paths — OAuth A/B both mint composite; routing must reach <code>PYMTHOUSE_SIGNER_URL</code> DIRECT (<span class="mono">key_routing.py:composite_direct_decision</span>).</li>
+  <li><b>Claude UX:</b> publish two OAuth connector JSON templates ("Sign in with Livepeer account" / "Sign in with pymthouse") plus one bearer template ("API key — advanced") in <span class="mono">emit-mcp-config.mjs</span>.</li>
+</ol>
+
+<h4>Phased rollout (tri-mode)</h4>
+<table>
+  <thead><tr><th>Phase</th><th>Modes live</th><th>Default for new users</th></tr></thead>
+  <tbody>
+    <tr><td>Now</td><td>Mode 3 only (bearer)</td><td>API key paste</td></tr>
+    <tr><td>+1</td><td>Mode 3 + Mode 1 OAuth A</td><td>OAuth for Claude Desktop; key for CI</td></tr>
+    <tr><td>+2</td><td>+ Mode 2 OAuth B (separate URL/env)</td><td>User picks connector template</td></tr>
+    <tr><td>+3</td><td>PR-F provider registry</td><td>Ops configure provider without code change</td></tr>
+  </tbody>
+</table>
+
 <!-- ================= DELTA ================= -->
-<h2 id="delta">14. What stays vs changes</h2>
+<h2 id="delta">15. What stays vs changes</h2>
 <table>
   <thead><tr><th>Area</th><th>Stays</th><th>Changes</th></tr></thead>
   <tbody>
@@ -874,7 +1061,7 @@ flowchart LR
 </table>
 
 <!-- ================= OPEN ================= -->
-<h2 id="open">15. Open questions</h2>
+<h2 id="open">16. Open questions</h2>
 <table>
   <thead><tr><th>#</th><th>Question</th><th>Scenario</th><th>Resolution path</th></tr></thead>
   <tbody>
@@ -892,7 +1079,7 @@ flowchart LR
 </div>
 
 <div class="foot">
-  Evidence: <span class="mono">STORYBOARD-SIGNER-ROUTING.md</span>, <span class="mono">docs/pymthouse-integration.md</span>, <span class="mono">apps/web-next/src/lib/pymthouse-client.ts</span>, <span class="mono">apps/web-next/src/lib/pymthouse-keys-bff.ts</span>, <span class="mono">apps/web-next/src/lib/billing/pymthouse-adapter.ts</span>, <span class="mono">pymthouse/docs/builder-api.md</span>, <span class="mono">pymthouse/src/lib/oidc/grants.ts</span>, <span class="mono">pymthouse/src/lib/oidc/app-scoped-signer-token-exchange.ts</span>, <span class="mono">storyboard/lib/mcp-server/mcp-http.ts</span>, <span class="mono">pymthouse-e2e.md</span>. Claude MCP OAuth: <a href="https://claude.com/docs/connectors/building/authentication">claude.com/docs/connectors/building/authentication</a>.
+  Evidence: <span class="mono">STORYBOARD-SIGNER-ROUTING.md</span>, <span class="mono">livepeer/simple-infra/sdk-service-build/key_routing.py</span>, <span class="mono">livepeer/simple-infra/sdk-service-build/app.py</span>, <span class="mono">storyboard/lib/mcp-server/auth.ts</span>, <span class="mono">storyboard/lib/mcp-server/key-validation.ts</span>, <span class="mono">storyboard/docs/superpowers/plans/2026-07-10-mcp-gap-closure.md</span>, <span class="mono">docs/pymthouse-integration.md</span>, <span class="mono">apps/web-next/src/lib/pymthouse-keys-bff.ts</span>, <span class="mono">pymthouse/docs/builder-api.md</span>, <span class="mono">pymthouse-e2e.md</span>. Claude MCP OAuth: <a href="https://claude.com/docs/connectors/building/authentication">claude.com/docs/connectors/building/authentication</a>.
 </div>
 
 </div>
