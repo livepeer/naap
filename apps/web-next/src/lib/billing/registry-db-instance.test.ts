@@ -31,6 +31,10 @@ vi.mock('@naap/crypto', () => ({
 
 vi.mock('@pymthouse/builder-sdk/config', () => ({
   isPymthouseConfigured: () => true,
+  getBuilderApiV1BaseFromIssuerUrl: (issuerUrl: string) => {
+    const u = new URL(issuerUrl);
+    return `${u.origin}/api/v1`;
+  },
 }));
 
 import { prisma } from '@/lib/db';

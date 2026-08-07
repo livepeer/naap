@@ -151,6 +151,23 @@ export interface MintSignerSessionInput {
   email?: string;
 }
 
+/** Input for optional provider subscribe / checkout (BPP plan → paid sub). */
+export interface SubscribeInput {
+  planId: string;
+  /** Provider external-user / account id (NaaP `billingAccountRef.accountId`). */
+  externalUserId: string;
+  successUrl?: string;
+  cancelUrl?: string;
+}
+
+/** Result of starting a provider checkout / subscribe flow. */
+export interface SubscribeResult {
+  /** Stripe (or provider) Checkout URL the end user must open. */
+  checkoutUrl: string;
+  /** Opaque provider subscription pointer when the provider returns one. */
+  subscriptionRef?: string;
+}
+
 /**
  * The provider-neutral adapter SPI. Every method maps to a BPP seam.
  */
@@ -166,6 +183,13 @@ export interface BillingProviderAdapter {
 
   /** BPP ④ — plan catalogue. */
   getPlans(): Promise<Plan[]>;
+
+  /**
+   * Start a paid subscribe / payment-method checkout for a plan.
+   * OPTIONAL — providers without an M2M checkout path omit it; callers treat
+   * absence as "local binding only" (no redirect).
+   */
+  subscribe?(input: SubscribeInput): Promise<SubscribeResult>;
 
   /** BPP usage/telemetry — per-user usage rollup for one external user. */
   getUsageForExternalUser(input: UsageForExternalUserInput): Promise<unknown>;

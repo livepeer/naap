@@ -4,7 +4,7 @@ Official Builder API contract: [PymtHouse `docs/builder-api.md`](https://github.
 
 Server-to-server calls use the published npm package [`@pymthouse/builder-sdk`](https://www.npmjs.com/package/@pymthouse/builder-sdk) (source: [pymthouse/builder-sdk](https://github.com/pymthouse/builder-sdk)), wrapped in [apps/web-next/src/lib/pymthouse-client.ts](apps/web-next/src/lib/pymthouse-client.ts) with `import "server-only"` so M2M secrets never ship to the browser.
 
-**Dependency pin:** NaaP pins `@pymthouse/builder-sdk` at **`0.6.0`** in [apps/web-next/package.json](../apps/web-next/package.json) (and matching pins in the developer-api plugin packages). Review [builder-sdk releases](https://github.com/pymthouse/builder-sdk/releases) before bumping, run `npm install` at the repo root (or `./bin/start.sh`, which syncs when `package-lock.json` changes), and re-verify billing/OIDC routes after any upgrade.
+**Dependency pin:** NaaP pins `@pymthouse/builder-sdk` at **`0.6.3`** in [apps/web-next/package.json](../apps/web-next/package.json) (and matching pins in the developer-api plugin packages where applicable). Review [builder-sdk releases](https://github.com/pymthouse/builder-sdk/releases) before bumping, run `npm install` at the repo root (or `./bin/start.sh`, which syncs when `package-lock.json` changes), and re-verify billing/OIDC routes after any upgrade.
 
 ## Plan-builder data (PymtHouse → NaaP)
 
@@ -25,7 +25,19 @@ Point PymtHouse at the NaaP public origin (e.g. `https://naap.example.com`) plus
 
 ## Marketplace and subscribe
 
-NaaP does not mirror the billing marketplace. Use `PYMTHOUSE_MARKETPLACE_URL`, or `PMTHOUSE_BASE_URL` (appends `/marketplace`), or `PYMTHOUSE_ISSUER_URL` (marketplace path defaults to `/marketplace` on the non-`api.` host).
+NaaP does **not** mirror the pymthouse marketplace UI. Prefer the billing adapter
+surface (when `provider_adapters` is ON):
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/v1/billing/pymthouse/plans` | BPP plan catalogue (`listBillingProducts` → BPP `Plan[]`) |
+| `POST` | `/api/v1/billing/pymthouse/subscribe` | Start end-user checkout (`planId`, optional `externalUserId` / redirect URLs) → `{ checkoutUrl, subscriptionRef? }` |
+
+Upstream Builder path: SDK `createBillingCheckout` → pymthouse `POST /api/v1/apps/{clientId}/billing/checkout`. That route reuses/changes an existing Starter subscription instead of creating a second Konnect sub. Callers may receive **409 CONFLICT** when the customer already has an active paid subscription (switch via pymthouse `POST …/users/{externalUserId}/subscription/change`) or still needs a payment method before the change can complete — not a transient outage.
+
+Team multi-subscribe (`POST /api/v1/teams/{teamId}/subscriptions` with `providerPlanId`, when `multi_subscription` is ON) calls the same provider checkout before persisting the NaaP subscription row, and returns `checkoutUrl` when the provider supports it.
+
+Fallback redirect (no adapter / flag OFF): use `PYMTHOUSE_MARKETPLACE_URL`, or `PMTHOUSE_BASE_URL` (appends `/marketplace`), or `PYMTHOUSE_ISSUER_URL` (marketplace path defaults to `/marketplace` on the non-`api.` host).
 
 ## Billing provider — user access tokens (Builder API)
 

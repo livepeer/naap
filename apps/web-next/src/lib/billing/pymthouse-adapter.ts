@@ -4,8 +4,9 @@
  * Wraps the existing `getPmtHouseServerClient()` BEHIND the BillingProviderAdapter
  * SPI. This is the ONLY place that may import the pymthouse client; all other NaaP
  * code goes through the adapter + registry. Methods the NaaP side does not yet
- * support (BPP validate/plans/curation/manifest — PYMT-3/5/7 pending) throw
- * AdapterNotImplementedError rather than fabricating a response.
+ * support (BPP curation/manifest — PYMT-7 pending) throw
+ * AdapterNotImplementedError rather than fabricating a response. BPP ④
+ * `getPlans` and optional `subscribe` (checkout) are implemented.
  */
 
 import 'server-only';
@@ -40,10 +41,13 @@ import {
   type ProviderSpendScope,
   type SignerSessionEndpoint,
   type SignerSessionToken,
+  type SubscribeInput,
+  type SubscribeResult,
   type UsageForExternalUserInput,
   type ValidateContext,
   type ValidateResult,
 } from './adapter';
+import { mapBillingProductsToPlans } from './pymthouse-plans';
 
 export const PYMTHOUSE_ADAPTER_SLUG = 'pymthouse';
 
@@ -130,8 +134,40 @@ export class PymthouseAdapter implements BillingProviderAdapter {
     };
   }
 
+  /**
+   * BPP ④ — live plan catalogue from pymthouse `GET …/plans` (SDK
+   * `listBillingProducts`). Active products only; capability bundles are
+   * taxonomy-normalized to `"<pipeline>:<model>"`.
+   */
   async getPlans(): Promise<Plan[]> {
-    throw new AdapterNotImplementedError(this.slug, 'getPlans');
+    const { products } = await this.client().listBillingProducts();
+    return mapBillingProductsToPlans(products ?? []);
+  }
+
+  /**
+   * Start pymthouse end-user checkout via SDK `createBillingCheckout`
+   * (`POST …/apps/{clientId}/billing/checkout`). Returns the Stripe Checkout
+   * URL; the provider creates or changes the OpenMeter subscription before
+   * returning (existing Starter is changed in-place — creating a second sub
+   * 409s on Konnect). Upstream 409s (active paid sub / PM required) propagate
+   * as {@link PmtHouseError} for the BFF to map to HTTP CONFLICT.
+   */
+  async subscribe(input: SubscribeInput): Promise<SubscribeResult> {
+    if (!this.isConfigured()) {
+      throw new AdapterNotImplementedError(this.slug, 'subscribe');
+    }
+    const result = await this.client().createBillingCheckout({
+      planId: input.planId,
+      externalUserId: input.externalUserId,
+      ...(input.successUrl ? { successUrl: input.successUrl } : {}),
+      ...(input.cancelUrl ? { cancelUrl: input.cancelUrl } : {}),
+    });
+    return {
+      checkoutUrl: result.checkoutUrl,
+      ...(result.subscriptionId
+        ? { subscriptionRef: result.subscriptionId }
+        : {}),
+    };
   }
 
   async getUsageForExternalUser(input: UsageForExternalUserInput): Promise<unknown> {

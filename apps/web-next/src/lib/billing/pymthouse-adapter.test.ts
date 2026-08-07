@@ -6,6 +6,7 @@ const fetchUsageForExternalUser = vi.fn();
 const getUsage = vi.fn();
 const getUserSubscription = vi.fn();
 const listBillingProducts = vi.fn();
+const createBillingCheckout = vi.fn();
 const getSignerRouting = vi.fn();
 const createPymthouseApiKey = vi.fn();
 const globalSignerExchangeConfig = vi.fn();
@@ -17,6 +18,7 @@ vi.mock('@/lib/pymthouse-client', () => ({
     getUsage,
     getUserSubscription,
     listBillingProducts,
+    createBillingCheckout,
     getSignerRouting,
   }),
   globalSignerExchangeConfig: () => globalSignerExchangeConfig(),
@@ -128,6 +130,78 @@ describe('PymthouseAdapter.validate (BPP ② live capabilities, flag-gated)', ()
     isFeatureEnabled.mockResolvedValue(true);
     getUserSubscription.mockRejectedValue(new Error('provider down'));
     await expect(adapter.validate('acct_om_1')).rejects.toThrow('provider down');
+  });
+});
+
+describe('PymthouseAdapter.getPlans + subscribe', () => {
+  it('getPlans maps listBillingProducts into BPP plans', async () => {
+    listBillingProducts.mockResolvedValue({
+      apiVersion: 2,
+      products: [
+        {
+          id: 'plan_pro',
+          name: 'Pro',
+          type: 'subscription',
+          status: 'active',
+          priceAmount: '29.00',
+          priceCurrency: 'USD',
+          allowance: { billingCycle: 'monthly' },
+          capabilities: [{ pipeline: 'text-to-image', modelId: 'flux-dev' }],
+        },
+        {
+          id: 'plan_draft',
+          name: 'Draft',
+          status: 'draft',
+          capabilities: [],
+        },
+      ],
+    });
+
+    const plans = await adapter.getPlans();
+    expect(listBillingProducts).toHaveBeenCalled();
+    expect(plans).toEqual([
+      {
+        id: 'plan_pro',
+        name: 'Pro',
+        price: { amount: 29, interval: 'month', currency: 'USD' },
+        bundles: [{ capability: 'text-to-image:flux-dev' }],
+      },
+    ]);
+  });
+
+  it('subscribe calls SDK createBillingCheckout on the client', async () => {
+    const instanceCheckout = vi.fn().mockResolvedValue({
+      checkoutUrl: 'https://checkout.stripe.com/c/pay_test',
+      subscriptionId: 'sub_om_9',
+    });
+    const a = new PymthouseAdapter({
+      client: { createBillingCheckout: instanceCheckout } as never,
+      isConfigured: () => true,
+    });
+
+    const result = await a.subscribe({
+      planId: 'plan_pro',
+      externalUserId: 'acct_user_1',
+      successUrl: 'https://naap.example/ok',
+    });
+
+    expect(instanceCheckout).toHaveBeenCalledWith({
+      planId: 'plan_pro',
+      externalUserId: 'acct_user_1',
+      successUrl: 'https://naap.example/ok',
+    });
+    expect(result).toEqual({
+      checkoutUrl: 'https://checkout.stripe.com/c/pay_test',
+      subscriptionRef: 'sub_om_9',
+    });
+  });
+
+  it('subscribe when not configured throws AdapterNotImplementedError', async () => {
+    const a = new PymthouseAdapter({ isConfigured: () => false });
+    await expect(
+      a.subscribe({ planId: 'plan_pro', externalUserId: 'acct_1' }),
+    ).rejects.toBeInstanceOf(AdapterNotImplementedError);
+    expect(createBillingCheckout).not.toHaveBeenCalled();
   });
 });
 

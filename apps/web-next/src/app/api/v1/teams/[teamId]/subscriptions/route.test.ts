@@ -26,6 +26,11 @@ const prisma = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/db', () => ({ prisma }));
 
+const buildAdapterForProviderInstance = vi.fn();
+vi.mock('@/lib/billing/provider-instance', () => ({
+  buildAdapterForProviderInstance: (...a: unknown[]) => buildAdapterForProviderInstance(...a),
+}));
+
 function req(init?: { method?: string; body?: unknown }): NextRequest {
   return new NextRequest('http://localhost/x', {
     method: init?.method,
@@ -42,8 +47,16 @@ beforeEach(() => {
   validateSession.mockResolvedValue({ id: 'user-1' });
   validateTeamAccess.mockResolvedValue({ team: { id: 'team-1' }, member: { role: 'admin' } });
   prisma.subscription.findMany.mockResolvedValue([]);
-  prisma.providerInstance.findUnique.mockResolvedValue({ id: 'inst-1', enabled: true });
+  prisma.providerInstance.findUnique.mockResolvedValue({
+    id: 'inst-1',
+    enabled: true,
+    adapterType: 'pymthouse',
+    slug: 'pymthouse',
+    config: {},
+    secretRef: 'vault:x',
+  });
   prisma.team.findUnique.mockResolvedValue({ billingAccountId: 'acct_team_1' });
+  buildAdapterForProviderInstance.mockResolvedValue(undefined);
   prisma.subscription.create.mockImplementation(async ({ data, select: _s }: { data: Record<string, unknown>; select: unknown }) => ({
     id: 'sub-1',
     teamId: data.teamId,
@@ -138,5 +151,74 @@ describe('POST create (flag ON)', () => {
     );
     expect(res.status).toBe(200);
     expect(prisma.subscription.create.mock.calls[0][0].data.accountId).toBe('acct_custom');
+  });
+
+  it('starts provider checkout when providerPlanId is set and adapter.subscribe exists', async () => {
+    const subscribe = vi.fn().mockResolvedValue({
+      checkoutUrl: 'https://checkout.stripe.com/c/test',
+      subscriptionRef: 'sub_om_1',
+    });
+    buildAdapterForProviderInstance.mockResolvedValue({ subscribe });
+
+    const res = await POST(
+      req({
+        method: 'POST',
+        body: {
+          providerInstanceId: 'inst-1',
+          providerPlanId: 'plan_pro',
+          successUrl: 'https://naap.example/ok',
+        },
+      }),
+      params('team-1'),
+    );
+    expect(res.status).toBe(200);
+    expect(subscribe).toHaveBeenCalledWith({
+      planId: 'plan_pro',
+      externalUserId: 'acct_team_1',
+      successUrl: 'https://naap.example/ok',
+    });
+    const json = await res.json();
+    expect(json.data.checkoutUrl).toBe('https://checkout.stripe.com/c/test');
+    expect(json.data.subscriptionRef).toBe('sub_om_1');
+    expect(prisma.subscription.create).toHaveBeenCalled();
+  });
+
+  it('maps checkout 409 to CONFLICT and does not create a local subscription', async () => {
+    const { PmtHouseError } = await import('@pymthouse/builder-sdk');
+    buildAdapterForProviderInstance.mockResolvedValue({
+      subscribe: vi.fn().mockRejectedValue(
+        new PmtHouseError(
+          'Customer already has an active subscription; retry checkout or change plan',
+          { status: 409 },
+        ),
+      ),
+    });
+    const res = await POST(
+      req({
+        method: 'POST',
+        body: { providerInstanceId: 'inst-1', providerPlanId: 'plan_pro' },
+      }),
+      params('team-1'),
+    );
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error?.code).toBe('CONFLICT');
+    expect(prisma.subscription.create).not.toHaveBeenCalled();
+  });
+
+  it('does not create a local subscription when checkout fails', async () => {
+    const { PmtHouseError } = await import('@pymthouse/builder-sdk');
+    buildAdapterForProviderInstance.mockResolvedValue({
+      subscribe: vi.fn().mockRejectedValue(new PmtHouseError('Plan not found', { status: 400 })),
+    });
+    const res = await POST(
+      req({
+        method: 'POST',
+        body: { providerInstanceId: 'inst-1', providerPlanId: 'plan_missing' },
+      }),
+      params('team-1'),
+    );
+    expect(res.status).toBe(400);
+    expect(prisma.subscription.create).not.toHaveBeenCalled();
   });
 });

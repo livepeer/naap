@@ -2,7 +2,9 @@
  * Generic billing provider routing (NAAP-A).
  *
  *   GET  /api/v1/billing/{provider}/usage
+ *   GET  /api/v1/billing/{provider}/plans
  *   POST /api/v1/billing/{provider}/token
+ *   POST /api/v1/billing/{provider}/subscribe
  *
  * Delegates to the BillingProviderAdapter registry instead of any hardcoded
  * provider. Gated behind the `provider_adapters` flag (default OFF): when OFF this
@@ -20,6 +22,7 @@ import { validateCSRF } from '@/lib/api/csrf';
 import { enforceRateLimit } from '@/lib/api/rate-limit';
 import { error, errors, getAuthToken, success } from '@/lib/api/response';
 import { isFeatureEnabled } from '@/lib/feature-flags';
+import { PmtHouseError } from '@pymthouse/builder-sdk';
 import { AdapterNotImplementedError, type BillingProviderAdapter } from '@/lib/billing/adapter';
 import { resolveBillingProviderAdapterDetailed } from '@/lib/billing/registry-db';
 
@@ -103,6 +106,18 @@ function mapAdapterError(
   if (e instanceof AdapterNotImplementedError) {
     log('warn', event, { provider, correlationId, reason: 'not_implemented', method: e.method });
     return error('NOT_IMPLEMENTED', 'Operation not supported by this provider', 501);
+  }
+  if (e instanceof PmtHouseError) {
+    log('warn', event, { provider, correlationId, reason: 'checkout', status: e.status });
+    if (e.status === 400) return errors.badRequest(e.message);
+    if (e.status === 403) return errors.forbidden(e.message);
+    // pymthouse checkout (Builder POST …/billing/checkout) returns 409 when the
+    // customer already has an active subscription or needs a PM before change —
+    // pass through so callers can switch plans / complete Checkout instead of
+    // treating it as a transient outage.
+    if (e.status === 409) return errors.conflict(e.message);
+    if (e.status === 503) return errors.serviceUnavailable(e.message);
+    return errors.serviceUnavailable(e.message || 'Checkout failed');
   }
   const errorType = e instanceof Error ? e.name : 'UnknownError';
   log('error', event, { provider, correlationId, errorType });
@@ -218,6 +233,100 @@ async function handleToken(ctx: RouteCtx): Promise<NextResponse> {
   }
 }
 
+async function handlePlans(ctx: RouteCtx): Promise<NextResponse> {
+  const { provider, adapter, correlationId } = ctx;
+  try {
+    const plans = await adapter.getPlans();
+    log('info', 'billing.adapter.plans', {
+      provider,
+      correlationId,
+      status: 200,
+      planCount: plans.length,
+    });
+    return noStore(success({ plans }));
+  } catch (e) {
+    return noStore(mapAdapterError(e, provider, correlationId, 'billing.adapter.plans'));
+  }
+}
+
+async function handleSubscribe(ctx: RouteCtx): Promise<NextResponse> {
+  const { request, provider, adapter, correlationId, user } = ctx;
+
+  const csrfError = validateCSRF(request);
+  if (csrfError) return csrfError;
+
+  const rateLimited = enforceRateLimit(request, {
+    keyPrefix: `billing-subscribe:${provider}:${user.id}`,
+    windowMs: RATE_LIMIT_WINDOW_MS,
+    maxRequests: RATE_LIMIT_MAX_PER_USER,
+  });
+  if (rateLimited) return rateLimited;
+
+  if (typeof adapter.subscribe !== 'function') {
+    return noStore(
+      mapAdapterError(
+        new AdapterNotImplementedError(adapter.slug, 'subscribe'),
+        provider,
+        correlationId,
+        'billing.adapter.subscribe',
+      ),
+    );
+  }
+
+  let rawBody: unknown = {};
+  try {
+    rawBody = await request.json();
+  } catch {
+    rawBody = {};
+  }
+  if (!rawBody || typeof rawBody !== 'object') {
+    return noStore(errors.badRequest('Request body must be a JSON object'));
+  }
+  const body = rawBody as Record<string, unknown>;
+  const planId = typeof body.planId === 'string' ? body.planId.trim() : '';
+  if (!planId) return noStore(errors.badRequest('planId is required'));
+
+  const externalUserIdRaw =
+    typeof body.externalUserId === 'string' ? body.externalUserId.trim() : '';
+  const externalUserId = externalUserIdRaw || user.id;
+  if (!externalUserId) {
+    return noStore(errors.badRequest('externalUserId is required'));
+  }
+
+  const successUrl =
+    typeof body.successUrl === 'string' && /^https?:\/\//i.test(body.successUrl.trim())
+      ? body.successUrl.trim()
+      : undefined;
+  const cancelUrl =
+    typeof body.cancelUrl === 'string' && /^https?:\/\//i.test(body.cancelUrl.trim())
+      ? body.cancelUrl.trim()
+      : undefined;
+  if (body.successUrl != null && !successUrl) {
+    return noStore(errors.badRequest('successUrl must be an http(s) URL'));
+  }
+  if (body.cancelUrl != null && !cancelUrl) {
+    return noStore(errors.badRequest('cancelUrl must be an http(s) URL'));
+  }
+
+  try {
+    const result = await adapter.subscribe({
+      planId,
+      externalUserId,
+      ...(successUrl ? { successUrl } : {}),
+      ...(cancelUrl ? { cancelUrl } : {}),
+    });
+    log('info', 'billing.adapter.subscribe', { provider, correlationId, status: 200 });
+    return noStore(
+      success({
+        checkoutUrl: result.checkoutUrl,
+        ...(result.subscriptionRef ? { subscriptionRef: result.subscriptionRef } : {}),
+      }),
+    );
+  } catch (e) {
+    return noStore(mapAdapterError(e, provider, correlationId, 'billing.adapter.subscribe'));
+  }
+}
+
 async function resolve(
   request: NextRequest,
   ctx: Params,
@@ -276,7 +385,9 @@ async function resolve(
     };
 
     if (method === 'GET' && op === 'usage') return handleUsage(routeCtx);
+    if (method === 'GET' && op === 'plans') return handlePlans(routeCtx);
     if (method === 'POST' && op === 'token') return handleToken(routeCtx);
+    if (method === 'POST' && op === 'subscribe') return handleSubscribe(routeCtx);
 
     return noStore(errors.notFound('Billing operation'));
   } catch (err) {

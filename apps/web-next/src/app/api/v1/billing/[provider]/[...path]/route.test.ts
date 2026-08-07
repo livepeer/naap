@@ -197,4 +197,87 @@ describe('generic billing route — flag ON', () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it('delegates GET plans to the adapter', async () => {
+    const adapter = makeAdapter({
+      getPlans: vi.fn(async () => [{ id: 'plan_pro', bundles: [] }]),
+    });
+    setResolvedAdapter(adapter);
+    const res = await GET(
+      req('http://localhost/api/v1/billing/pymthouse/plans'),
+      params('pymthouse', ['plans']),
+    );
+    expect(res.status).toBe(200);
+    expect(adapter.getPlans).toHaveBeenCalled();
+    const json = await res.json();
+    expect(json.data.plans).toEqual([{ id: 'plan_pro', bundles: [] }]);
+  });
+
+  it('delegates POST subscribe to the adapter', async () => {
+    const subscribe = vi.fn(async () => ({
+      checkoutUrl: 'https://checkout.stripe.com/c/test',
+      subscriptionRef: 'sub_1',
+    }));
+    const adapter = makeAdapter({ subscribe });
+    setResolvedAdapter(adapter);
+    const res = await POST(
+      new NextRequest('http://localhost/api/v1/billing/pymthouse/subscribe', {
+        method: 'POST',
+        headers: {
+          cookie: 'naap_auth_token=tok',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ planId: 'plan_pro' }),
+      }),
+      params('pymthouse', ['subscribe']),
+    );
+    expect(res.status).toBe(200);
+    expect(subscribe).toHaveBeenCalledWith({
+      planId: 'plan_pro',
+      externalUserId: 'user-1',
+    });
+    const json = await res.json();
+    expect(json.data.checkoutUrl).toContain('checkout.stripe.com');
+  });
+
+  it('501 when subscribe is not implemented on the adapter', async () => {
+    setResolvedAdapter(makeAdapter());
+    const res = await POST(
+      new NextRequest('http://localhost/api/v1/billing/pymthouse/subscribe', {
+        method: 'POST',
+        headers: {
+          cookie: 'naap_auth_token=tok',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ planId: 'plan_pro' }),
+      }),
+      params('pymthouse', ['subscribe']),
+    );
+    expect(res.status).toBe(501);
+  });
+
+  it('maps PmtHouseError 409 from subscribe to CONFLICT', async () => {
+    const { PmtHouseError } = await import('@pymthouse/builder-sdk');
+    const subscribe = vi.fn(async () => {
+      throw new PmtHouseError(
+        'Customer already has an active subscription; retry checkout or change plan',
+        { status: 409 },
+      );
+    });
+    setResolvedAdapter(makeAdapter({ subscribe }));
+    const res = await POST(
+      new NextRequest('http://localhost/api/v1/billing/pymthouse/subscribe', {
+        method: 'POST',
+        headers: {
+          cookie: 'naap_auth_token=tok',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ planId: 'plan_pro' }),
+      }),
+      params('pymthouse', ['subscribe']),
+    );
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error?.code).toBe('CONFLICT');
+  });
 });
