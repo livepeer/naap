@@ -33,6 +33,8 @@ surface (when `provider_adapters` is ON):
 | `GET` | `/api/v1/billing/pymthouse/plans` | BPP plan catalogue (`listBillingProducts` → BPP `Plan[]`) |
 | `POST` | `/api/v1/billing/pymthouse/subscribe` | Start end-user checkout (`planId`, optional `externalUserId` / redirect URLs) → `{ checkoutUrl, subscriptionRef? }` |
 
+Upstream Builder path: SDK `createBillingCheckout` → pymthouse `POST /api/v1/apps/{clientId}/billing/checkout`. That route reuses/changes an existing Starter subscription instead of creating a second Konnect sub. Callers may receive **409 CONFLICT** when the customer already has an active paid subscription (switch via pymthouse `POST …/users/{externalUserId}/subscription/change`) or still needs a payment method before the change can complete — not a transient outage.
+
 Team multi-subscribe (`POST /api/v1/teams/{teamId}/subscriptions` with `providerPlanId`, when `multi_subscription` is ON) calls the same provider checkout before persisting the NaaP subscription row, and returns `checkoutUrl` when the provider supports it.
 
 Fallback redirect (no adapter / flag OFF): use `PYMTHOUSE_MARKETPLACE_URL`, or `PMTHOUSE_BASE_URL` (appends `/marketplace`), or `PYMTHOUSE_ISSUER_URL` (marketplace path defaults to `/marketplace` on the non-`api.` host).

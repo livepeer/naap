@@ -183,6 +183,29 @@ describe('POST create (flag ON)', () => {
     expect(prisma.subscription.create).toHaveBeenCalled();
   });
 
+  it('maps checkout 409 to CONFLICT and does not create a local subscription', async () => {
+    const { PmtHouseError } = await import('@pymthouse/builder-sdk');
+    buildAdapterForProviderInstance.mockResolvedValue({
+      subscribe: vi.fn().mockRejectedValue(
+        new PmtHouseError(
+          'Customer already has an active subscription; retry checkout or change plan',
+          { status: 409 },
+        ),
+      ),
+    });
+    const res = await POST(
+      req({
+        method: 'POST',
+        body: { providerInstanceId: 'inst-1', providerPlanId: 'plan_pro' },
+      }),
+      params('team-1'),
+    );
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error?.code).toBe('CONFLICT');
+    expect(prisma.subscription.create).not.toHaveBeenCalled();
+  });
+
   it('does not create a local subscription when checkout fails', async () => {
     const { PmtHouseError } = await import('@pymthouse/builder-sdk');
     buildAdapterForProviderInstance.mockResolvedValue({

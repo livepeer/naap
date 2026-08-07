@@ -111,6 +111,11 @@ function mapAdapterError(
     log('warn', event, { provider, correlationId, reason: 'checkout', status: e.status });
     if (e.status === 400) return errors.badRequest(e.message);
     if (e.status === 403) return errors.forbidden(e.message);
+    // pymthouse checkout (Builder POST …/billing/checkout) returns 409 when the
+    // customer already has an active subscription or needs a PM before change —
+    // pass through so callers can switch plans / complete Checkout instead of
+    // treating it as a transient outage.
+    if (e.status === 409) return errors.conflict(e.message);
     if (e.status === 503) return errors.serviceUnavailable(e.message);
     return errors.serviceUnavailable(e.message || 'Checkout failed');
   }

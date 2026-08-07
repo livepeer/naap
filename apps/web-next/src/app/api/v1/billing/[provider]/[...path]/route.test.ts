@@ -255,4 +255,29 @@ describe('generic billing route — flag ON', () => {
     );
     expect(res.status).toBe(501);
   });
+
+  it('maps PmtHouseError 409 from subscribe to CONFLICT', async () => {
+    const { PmtHouseError } = await import('@pymthouse/builder-sdk');
+    const subscribe = vi.fn(async () => {
+      throw new PmtHouseError(
+        'Customer already has an active subscription; retry checkout or change plan',
+        { status: 409 },
+      );
+    });
+    setResolvedAdapter(makeAdapter({ subscribe }));
+    const res = await POST(
+      new NextRequest('http://localhost/api/v1/billing/pymthouse/subscribe', {
+        method: 'POST',
+        headers: {
+          cookie: 'naap_auth_token=tok',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ planId: 'plan_pro' }),
+      }),
+      params('pymthouse', ['subscribe']),
+    );
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error?.code).toBe('CONFLICT');
+  });
 });

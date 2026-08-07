@@ -198,6 +198,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
           if (err instanceof PmtHouseError) {
             if (err.status === 400) return noStore(errors.badRequest(err.message));
             if (err.status === 403) return noStore(errors.forbidden(err.message));
+            if (err.status === 409) return noStore(errors.conflict(err.message));
             return noStore(errors.serviceUnavailable(err.message || 'Checkout failed'));
           }
           throw err;

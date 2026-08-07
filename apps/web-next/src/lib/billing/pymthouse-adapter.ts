@@ -146,8 +146,11 @@ export class PymthouseAdapter implements BillingProviderAdapter {
 
   /**
    * Start pymthouse end-user checkout via SDK `createBillingCheckout`
-   * (`POST …/billing/checkout`). Returns the Stripe Checkout URL; the
-   * provider creates the OpenMeter subscription before returning.
+   * (`POST …/apps/{clientId}/billing/checkout`). Returns the Stripe Checkout
+   * URL; the provider creates or changes the OpenMeter subscription before
+   * returning (existing Starter is changed in-place — creating a second sub
+   * 409s on Konnect). Upstream 409s (active paid sub / PM required) propagate
+   * as {@link PmtHouseError} for the BFF to map to HTTP CONFLICT.
    */
   async subscribe(input: SubscribeInput): Promise<SubscribeResult> {
     if (!this.isConfigured()) {
