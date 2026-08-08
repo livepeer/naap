@@ -120,7 +120,8 @@
     <div class="review-item"><b>Not over-engineered</b><span class="fix">TRIMMED</span> — 11 items explicitly not built (§1.3); exactly 2 new Storyboard flags total; 1 mint output shape; no new registry; no device flow; no runtime picker</div>
     <div class="review-item"><b>Decoupled</b><span class="pass">PASS</span> — <code>resolveAuth()</code> is the sole mode-selection site; <code>sdkCall</code> keeps its <code>apiKey: string</code> parameter (ISP); SDK/gateway/signer untouched by every PR in tracks 1–3</div>
   </div>
-  <p style="font-size:13.4px;margin:12px 0 0;color:var(--mut)"><b>Two findings from this pass.</b> <b>(1)</b> The credentials the owner supplied unblock the <em>billed tail</em> but <b>not the mint step</b>. Both the composite mint (<span class="mono">POST …/users/{id}/keys</span>) and every usage/metering read authenticate with HTTP <b>Basic <code>m2m_id:m2m_secret</code></b> (<span class="mono">pymthouse-keys-bff.ts:33–40</span> <code>readM2mAuthHeader</code> → 503 <code>pymthouse_required</code> if either half is missing). A client <em>id</em> alone cannot form Basic credentials, so <b>the <code>pmth_cs_…</code> M2M client secret remains a hard open ask</b> gating PR-09/PR-10/PR-15 (OA-1). <b>(2) New blocker OA-6:</b> Storyboard has <b>no durable KV</b> — no <code>redis</code>/<code>@vercel/kv</code>/Postgres dependency exists, and the only durable store is <b>public</b> <span class="mono">@vercel/blob</span> (<span class="mono">storage.ts:11</span>). The <code>oauth-store</code> binds a billing credential, so neither an in-memory <code>Map</code> (AP-9) nor blob (<b>AP-11</b>, added this pass) is acceptable. PR-06 now gates Phase 1 on a provisioning decision, with "ship P0 and stop" pre-approved as the honest fallback (§9 stop line).</p>
+  <p style="font-size:13.4px;margin:12px 0 0;color:var(--mut)"><b>Owner decisions — 2026-08-08.</b> <b>(A) KV: provision it.</b> Former blocker OA-6 is <b>resolved by decision</b> (RS-6): a real private KV will be funded, so PR-06 → PR-08 and all of Phase 1 are un-gated. Provisioning becomes owner task <b>T-KV</b> with acceptance criteria T-KV-1…T-KV-6 (§2.1.1) — a merge gate on PR-06, not an open question. <b>AP-9 (in-memory <code>Map</code>) and AP-11 (public blob) remain BLOCKING</b>; funding the right answer does not license a cheaper one. <b>(B) Metering: de-scoped.</b> The usage-API debit read is <b>deferred (FU-1)</b>; the proof bar for a billed call is now <b>signer 200 + <code>numTickets</code> in range + real asset URL</b> (§2.3.1). <b>This does not unblock PR-09/PR-10/PR-15</b> — verified in code, <code>createPymthouseApiKey()</code> throws 503 without the M2M secret, so the mint stays blocked while only the <em>verification</em> bar moves. The stop line is now a contingency rather than the expected path.</p>
+  <p style="font-size:13.4px;margin:12px 0 0;color:var(--mut)"><b>Standing finding.</b> The credentials supplied on 2026-08-07 unblock the <em>billed tail</em> but <b>not the mint step</b>. Both the composite mint (<span class="mono">POST …/users/{id}/keys</span>) and every usage/metering read authenticate with HTTP <b>Basic <code>m2m_id:m2m_secret</code></b> (<span class="mono">pymthouse-keys-bff.ts:33–40</span> <code>readM2mAuthHeader</code> → 503 <code>pymthouse_required</code> if either half is missing). A client <em>id</em> alone cannot form Basic credentials, so <b>the <code>pmth_cs_…</code> M2M client secret remains a hard open ask</b> gating PR-09/PR-10/PR-15 (OA-1). The KV gap behind decision (A) was found the same way: Storyboard has <b>no durable KV</b> — no <code>redis</code>/<code>@vercel/kv</code>/Postgres dependency exists, and the only durable store is <b>public</b> <span class="mono">@vercel/blob</span> (<span class="mono">storage.ts:11</span>), which is why AP-11 exists.</p>
 </div>
 
 <div class="toc">
@@ -256,12 +257,36 @@
       <td><span class="tag t-part">PARTIAL</span> — id supplied; <b>secret not supplied</b></td>
       <td>Nothing on its own. See OA-1 — Basic auth needs both halves.</td>
     </tr>
+    <tr>
+      <td>RS-6<br><span class="tag t-new">2026-08-08</span></td>
+      <td>A <b>durable, private KV</b> to back the <code>oauth-store</code> (was OA-6)</td>
+      <td><span class="tag t-yes">RESOLVED BY DECISION</span> — a real KV <b>will be provisioned</b></td>
+      <td>Un-gates <b>PR-06 → PR-07 → PR-08</b> and therefore all of Phase 1. The "ship P0 and stop" outcome is demoted from expected path to <b>contingency only</b> (§9). The provisioning itself is now an owner <em>task</em> with acceptance criteria (§2.1.1) rather than an open question.</td>
+    </tr>
   </tbody>
 </table>
 
 <div class="note warn">
   <b>Secret handling for this plan and its execution.</b> The supplied composite bearer, M2M id, and any future M2M secret are <b>in-memory / env-only</b>. They must never be written to a file, a commit, a doc, a log line, a probe script default, or a VM's <span class="mono">.env</span> that outlives the run. Every PR's self-review checklist carries a "secret-scan the diff" item, and the §6 loop makes a clean secret scan a merge precondition. This document contains no key material.
 </div>
+
+<h3 id="kvtask">2.1.1 Owner task T-KV — provision the durable KV <span class="tag t-new">from RS-6</span></h3>
+
+<p>The decision is made; what remains is execution. This is a <b>precondition on PR-06</b>, not a design question — PR-06 cannot merge until every box below is checked.</p>
+
+<table>
+  <thead><tr><th>#</th><th>Acceptance criterion</th><th>Why it matters</th></tr></thead>
+  <tbody>
+    <tr><td>T-KV-1</td><td><b>Resource provisioned</b> and reachable from both Storyboard prod and preview deployments</td><td>Preview must work too, or every track-2 e2e fails late (the same trap as PR-14's redirect URIs)</td></tr>
+    <tr><td>T-KV-2</td><td><b>Env vars wired</b> in prod + preview; app boots cleanly when they are <em>absent</em> (PR-06 is dead code until PR-07)</td><td>A required-at-boot var would turn a docs-safe merge into an outage</td></tr>
+    <tr><td>T-KV-3</td><td><b>Encryption at rest confirmed</b>, and TLS in transit</td><td>The stored value is a live billing credential, not a cache entry</td></tr>
+    <tr><td>T-KV-4</td><td><b>TTL policy set</b> for <code>mcp_at_*</code> → composite bindings: server-side expiry, <b>≤ 24 h</b>, enforced by the store rather than by read-time filtering</td><td>Short TTL is what substitutes for revocation in MVP (N8/N11). Read-time-only expiry leaves the credential recoverable from the store</td></tr>
+    <tr><td>T-KV-5</td><td><b>Per-user isolation</b>: keys namespaced per binding so one user's token can never resolve another's composite; no list/scan surface exposed to request handlers</td><td>A shared or guessable namespace turns one leaked token into a cross-tenant billing leak</td></tr>
+    <tr><td>T-KV-6</td><td><b>Credential never returned to the client</b> — the composite leaves the store only into <code>forwardBearer</code>, server-side</td><td>Restates AP-5 as an infrastructure acceptance item, since this is where it would be violated cheaply</td></tr>
+  </tbody>
+</table>
+
+<p style="font-size:13.4px;color:var(--mut)"><b>Choice note (brief, deliberately not a design chapter).</b> <b>Vercel KV</b> and <b>Upstash Redis</b> are the same underlying product family and both fit: managed Redis, encryption at rest, TLS, native per-key TTL, single-digit-ms latency from the same region, and a free/low tier that comfortably covers MVP token volume (bindings are small, short-lived, and written once per OAuth dance). <b>Recommendation: Vercel KV / Upstash Redis</b> — native <code>SET … EX</code> satisfies T-KV-4 with no application-level expiry logic, which is exactly the complexity R4 warns about. Rejected: <span class="mono">@vercel/blob</span> (public by default — AP-11), an in-memory <code>Map</code> (non-sticky instances — AP-9), and standing up Postgres purely for this (a schema, migrations and a connection pool for one TTL'd key-value pair is over-engineering). Whichever is chosen, T-KV-1…T-KV-6 are the bar.</p>
 
 <h3>2.2 Honest status of the four gating dependencies</h3>
 
@@ -316,15 +341,8 @@
       <td><b>OA-1</b></td>
       <td><b>pymthouse M2M client <em>secret</em></b> (<code>pmth_cs_…</code>) matching the supplied <code>m2m_</code> client id, scoped to the test app</td>
       <td>John / pymthouse</td>
-      <td><span class="tag t-no">PR-09, PR-10, PR-15</span> + all usage/metering verification steps</td>
-      <td>Both the mint call and every usage read use HTTP <b>Basic</b>. <span class="mono">pymthouse-keys-bff.ts</span> <code>readM2mAuthHeader()</code> builds <code>Basic base64(m2mId + ":" + m2mSecret)</code> and <b>throws <code>pymthouse_required</code> (503) when either half is missing</b>; <span class="mono">pymthouse-client.ts:148</span> does the same for the usage/plan endpoints. A client id alone cannot form a Basic credential, and the composite app key 404s on those endpoints. History also shows this secret has been rotated at least twice (<span class="mono">USER-E2E-DEMO-RESULTS.md:1155</span>, <span class="mono">:2730</span>, <span class="mono">:4634</span>) — so please supply the <em>current</em> value, not a previously-issued one.</td>
-    </tr>
-    <tr>
-      <td><b>OA-6</b><br><span class="tag t-new">NEW</span></td>
-      <td>A <b>durable, private KV</b> (Upstash Redis / Vercel KV or equivalent) provisioned for Storyboard, to back the <code>oauth-store</code></td>
-      <td>Storyboard owner</td>
-      <td><span class="tag t-no">PR-06 → PR-07, PR-08</span></td>
-      <td>Raised by this review pass. Storyboard has <b>no KV today</b>: <span class="mono">package.json</span> carries no <code>redis</code>/<code>@vercel/kv</code>/<code>@upstash/redis</code>/Postgres client, and the only durable store is <span class="mono">@vercel/blob</span> (<span class="mono">lib/mcp-server/storage.ts:11</span>) used with <b>public, fixed pathnames</b> — writing a billing credential there would publish it (AP-11). The two tempting workarounds are both forbidden: an in-memory <code>Map</code> breaks on non-sticky instances (AP-9, and <span class="mono">app/api/mcp/auth/route.ts</span> already shows this pattern outbound), and blob is a leak. Provisioning is an <b>owner decision</b>, so it gates Phase 1 rather than being absorbed into PR-06.</td>
+      <td><span class="tag t-no">PR-09, PR-10, PR-15 — the MINT path (unchanged)</span> · <span class="tag t-off">metering reads — DEFERRED by decision</span></td>
+      <td><b>Decision 2026-08-08 — metering-read verification is de-scoped, the mint blocker is not.</b> These are two different uses of the same credential and the plan keeps them separate. <b>(a) Mint — still hard-blocked.</b> Verified in code: <code>createPymthouseApiKey()</code> (<span class="mono">pymthouse-keys-bff.ts:99–110</span>) and the user-upsert that precedes it (<span class="mono">:72–77</span>) both call <code>readM2mAuthHeader()</code>, which throws <code>pymthouse_required</code> (503) unless <em>both</em> <code>PYMTHOUSE_M2M_CLIENT_ID</code> and <code>PYMTHOUSE_M2M_CLIENT_SECRET</code> are present. <b>No composite can be minted without the secret</b>, so PR-09/PR-10/PR-15 remain blocked and the de-scope does <em>not</em> unblock them. <b>(b) Metering read — deferred (FU-1).</b> Confirming the debit via the usage/plan API is now a follow-up, not an acceptance bar; the provable bar becomes payment + signed ticket + real asset (§2.3.1). Both the mint call and every usage read use HTTP <b>Basic</b>. <span class="mono">pymthouse-keys-bff.ts</span> <code>readM2mAuthHeader()</code> builds <code>Basic base64(m2mId + ":" + m2mSecret)</code> and <b>throws <code>pymthouse_required</code> (503) when either half is missing</b>; <span class="mono">pymthouse-client.ts:148</span> does the same for the usage/plan endpoints. A client id alone cannot form a Basic credential, and the composite app key 404s on those endpoints. History also shows this secret has been rotated at least twice (<span class="mono">USER-E2E-DEMO-RESULTS.md:1155</span>, <span class="mono">:2730</span>, <span class="mono">:4634</span>) — so please supply the <em>current</em> value, not a previously-issued one.</td>
     </tr>
     <tr>
       <td><b>OA-2</b></td>
@@ -357,12 +375,46 @@
   </tbody>
 </table>
 
+<h3 id="descope">2.3.1 Metering-read de-scope <span class="tag t-new">decision 2026-08-08</span></h3>
+
+<p>The M2M client secret is <b>not being supplied at this time</b>. Rather than stall, the plan lowers the <em>verification</em> bar and records the gap explicitly. <b>This changes what we must prove, not what the code needs.</b></p>
+
+<table>
+  <thead><tr><th></th><th>Before</th><th>Now</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Provable bar for a billed call</b></td>
+      <td>Payment minted → ticket signed → asset produced → <b>debit confirmed via usage/plan API</b></td>
+      <td><span class="tag t-yes">Payment minted → ticket signed → asset produced</span> — concretely: <b>signer returns 200</b>, <b><code>numTickets</code> within expected range</b>, and a <b>real asset URL</b> is returned</td>
+    </tr>
+    <tr>
+      <td><b>Usage-API debit read</b></td>
+      <td>Acceptance criterion</td>
+      <td><span class="tag t-off">DEFERRED → FU-1</span> — follow-up: <em>"Confirm test-app debit via the pymthouse usage/plan API once the M2M client secret is available."</em></td>
+    </tr>
+    <tr>
+      <td><b>What this unblocks</b></td>
+      <td>—</td>
+      <td>Only the <b>verification</b> of the billed tail on a <em>pre-minted</em> composite (RS-1) — i.e. PR-12's e2e and §7 rows 5–8</td>
+    </tr>
+    <tr>
+      <td><b>What stays blocked</b></td>
+      <td>—</td>
+      <td><span class="tag t-no">PR-09, PR-10, PR-15</span> — the <b>mint</b> requires the secret in code (§2.3 OA-1a). The de-scope does not touch this and must not be read as unblocking them</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <b>Why the distinction is worth this much ink.</b> The tempting misreading is "metering is de-scoped, so the M2M secret no longer matters." It still matters — just for a different reason. <b>RS-1 gave us an already-minted composite</b>, which is why the billed <em>tail</em> can be verified without the secret. Nothing can <em>mint a new one</em> without it. So Scenario A and Scenario B remain blocked at their first step, and any PR claiming otherwise should be rejected in review.
+</div>
+
 <h3>2.4 Blocked-by matrix</h3>
 <table>
   <thead><tr><th>PR</th><th>Hard blockers</th><th>Can start now?</th></tr></thead>
   <tbody>
     <tr><td>PR-01 … PR-05</td><td>— none —</td><td><span class="tag t-yes">YES</span> — invariants, resolution layer and the inert OAuth head ship default-OFF</td></tr>
-    <tr><td>PR-06 … PR-08</td><td>OA-6 (durable KV)</td><td><span class="tag t-part">Blocked on a provisioning decision</span> — PR-06 needs a real store; an in-memory <code>Map</code> (AP-9) or blob (AP-11) is not an acceptable substitute</td></tr>
+    <tr><td>PR-06 … PR-08</td><td>T-KV (provisioning task, decided — §2.1.1)</td><td><span class="tag t-yes">YES</span> — un-gated by the RS-6 decision. Code and tests can start now; <b>PR-06 merges only once T-KV-1…T-KV-6 are checked</b>. An in-memory <code>Map</code> (AP-9) or blob (AP-11) remains an unacceptable substitute</td></tr>
     <tr><td>PR-09, PR-10</td><td>OA-1 (M2M secret)</td><td><span class="tag t-part">Code yes, verify no</span> — buildable with an injected fetch + mocked mint; cannot be prod-verified without OA-1</td></tr>
     <tr><td>PR-11</td><td>— none —</td><td><span class="tag t-yes">YES</span> — build-time guard is self-contained</td></tr>
     <tr><td>PR-12</td><td>OA-2, OA-4 (and OA-3 for the durability claim)</td><td><span class="tag t-no">NO</span></td></tr>
@@ -475,7 +527,7 @@ export function resolveAuth(
     <tr><td>AP-8</td><td>Wiring OAuth into <code>authForRestProxy</code></td><td>10+ REST routes would inherit an untested auth mode; not the MCP contract</td><td>MCP entry only; INV-6 asserts REST parity</td></tr>
     <tr><td>AP-9</td><td>An in-memory <code>Map</code> as the oauth-store</td><td>Serverless/edge instances are not sticky — a token minted on one instance 401s on the next. Note <span class="mono">app/api/mcp/auth/route.ts</span> already does this for the <em>outbound</em> flow; do not copy it inbound</td><td>Restart-safe KV with TTL (PR-06)</td></tr>
     <tr><td>AP-10</td><td>Enabling <code>KEY_ROUTING_FROM_ENV</code> on a <em>shared</em> SDK node to test OAuth</td><td>Couples the OAuth rollout to every other consumer of that node; violates guardrail G7</td><td>Canary-only overlay (PR-12); the two flags are independent</td></tr>
-    <tr><td>AP-11</td><td>Backing the oauth-store with <span class="mono">@vercel/blob</span> (or any public-by-default object store)</td><td>Storyboard's only durable store today is blob (<span class="mono">storage.ts:11</span>), written with <b>public, fixed pathnames</b>. Putting a composite billing credential there publishes it — strictly worse than AP-9's flakiness</td><td>A private KV with server-side TTL (PR-06, gated on OA-6)</td></tr>
+    <tr><td>AP-11</td><td>Backing the oauth-store with <span class="mono">@vercel/blob</span> (or any public-by-default object store)</td><td>Storyboard's only durable store today is blob (<span class="mono">storage.ts:11</span>), written with <b>public, fixed pathnames</b>. Putting a composite billing credential there publishes it — strictly worse than AP-9's flakiness</td><td>A private KV with server-side TTL (PR-06; provisioning decided — task T-KV, §2.1.1). <b>Still blocking</b> — the KV decision does not soften this</td></tr>
   </tbody>
 </table>
 
@@ -719,20 +771,20 @@ sequenceDiagram
 </div>
 <div class="pr" id="pr-06">
 <h3>PR-06 · <code>oauth-store</code> — restart-safe binding <code>mcp_at_*</code> → composite</h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">unused until PR-07</span><span class="tag t-part">new infra dep</span><span class="tag t-no">R10 carrier</span></div>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">unused until PR-07</span><span class="tag t-part">new infra dep — funded (RS-6)</span><span class="tag t-yes">merge gate: T-KV-1…6</span></div>
 <table>
   <tr><th>Purpose</th><td>Server-side, TTL'd binding from the opaque MCP token to the minted composite. The composite <b>never</b> leaves the server (AP-5).</td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/auth/oauth-store.ts <span class="tag t-new">NEW</span> · package.json (one dependency)</td></tr>
   <tr><th>Flag &amp; default</th><td>No flag — the module is <em>imported by nothing</em> until PR-07. Dead code on merge, by design.</td></tr>
   <tr><th>Acceptance</th><td>Interface is exactly <code>bind(token, composite, ttlSec)</code> / <code>lookup(token)</code> / <code>revoke(token)</code> — nothing else. Values expire. <b>A cross-instance test proves a token bound on one process resolves on another.</b></td></tr>
-  <tr><th>Self-review</th><td>☐ <b>not</b> an in-memory <code>Map</code> (AP-9) ☐ <b>not</b> <span class="mono">@vercel/blob</span> (AP-11) ☐ TTL enforced server-side, not just on read ☐ composite never logged, even at debug ☐ no refresh-token surface (N8) ☐ secret-scan clean</td></tr>
+  <tr><th>Self-review</th><td>☐ <b>T-KV-1…T-KV-6 all checked</b> (§2.1.1) ☐ <b>not</b> an in-memory <code>Map</code> (AP-9) ☐ <b>not</b> <span class="mono">@vercel/blob</span> (AP-11) ☐ TTL enforced server-side, not just on read ☐ keys namespaced per binding, no scan surface ☐ composite never logged, even at debug ☐ no refresh-token surface (N8) ☐ secret-scan clean</td></tr>
   <tr><th>E2E</th><td>Unit + a preview test that binds, redeploys (forcing a new lambda), then looks up — must still resolve.</td></tr>
   <tr><th>Prod verify</th><td>None — no request path reaches it yet. Confirm bundle size delta is negligible and no new env var is <em>required</em> at boot.</td></tr>
   <tr><th>Rollback</th><td>Revert (removes dead code + the dependency).</td></tr>
   <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> before PR-07; <span class="tag t-no">unsafe after</span> — PR-07/PR-08 import it. Revert those first.</td></tr>
 </table>
 <div class="note bad" style="margin:12px 0 0">
-  <b>Review finding — this PR introduces the plan's only new infrastructure dependency.</b> Storyboard today has <b>no KV/Redis</b>: <span class="mono">package.json</span> carries no <code>redis</code> / <code>@vercel/kv</code> / <code>@upstash/redis</code> / Postgres client, and the sole durable store is <span class="mono">@vercel/blob</span> (<span class="mono">lib/mcp-server/storage.ts:11</span>), used with <b>public, fixed pathnames</b>. Binding a billing credential in blob storage would publish it. So PR-06 must add a real KV, and that choice is an <b>owner decision, not an implementation detail</b> — it is tracked as <b>OA-6</b> (§2.3) and risk <b>R10</b> (§8). If no KV can be provisioned, the honest fallback is to <b>stop at the end of track 2</b> and ship P0 only; it is <em>not</em> acceptable to substitute an in-memory <code>Map</code> (AP-9) — <span class="mono">app/api/mcp/auth/route.ts</span> already does that for the outbound flow and it is exactly the pattern that breaks on a non-sticky instance.
+  <b>This PR introduces the plan's only new infrastructure dependency — and the owner has decided to fund it.</b> Storyboard today has <b>no KV/Redis</b>: <span class="mono">package.json</span> carries no <code>redis</code> / <code>@vercel/kv</code> / <code>@upstash/redis</code> / Postgres client, and the sole durable store is <span class="mono">@vercel/blob</span> (<span class="mono">lib/mcp-server/storage.ts:11</span>), used with <b>public, fixed pathnames</b> — binding a billing credential there would publish it. <b>Decision RS-6 (2026-08-08): a real durable KV will be provisioned</b> (recommendation and criteria in §2.1.1). PR-06 is therefore <b>un-blocked for implementation</b> and merges once <b>T-KV-1…T-KV-6</b> are checked. The two shortcuts stay forbidden regardless of the decision: an in-memory <code>Map</code> (AP-9) — <span class="mono">app/api/mcp/auth/route.ts</span> already does this for the outbound flow and it is exactly the pattern that breaks on a non-sticky instance — and blob storage (AP-11).
 </div>
 </div>
 
@@ -784,7 +836,7 @@ sequenceDiagram
   <tr><th>Acceptance</th><td>Mints against the <b>test app id from env</b> with an explicit assertion that the configured app id is the test app (RS-2). Returns the composite <b>only</b> over the internal channel. Rejects unauthenticated callers. Existing NaaP behavior untouched — no change to <span class="mono">pymthouse-keys-bff.ts</span> itself.</td></tr>
   <tr><th>Self-review</th><td>☐ no existing NaaP route's behavior changed ☐ composite never logged ☐ test-app assertion present and failing-closed ☐ reuses <code>readM2mAuthHeader</code> rather than re-implementing Basic ☐ secret-scan clean</td></tr>
   <tr><th>E2E</th><td><b>Requires OA-1.</b> With the secret in env: mint one key for a throwaway <code>externalUserId</code>, confirm it appears under the test app, then confirm a <code>create_media</code> with it bills the test app.</td></tr>
-  <tr><th>Prod verify</th><td>Route returns 404 until configured. After config, one mint + one billed call, then verify via the usage/metering API (<b>also needs OA-1</b>).</td></tr>
+  <tr><th>Prod verify</th><td>Route returns 404 until configured. After config, one mint + one billed call proved to the <b>de-scoped bar</b> (§2.3.1): signer 200, <code>numTickets</code> in range, real asset URL. <b>Usage-API debit read is <span class="tag t-off">DEFERRED → FU-1</span></b>. Note this step still needs OA-1 regardless — the mint itself cannot run without the secret.</td></tr>
   <tr><th>Rollback</th><td>Remove the env config ⇒ route 404s. Then revert.</td></tr>
   <tr><th>Revert-safety</th><td><span class="tag t-part">Safe alone</span> unless PR-10 is live and <code>MCP_OAUTH_PROVIDER=naap</code> — that combination breaks the dance. Unset the provider first.</td></tr>
 </table>
@@ -799,7 +851,7 @@ sequenceDiagram
   <tr><th>Flag &amp; default</th><td>Selected only by <code>MCP_OAUTH_PROVIDER=naap</code> <b>and</b> <code>MCP_OAUTH_ENABLED=1</code>. No third flag (N5).</td></tr>
   <tr><th>Acceptance</th><td>Satisfies the <b>shared provider contract test</b> (LSP): returns a composite <code>app_*_pmth_*</code> and nothing else — no JWT-only variant (N4). App id sourced from env with a test-app assertion (RS-2). <span class="mono">registry.ts</span> shows a zero-line diff.</td></tr>
   <tr><th>Self-review</th><td>☐ <span class="mono">registry.ts</span> diff is empty ☐ provider imported only by the broker routes (grep assertion) ☐ same contract test as P2 passes ☐ no key globs re-implemented (AP-4) ☐ secret-scan clean</td></tr>
-  <tr><th>E2E</th><td><b>Requires OA-1.</b> Preview, flag ON, provider=naap: full dance → <code>mcp_at_*</code> → <code>create_media</code> → asset returned <b>and</b> usage visible on the test app.</td></tr>
+  <tr><th>E2E</th><td><b>Still requires OA-1</b> (the mint cannot run without the secret). Preview, flag ON, provider=naap: full dance → <code>mcp_at_*</code> → <code>create_media</code> → <b>signer 200, <code>numTickets</code> in range, real asset URL</b> (§2.3.1 bar). <b>Usage visibility on the test app is <span class="tag t-off">DEFERRED → FU-1</span></b>.</td></tr>
   <tr><th>Prod verify</th><td>Enable on a <b>single</b> deployment only (N3 — one deployment, one provider). Run one billed test-app call and confirm §7 rows 1–4 are unaffected.</td></tr>
   <tr><th>Rollback</th><td>Unset <code>MCP_OAUTH_PROVIDER</code> ⇒ broker fails closed; then revert.</td></tr>
   <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> — P0 passthrough is unaffected by removing a provider.</td></tr>
@@ -886,7 +938,7 @@ sequenceDiagram
   <tr><th>Flag &amp; default</th><td><code>MCP_OAUTH_PROVIDER=pymthouse</code> + <code>MCP_OAUTH_ENABLED=1</code>. Still no third flag (N5).</td></tr>
   <tr><th>Acceptance</th><td>Passes the <b>same</b> shared contract test as PR-10, unmodified — that shared test is the LSP proof. Upserts the user then mints, both with M2M Basic. App id from env with a test-app assertion. <span class="mono">registry.ts</span> diff empty.</td></tr>
   <tr><th>Self-review</th><td>☐ shared contract test not weakened or forked for this provider ☐ user JWT never forwarded to the SDK (composite only, N4) ☐ M2M secret read from env only ☐ secret-scan clean</td></tr>
-  <tr><th>E2E</th><td><b>Requires OA-1 + PR-14.</b> Full Scenario B dance on preview → billed test-app call → usage confirmed via the metering API.</td></tr>
+  <tr><th>E2E</th><td><b>Still requires OA-1 + PR-14.</b> Full Scenario B dance on preview → billed test-app call proved to the §2.3.1 bar (signer 200, <code>numTickets</code> in range, real asset URL). <b>Metering confirmation <span class="tag t-off">DEFERRED → FU-1</span></b>.</td></tr>
   <tr><th>Prod verify</th><td>A single deployment with provider=pymthouse; §7 rows 1–4 unaffected.</td></tr>
   <tr><th>Rollback</th><td>Unset <code>MCP_OAUTH_PROVIDER</code>; then revert.</td></tr>
   <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> — removing one provider leaves P0 and P1 intact.</td></tr>
@@ -961,7 +1013,7 @@ sequenceDiagram
     <tr><td>5</td><td class="mono">app_*_pmth_* valid</td><td>unset</td><td>same bytes in and out</td><td>pymthouse signer (DIRECT via <code>PYMTHOUSE_SIGNER_URL</code>) → LR orch</td><td><span class="tag t-part">canary</span></td></tr>
     <tr><td>6</td><td class="mono">app_*_pmth_* valid</td><td><b>1</b></td><td>same bytes in and out</td><td>Identical to row 5 — a composite <b>never</b> consults the store</td><td><span class="tag t-part">PR-08</span></td></tr>
     <tr><td>7</td><td class="mono">app_*_pmth_* invalid</td><td>unset / 1</td><td>forwarded verbatim</td><td>Signer-side rejection, surfaced unchanged</td><td><span class="tag t-part">canary</span></td></tr>
-    <tr><td>8</td><td class="mono">app_*_pmth_*</td><td>unset</td><td>—</td><td><b>Billed to the TEST app only</b> — assert app id on every probe</td><td><span class="tag t-yes">RS-2</span></td></tr>
+    <tr><td>8</td><td class="mono">app_*_pmth_*</td><td>unset</td><td>—</td><td><b>Billed to the TEST app only</b> — assert app id on every probe. Proof bar = <b>signer 200 + <code>numTickets</code> in range + real asset URL</b>; usage-API debit read <span class="tag t-off">deferred (FU-1)</span></td><td><span class="tag t-yes">RS-2</span> <span class="tag t-off">§2.3.1</span></td></tr>
     <tr><td>9</td><td class="mono">mcp_at_* shaped</td><td>unset</td><td>treated as unrecognized opaque, <b>exactly as today</b></td><td>Whatever today does with an unknown opaque bearer</td><td><span class="tag t-yes">INV-1</span></td></tr>
     <tr><td>10</td><td class="mono">mcp_at_* bound</td><td><b>1</b></td><td>bound composite <code>app_*_pmth_*</code></td><td>pymthouse signer → LR orch, test app billed</td><td><span class="tag t-part">PR-08</span></td></tr>
     <tr><td>11</td><td class="mono">mcp_at_* expired / unknown</td><td><b>1</b></td><td><b>none — 401</b></td><td>Fail closed. <b>Never</b> a fallthrough to the SDK</td><td><span class="tag t-yes">INV-3</span></td></tr>
@@ -1071,7 +1123,7 @@ sequenceDiagram
       <td><span class="tag t-no">High</span></td>
       <td><span class="tag t-no">Critical</span> if solved wrongly</td>
       <td>A PR-06 implementation backed by a <code>Map</code>, a module-global, or blob storage; or "it works locally" with no cross-instance test</td>
-      <td>AP-9 + <b>AP-11</b> block both wrong answers; PR-06 requires a cross-instance test; escalated as <b>OA-6</b> because provisioning is an owner decision; if refused, the pre-approved outcome is <b>stop after track 2 and ship P0</b></td>
+      <td><b>Resolved by provisioning a real KV</b> (decision RS-6, criteria T-KV-1…T-KV-6 in §2.1.1) — the mitigation is now "build it right", not "gate the phase". AP-9 + <b>AP-11</b> remain <b>blocking</b> review items, so the decision removes the blocker without softening the guardrails; PR-06 still requires a cross-instance test and cannot merge until T-KV is signed off. Residual risk is <em>execution</em> (a KV provisioned without encryption-at-rest, server-side TTL or per-user namespacing), which is what T-KV-3/4/5 exist to catch. The old "stop after track 2 and ship P0" outcome survives only as a contingency (§9)</td>
     </tr>
     <tr>
       <td><b>R11</b></td>
@@ -1095,14 +1147,14 @@ sequenceDiagram
 
 <div class="phase">
   <h3>Phase 1 — Inert OAuth head <span class="tag t-yes">unblocked</span></h3>
-  <p>PR-04 → PR-05 → PR-06 → PR-07 → PR-08. Everything merges with <code>MCP_OAUTH_ENABLED</code> unset. <b>PR-06 requires OA-6 to be answered first.</b></p>
-  <p class="gate"><b>Gate G-B:</b> all five merged flag-OFF; prod shows zero behavior delta for 24 h; the old long-TTL 404 has aged out and a CDN purge is scheduled; the store passes its cross-instance test.</p>
+  <p>PR-04 → PR-05 → PR-06 → PR-07 → PR-08. Everything merges with <code>MCP_OAUTH_ENABLED</code> unset. <b>Un-gated by decision RS-6</b> — the KV is being provisioned, so this phase proceeds. Run owner task <b>T-KV</b> (§2.1.1) in parallel with PR-04/PR-05 so it is signed off by the time PR-06 is ready to merge; it is on the critical path for nothing else.</p>
+  <p class="gate"><b>Gate G-B:</b> all five merged flag-OFF; <b>T-KV-1…T-KV-6 signed off</b>; prod shows zero behavior delta for 24 h; the old long-TTL 404 has aged out and a CDN purge is scheduled; the store passes its cross-instance test.</p>
 </div>
 
 <div class="phase">
   <h3>Phase 2 — First flag flip, preview only <span class="tag t-part">needs OA-1</span></h3>
   <p>PR-09 → PR-10. Flip <code>MCP_OAUTH_ENABLED=1</code> + <code>MCP_OAUTH_PROVIDER=naap</code> on <b>one preview deployment</b>, never prod.</p>
-  <p class="gate"><b>Gate G-C:</b> full 12-row matrix green on preview; one billed test-app call verified through the metering API; rows 1–4 still byte-identical in prod with the flag off.</p>
+  <p class="gate"><b>Gate G-C:</b> full 12-row matrix green on preview; one billed test-app call proved to the <b>§2.3.1 bar</b> (signer 200, <code>numTickets</code> in range, real asset URL) — <b>metering read deferred to FU-1</b>; rows 1–4 still byte-identical in prod with the flag off.</p>
 </div>
 
 <div class="phase">
@@ -1118,7 +1170,7 @@ sequenceDiagram
 </div>
 
 <div class="verdict cond">
-  <b>The stop line.</b> If OA-1 (M2M secret) or OA-6 (a durable KV) cannot be resolved, the plan <b>stops cleanly at the end of Phase 1</b> and ships <b>P0 passthrough only</b>: users paste an <code>sk_*</code> or a composite key, exactly as today, with the OAuth head merged but inert. That is a <b>legitimate, pre-approved end state</b>, not a failure — Phase 0 and Phase 1 deliver the invariant harness, the resolution layer, the composite log visibility and the LR build guard on their own merits. Declaring this up front is what prevents the far worse outcome: shipping a half-wired OAuth path to work around a missing credential.
+  <b>The stop line — now a contingency, not the expected path.</b> The KV blocker is resolved by decision (RS-6), so Phase 1 is expected to complete. The stop line remains armed for <b>one</b> reason: if <b>OA-1</b> (the pymthouse M2M client secret) cannot be obtained, the plan <b>stops cleanly at the end of Phase 1</b> and ships <b>P0 passthrough only</b> — users paste an <code>sk_*</code> or a composite key, exactly as today, with the OAuth head merged but inert. That remains a <b>legitimate, pre-approved end state</b>: Phase 0 and Phase 1 deliver the invariant harness, the resolution layer, the composite log visibility, the durable store and the LR build guard on their own merits. It would also re-arm if T-KV could not meet its acceptance criteria — but the correct response then is to fix the provisioning, <b>never</b> to substitute a <code>Map</code> (AP-9) or blob (AP-11). Declaring this up front is what prevents the far worse outcome: shipping a half-wired OAuth path to work around a missing credential.
 </div>
 
 <!-- ================= 10. OPEN ================= -->
@@ -1130,6 +1182,7 @@ sequenceDiagram
   <li><b>RS-2</b> — billing target is the <b>TEST app</b>, never a live customer app. Now a hard, asserted constraint (§7 row 8, R11).</li>
   <li><b>RS-3</b> — signer is the pymthouse <b>production</b> host <span class="mono">pymthouse-production.up.railway.app</span> (<b>not</b> <span class="mono">…-test-production</span>), <code>type=fixed</code> capable. Gives <code>PYMTHOUSE_SIGNER_URL</code> a known-good value and plausibly closes OQ-1, pending OA-4.</li>
   <li><b>RS-4</b> — <code>gcloud</code> auth enabled. Converts the R7 prod-drift check from inference to observation.</li>
+  <li><b>RS-6 <span class="tag t-new">2026-08-08</span></b> — <b>durable KV: resolved by decision.</b> A real private KV will be provisioned rather than shipping P0-only. This un-gates PR-06 → PR-07 → PR-08 and all of Phase 1. What remains is the owner <em>task</em> <b>T-KV</b> (§2.1.1) with acceptance criteria T-KV-1…T-KV-6 — a merge gate on PR-06, not an open question. <b>AP-9 (in-memory <code>Map</code>) and AP-11 (public blob) remain blocking anti-patterns</b>; the decision funds the right answer, it does not permit a cheaper one.</li>
 </ul>
 
 <h3>10.2 Still open — ordered by what they block</h3>
@@ -1140,15 +1193,15 @@ sequenceDiagram
       <td><b>OA-1</b></td>
       <td><b>pymthouse M2M client <em>secret</em></b> (<code>pmth_cs_…</code>) matching the supplied client id, scoped to the test app. <b>The supplied <code>m2m_…</code> value is a client <em>id</em>, and an id alone is not sufficient.</b></td>
       <td>John / pymthouse</td>
-      <td><span class="tag t-no">PR-09, PR-10, PR-15 + all usage/metering reads</span></td>
-      <td>Track 3 can be written but never verified → stop line (ship P0)</td>
+      <td><span class="tag t-no">PR-09, PR-10, PR-15 — the MINT path</span><br><span class="tag t-off">metering reads deferred (FU-1)</span></td>
+      <td>Track 3 can be written but never <em>run</em> — <code>createPymthouseApiKey()</code> throws 503 without the secret. Metering verification is de-scoped (§2.3.1), which lowers the proof bar but <b>does not unblock the mint</b>. If unavailable: stop line (ship P0)</td>
     </tr>
     <tr>
-      <td><b>OA-6</b></td>
-      <td><b>A durable KV for the oauth-store</b> (Upstash/Vercel KV or equivalent). <span class="tag t-new">NEW — raised by this review pass</span></td>
+      <td><b>T-KV</b><br><span class="tag t-yes">decided</span></td>
+      <td><b>Provision the durable KV</b> (was OA-6). No longer a question — an owner <em>task</em> with acceptance criteria T-KV-1…T-KV-6 (§2.1.1)</td>
       <td>Storyboard owner</td>
-      <td><span class="tag t-no">PR-06 → PR-07, PR-08</span></td>
-      <td>Phase 1 cannot complete safely; the only correct response is the stop line, <b>not</b> an in-memory or blob-backed store</td>
+      <td><span class="tag t-part">Merge gate on PR-06 only</span></td>
+      <td>Phase 1 proceeds; PR-06 waits on sign-off. AP-9 / AP-11 stay <b>blocking</b> — the funded answer is the only acceptable one</td>
     </tr>
     <tr>
       <td><b>OA-2</b></td>
@@ -1182,7 +1235,7 @@ sequenceDiagram
 </table>
 
 <div class="note bad">
-  <b>The single most important open item.</b> <b>OA-1 — the pymthouse M2M client <em>secret</em> is still required.</b> This was checked against the code rather than assumed: <span class="mono">pymthouse-keys-bff.ts:33–40</span> reads <code>PYMTHOUSE_M2M_CLIENT_ID</code> <em>and</em> <code>PYMTHOUSE_M2M_CLIENT_SECRET</code>, builds <code>Basic base64(id:secret)</code>, and returns <b>503 <code>pymthouse_required</code></b> if either is missing; the usage/plan endpoints authenticate the same way, which is why the composite app key 404s against them. <b>The client id supplied on 2026-08-07 does not close this ask.</b> Please supply the <em>current</em> secret — it has been rotated before.
+  <b>The single most important open item.</b> <b>OA-1 — the pymthouse M2M client <em>secret</em> is still required for the MINT path.</b> Checked against the code rather than assumed: <span class="mono">pymthouse-keys-bff.ts:33–40</span> reads <code>PYMTHOUSE_M2M_CLIENT_ID</code> <em>and</em> <code>PYMTHOUSE_M2M_CLIENT_SECRET</code>, builds <code>Basic base64(id:secret)</code>, and returns <b>503 <code>pymthouse_required</code></b> if either is missing — and <code>createPymthouseApiKey()</code> (<span class="mono">:99–110</span>) plus the user-upsert (<span class="mono">:72–77</span>) both go through it. <b>The client id supplied on 2026-08-07 does not close this ask.</b><br><br><b>The 2026-08-08 metering de-scope does not change this.</b> It defers <em>verifying the debit</em> (FU-1) and lowers the proof bar to payment + signed ticket + real asset (§2.3.1). It does <b>not</b> unblock PR-09/PR-10/PR-15, because those need to <em>mint a new composite</em>, which the code cannot do without the secret. The billed tail is verifiable today only because RS-1 supplied an already-minted composite. When the secret is available, please supply the <em>current</em> value — it has been rotated before.
 </div>
 
 </div>
