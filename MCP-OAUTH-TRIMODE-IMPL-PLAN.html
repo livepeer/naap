@@ -862,9 +862,9 @@ sequenceDiagram
 </table>
 </div>
 
-<div class="pr blocked" id="pr-10">
-<h3>PR-10 · Storyboard <code>naap</code> provider (P1) — registry entry + adapter</h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_PROVIDER=naap</span><span class="tag t-no">blocked: OA-1, PR-09</span></div>
+<div class="pr" id="pr-10">
+<h3>PR-10 · Storyboard <code>naap</code> provider (P1) — registry entry + adapter <span class="tag t-part">OPEN storyboard#876</span></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_PROVIDER=naap</span><span class="tag t-part">verify gated on NaaP env wire + PR-09</span></div>
 <table>
   <tr><th>Purpose</th><td>Implement <code>BillingProvider</code> for Scenario A: NaaP session OAuth for identity, then delegate the mint to PR-09's route. <b>Adds a file and a JSON entry — <span class="mono">registry.ts</span> logic is not modified</b> (OCP, N1).</td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/auth/providers/naap.ts <span class="tag t-new">NEW</span> · config/mcp-auth-providers.json (one entry)</td></tr>
