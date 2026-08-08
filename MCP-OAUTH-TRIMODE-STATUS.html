@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MCP OAuth Tri-Mode — Status &amp; Ops Guide</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1c2029; --line:#2a2f3a;
+    --text:#e6e9ef; --muted:#9aa4b2; --accent:#5aa2ff;
+    --green:#2ec16b; --amber:#e0a83a; --blue:#4f8cff; --red:#e5484d; --violet:#a06bff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.55 "IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:40px 24px 96px}
+  h1{font-size:28px;margin:0 0 6px;letter-spacing:-.35px;font-weight:700}
+  .sub{color:var(--muted);margin:0 0 22px;font-size:13.5px;max-width:78ch}
+  h2{font-size:19px;margin:40px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--accent)}
+  p{margin:10px 0}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code, .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12.2px}
+  td code, p code, li code{background:#0c0e12;border:1px solid var(--line);border-radius:5px;
+    padding:1px 5px;color:#cbd3e1}
+  .hero{
+    background:linear-gradient(145deg,#1a2230 0%,#151820 55%,#1a1520 100%);
+    border:1px solid #2c3a52;border-radius:14px;padding:20px 22px;margin:8px 0 18px}
+  .hero b{color:#cfe0ff}
+  .callout{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;margin:14px 0;font-size:13.5px}
+  .callout.warn{border-color:rgba(224,168,58,.45);background:linear-gradient(180deg,#221c12,#171a21)}
+  .callout.danger{border-color:rgba(229,72,77,.45);background:linear-gradient(180deg,#241416,#171a21)}
+  .callout.ok{border-color:rgba(46,193,107,.35);background:linear-gradient(180deg,#122018,#171a21)}
+  table{width:100%;border-collapse:collapse;margin:12px 0 6px;font-size:13.4px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--panel2);color:var(--muted);font-weight:600;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:.4px}
+  tr:last-child td{border-bottom:none}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.3px;
+    padding:2px 8px;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+  .ok{background:rgba(46,193,107,.15);color:var(--green);border-color:rgba(46,193,107,.4)}
+  .partial{background:rgba(224,168,58,.15);color:var(--amber);border-color:rgba(224,168,58,.45)}
+  .no{background:rgba(229,72,77,.14);color:#ff8b8e;border-color:rgba(229,72,77,.4)}
+  .open{background:rgba(79,140,255,.14);color:var(--blue);border-color:rgba(79,140,255,.4)}
+  .merged{background:rgba(46,193,107,.15);color:var(--green);border-color:rgba(46,193,107,.4)}
+  .deferred{background:rgba(160,107,255,.14);color:var(--violet);border-color:rgba(160,107,255,.4)}
+  ul,ol{margin:8px 0;padding-left:22px}
+  li{margin:6px 0}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}
+  @media (max-width:860px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card h3{margin:0 0 8px}
+  .card p{margin:0;color:var(--muted);font-size:13.3px}
+  .steps{counter-reset:step}
+  .steps li{list-style:none;position:relative;padding-left:8px;margin:14px 0}
+  .stepbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .stepbox h4{margin:0 0 8px;font-size:14.5px}
+  .muted{color:var(--muted)}
+  .foot{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+  pre.cmd{background:#0c0e12;border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+    overflow:auto;font-size:12px;line-height:1.45;color:#d5dbe8;margin:10px 0}
+  .toc a{display:inline-block;margin:0 12px 8px 0;font-size:13px}
+  .sha{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#c9d2e3}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>MCP OAuth Tri-Mode — Status &amp; Ops Guide</h1>
+  <p class="sub">
+    Grounded status for Tracks&nbsp;1–3 + T-KV. Claims below were checked with
+    <code>gh pr view</code>, live <code>curl</code> against production hosts, and
+    <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a>
+    (naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>).
+    Generated <b>2026-08-08</b>. <b>No secret values</b> appear in this document — placeholders only.
+  </p>
+
+  <div class="hero">
+    <b>Bottom line.</b> Tracks&nbsp;1–3 code for Scenario&nbsp;A is
+    <span class="pill merged">MERGED</span> on
+    <code>livepeer/storyboard</code> (#868–#876) and <code>livepeer/naap</code> (#458).
+    Production still has <code>MCP_OAUTH_ENABLED</code> unset: OAuth broker is inert (404),
+    well-known stays Bearer-only 404 with short TTL, and paste-key paths remain the live UX.
+    <b>OAuth login → mint → inference is not live.</b> Next gate is ops wiring on
+    <b>Preview</b> (shared mint secret + allowlist + M2M), then a Preview-only flag flip —
+    never prod — before stop-line checks.
+  </div>
+
+  <p class="toc muted">
+    <a href="#accomplished">1 · Accomplished</a>
+    <a href="#main">2 · On main</a>
+    <a href="#prod">3 · Prod verification</a>
+    <a href="#ops">4 · Ops gaps guide</a>
+    <a href="#stories">5 · User stories</a>
+  </p>
+
+  <!-- ============================================================ -->
+  <h2 id="accomplished">1 · What we accomplished</h2>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Track 1 — Foundation</h3>
+      <p>Golden invariants INV-1…INV-6, <code>resolveAuth()</code> Auth Resolution Layer, log-only <code>pmth-composite</code> scheme. Unbound <code>mcp_at_*</code> fail-closes always (AP-2 guard).</p>
+    </div>
+    <div class="card">
+      <h3>Track 2 — OAuth head (inert)</h3>
+      <p>PRM/AS short-TTL cache fix, WWW-Authenticate path, Upstash oauth-store (T-KV), PKCE broker routes, store lookup in <code>resolveAuth</code>. All gated on <code>MCP_OAUTH_ENABLED=1</code>.</p>
+    </div>
+    <div class="card">
+      <h3>Track 3 — Mint (Scenario A)</h3>
+      <p>NaaP internal mint route (#458) + Storyboard <code>naap</code> BillingProvider (#876). Live mint still needs Preview env wire. Scenario&nbsp;B / LR tracks not started.</p>
+    </div>
+  </div>
+
+  <h3>Design + plan docs</h3>
+  <ul>
+    <li><b>Design:</b> <code>MCP-OAUTH-PYMTHOUSE-DESIGN.html</code> @ <span class="sha">52479d37</span> (Auth Resolution Layer architecture).</li>
+    <li><b>Implementation plan:</b> <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a> on open PR
+      <a href="https://github.com/livepeer/naap/pull/457">livepeer/naap#457</a>
+      (<code>feat/mcp-oauth-tri-mode-plan</code>) — 17 PR cards, stop line, regression matrix.</li>
+    <li><b>T-KV:</b> Upstash Redis provisioned; plan marks T-KV-1…T-KV-6 signed off (merge gate for PR-06). Env names: <code>KV_REST_API_URL</code>, <code>KV_REST_API_TOKEN</code>, <code>KV_REST_API_READ_ONLY_TOKEN</code>, <code>KV_URL</code>, <code>REDIS_URL</code> (+ <code>UPSTASH_REDIS_REST_*</code> aliases).</li>
+    <li><b>Metering:</b> usage-API debit reads deferred as <span class="pill deferred">FU-1</span>. Billed proof bar = signer 200 + <code>numTickets</code> in range + real asset URL.</li>
+  </ul>
+
+  <h3>Explicitly not done yet</h3>
+  <ul>
+    <li>Track 4 (simple-infra LR / <code>call_runner</code>): PR-11…PR-13 — not opened.</li>
+    <li>Track 5 Scenario&nbsp;B: PR-14 (<code>web_</code> client) → PR-15 pymthouse provider — not opened.</li>
+    <li>PR-16 connector docs, PR-17 revocation — deferred / not opened.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="main">2 · What’s on main</h2>
+  <p class="muted">Verified with <code>gh pr view</code> + <code>git merge-base --is-ancestor … origin/main</code> on 2026-08-08. Merge SHAs are squash/merge commits on each repo’s <code>main</code>.</p>
+
+  <h3>livepeer/storyboard</h3>
+  <table>
+    <thead>
+      <tr><th>PR</th><th>Title</th><th>Merge SHA</th><th>Merged</th><th>State</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/868">#868</a></td>
+        <td>PR-01 — golden auth invariants INV-1…INV-6</td>
+        <td class="sha">7e39673f…5164</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/869">#869</a></td>
+        <td>PR-02 — <code>resolveAuth()</code> Auth Resolution Layer</td>
+        <td class="sha">788202b6…e0182</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/870">#870</a></td>
+        <td>PR-03 — <code>pmth-composite</code> keyScheme (log-only)</td>
+        <td class="sha">667afd74…cfb0a1</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/871">#871</a></td>
+        <td>PR-04 — PRM/AS metadata + short-TTL cache fix</td>
+        <td class="sha">7b0d00e2…b727</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/872">#872</a></td>
+        <td>PR-05 — RFC 9728 WWW-Authenticate challenge</td>
+        <td class="sha">94fb7459…efb54</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/873">#873</a></td>
+        <td>PR-06 — Upstash-backed oauth-store (T-KV)</td>
+        <td class="sha">fb7d33db…7dbc4</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/874">#874</a></td>
+        <td>PR-07 — OAuth broker routes (PKCE S256)</td>
+        <td class="sha">4177fd63…d8168</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/875">#875</a></td>
+        <td>PR-08 — <code>resolveAuth</code> oauth-store lookup</td>
+        <td class="sha">883a8a8c…69a9</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/876">#876</a></td>
+        <td>PR-10 — naap BillingProvider (mint via NaaP)</td>
+        <td class="sha">a4b468e6…a66b</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>livepeer/naap</h3>
+  <table>
+    <thead>
+      <tr><th>PR</th><th>Title</th><th>Merge SHA</th><th>Merged</th><th>State</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="https://github.com/livepeer/naap/pull/458">#458</a></td>
+        <td>PR-09 — internal MCP mint route (test-app only)</td>
+        <td class="sha">49d95d0d…61f98</td>
+        <td>2026-08-08</td>
+        <td><span class="pill merged">MERGED</span> on <code>main</code></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/naap/pull/457">#457</a></td>
+        <td>docs: MCP OAuth tri-mode implementation plan</td>
+        <td class="sha">— (docs branch)</td>
+        <td>—</td>
+        <td><span class="pill open">OPEN</span> <code>feat/mcp-oauth-tri-mode-plan</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <b>Honesty note.</b> “On main” ≠ “fully verified live.” Mint/broker/provider code is deployed with flags OFF / secrets unset, so production behavior is still the paste-key surface plus fail-closed unbound <code>mcp_at_*</code>.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="prod">3 · Production verification status</h2>
+  <p class="muted">Hosts probed 2026-08-08: Storyboard <code>https://storyboard.daydream.monster</code>; NaaP <code>https://operator.livepeer.org</code> and <code>https://naap-platform.vercel.app</code>.</p>
+
+  <table>
+    <thead>
+      <tr><th>Check</th><th>Label</th><th>Evidence (this session)</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/.well-known/oauth-protected-resource</code> &amp; <code>…/oauth-authorization-server</code><br>
+          short TTL, not immutable</td>
+        <td><span class="pill ok">FULLY VERIFIED</span></td>
+        <td>Both return <b>404</b> JSON Bearer-only bodies with
+          <code>Cache-Control: public, max-age=60</code> (no <code>immutable</code>). Matches PR-04 intent on prod.</td>
+      </tr>
+      <tr>
+        <td>Broker routes flag-OFF → 404</td>
+        <td><span class="pill ok">FULLY VERIFIED</span></td>
+        <td><code>/api/mcp/oauth/authorize</code>, <code>…/callback</code>, <code>…/token</code> all
+          <b>404</b> <code>{"error":"not_found"}</code>. Consistent with <code>MCP_OAUTH_ENABLED</code> unset
+          (gate only accepts the string <code>"1"</code>).</td>
+      </tr>
+      <tr>
+        <td>Unbound <code>mcp_at_*</code> fail-closed</td>
+        <td><span class="pill ok">FULLY VERIFIED</span></td>
+        <td><code>Authorization: Bearer mcp_at_…</code> → <b>401</b> JSON
+          “MCP session token is not bound…” +
+          <code>WWW-Authenticate: Bearer realm="storyboard-mcp"</code>.</td>
+      </tr>
+      <tr>
+        <td>NaaP mint without shared secret → 404</td>
+        <td><span class="pill ok">FULLY VERIFIED</span></td>
+        <td><code>POST /api/internal/mcp/mint</code> on
+          <code>operator.livepeer.org</code> and <code>naap-platform.vercel.app</code> →
+          <b>404</b> <code>{"error":"not_found"}</code> (route present, config absent — by design).</td>
+      </tr>
+      <tr>
+        <td><code>MCP_OAUTH_ENABLED</code> unset in prod</td>
+        <td><span class="pill ok">FULLY VERIFIED</span> (inferred)</td>
+        <td>Well-known OFF bodies + broker 404s. Env value itself is not publicly readable; behavior matches OFF.</td>
+      </tr>
+      <tr>
+        <td>PR-05 flag-ON <code>resource_metadata=</code> challenge</td>
+        <td><span class="pill partial">PARTIALLY VERIFIED</span></td>
+        <td>Code merged (#872). Prod still flag-OFF, so the full RFC 9728
+          <code>WWW-Authenticate: Bearer resource_metadata="…"</code> path was
+          <b>not</b> exercised live. Observed 401 header is the unbound-token fail-close form.</td>
+      </tr>
+      <tr>
+        <td>Unauthenticated MCP demo path unchanged</td>
+        <td><span class="pill ok">FULLY VERIFIED</span></td>
+        <td>POST <code>/api/mcp</code> with no auth → <b>200</b> initialize,
+          <code>serverInfo.name = "livepeer-agent (demo — no key)"</code>.</td>
+      </tr>
+      <tr>
+        <td>OAuth e2e: login → mint → composite → inference</td>
+        <td><span class="pill no">NOT VERIFIED</span></td>
+        <td>Blocked on Preview env wire + flag ON. Not run on prod (correct — stop line).</td>
+      </tr>
+      <tr>
+        <td>Live mint with M2M + shared secret</td>
+        <td><span class="pill no">NOT VERIFIED</span></td>
+        <td>M2M secret received per plan (OA-1) but <b>not wired</b> on NaaP Vercel from Storyboard-scoped token. Mint stays 404.</td>
+      </tr>
+      <tr>
+        <td>Metering debit read (FU-1)</td>
+        <td><span class="pill no">NOT VERIFIED</span> <span class="pill deferred">DEFERRED</span></td>
+        <td>Explicitly de-scoped. Proof bar is signer/tickets/asset only.</td>
+      </tr>
+      <tr>
+        <td>Scenario B (pymthouse-direct OAuth)</td>
+        <td><span class="pill no">NOT VERIFIED</span></td>
+        <td>Needs <code>web_</code> confidential client (OA-5) + PR-14/PR-15. Not built.</td>
+      </tr>
+      <tr>
+        <td>LR front-door / <code>call_runner</code></td>
+        <td><span class="pill no">NOT VERIFIED</span></td>
+        <td>Plan OA-2: deployed gateway image still lacks <code>live_runner</code> / <code>call_runner</code>. Track 4 not started.</td>
+      </tr>
+      <tr>
+        <td>T-KV live cross-instance bind/lookup</td>
+        <td><span class="pill partial">PARTIALLY VERIFIED</span></td>
+        <td>Plan documents T-KV signed off + Upstash host wired prod/preview. This session did not re-probe Redis connectivity; oauth-store is not on a request path until broker flag-ON.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <b>Do not call Tracks 1–3 “fully verified end-to-end.”</b>
+    What is fully verified is the <em>flag-OFF / fail-closed / short-TTL</em> production posture plus merge ancestry on <code>main</code>.
+    What is code-complete but live-unproven is Scenario&nbsp;A OAuth with mint.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="ops">4 · Ops gaps setup guide</h2>
+  <p>Wire <b>Preview first</b>. Prod flag stays unset until Preview e2e + §7 matrix pass. Placeholders only — rotate any secret that was pasted in chat.</p>
+
+  <div class="callout danger">
+    <b>Rotate reminder.</b> Any M2M client secret or mint shared secret that appeared in chat / agent memory must be rotated after wiring. Do not paste values into this doc, tickets, or commit history.
+  </div>
+
+  <h3>4.1 NaaP Preview env vars</h3>
+  <p class="muted">Project: Vercel <code>naap-platform</code> (Preview). Exact names from PR-09 route + pymthouse BFF.</p>
+  <table>
+    <thead><tr><th>Name</th><th>Purpose</th><th>Placeholder</th></tr></thead>
+    <tbody>
+      <tr><td><code>MCP_INTERNAL_MINT_SECRET</code></td><td>Shared Bearer secret for Storyboard→NaaP mint</td><td><code>&lt;rotate-me-shared-mint-secret&gt;</code></td></tr>
+      <tr><td><code>MCP_INTERNAL_MINT_ALLOWLIST</code></td><td>Comma-separated caller origins (Storyboard Preview + prod origins you intend to allow)</td><td><code>https://&lt;storyboard-preview&gt;.vercel.app,https://storyboard.daydream.monster</code></td></tr>
+      <tr><td><code>PYMTHOUSE_M2M_CLIENT_ID</code></td><td>Confidential M2M id (<code>m2m_…</code>)</td><td><code>m2m_&lt;…&gt;</code></td></tr>
+      <tr><td><code>PYMTHOUSE_M2M_CLIENT_SECRET</code></td><td>Matching M2M secret (required for mint)</td><td><code>&lt;rotate-after-chat-paste&gt;</code></td></tr>
+      <tr><td><code>PYMTHOUSE_PUBLIC_CLIENT_ID</code></td><td>Must equal hard-coded test app (RS-2)</td><td><code>app_98575870d7ae33589a3f0660</code></td></tr>
+      <tr><td><code>PYMTHOUSE_ISSUER_URL</code></td><td>OIDC issuer used by existing pymthouse integration</td><td><code>https://&lt;pymthouse-host&gt;/api/v1/oidc</code></td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Absent <code>MCP_INTERNAL_MINT_SECRET</code> or empty allowlist ⇒ route returns <b>404</b> (do not advertise).</p>
+
+  <h3>4.2 Storyboard Preview env vars</h3>
+  <p class="muted">Exact names from <code>oauth-flags.ts</code>, <code>oauth-store.ts</code>, <code>providers/naap.ts</code> on storyboard <code>main</code>.</p>
+  <table>
+    <thead><tr><th>Name</th><th>Purpose</th><th>Placeholder / notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>MCP_OAUTH_ENABLED</code></td><td>Master gate — only <code>1</code> enables</td><td>Leave <b>unset</b> until step 4.5</td></tr>
+      <tr><td><code>MCP_OAUTH_PROVIDER</code></td><td>Mint provider id</td><td><code>naap</code> (Scenario A). Unset ⇒ broker 404 even if enabled</td></tr>
+      <tr><td><code>NAAP_MCP_ORIGIN</code></td><td>NaaP origin for login bridge</td><td><code>https://&lt;naap-preview-or-operator&gt;</code></td></tr>
+      <tr><td><code>NAAP_MCP_IDENTITY_URL</code></td><td>Optional identity exchange override</td><td>default <code>{NAAP_MCP_ORIGIN}/api/v1/auth/mcp/identity</code></td></tr>
+      <tr><td><code>NAAP_MCP_MINT_URL</code></td><td>Internal mint endpoint</td><td><code>https://&lt;naap&gt;/api/internal/mcp/mint</code></td></tr>
+      <tr><td><code>MCP_INTERNAL_MINT_SECRET</code></td><td>Same value as NaaP</td><td><code>&lt;same-shared-secret&gt;</code></td></tr>
+      <tr><td><code>MCP_INTERNAL_MINT_CALLER_ORIGIN</code></td><td>Sent as <code>X-Mcp-Caller-Origin</code>; must be on NaaP allowlist</td><td><code>https://&lt;storyboard-preview&gt;.vercel.app</code></td></tr>
+      <tr><td><code>MCP_OAUTH_BILLING_APP_ID</code> or <code>PYMTHOUSE_PUBLIC_CLIENT_ID</code></td><td>RS-2 test-app assertion</td><td><code>app_98575870d7ae33589a3f0660</code></td></tr>
+      <tr><td><code>KV_REST_API_URL</code> + <code>KV_REST_API_TOKEN</code></td><td>oauth-store (Vercel Marketplace)</td><td>already provisioned per T-KV; confirm Preview has them</td></tr>
+      <tr><td><code>UPSTASH_REDIS_REST_URL</code> + <code>UPSTASH_REDIS_REST_TOKEN</code></td><td>Aliases accepted by adapter</td><td>optional if <code>KV_*</code> present</td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.3 Shared mint secret + allowlist</h3>
+  <ol>
+    <li>Generate a high-entropy secret (password manager / <code>openssl rand -hex 32</code>).</li>
+    <li>Set the <b>same</b> value on NaaP Preview <code>MCP_INTERNAL_MINT_SECRET</code> and Storyboard Preview <code>MCP_INTERNAL_MINT_SECRET</code>.</li>
+    <li>Set NaaP <code>MCP_INTERNAL_MINT_ALLOWLIST</code> to the Storyboard Preview origin(s) you will call from (exact origin match).</li>
+    <li>Set Storyboard <code>MCP_INTERNAL_MINT_CALLER_ORIGIN</code> to that same origin string.</li>
+    <li>Confirm <code>PYMTHOUSE_PUBLIC_CLIENT_ID</code> / billing app id is the test app only — mint returns <b>503</b> <code>billing_app_mismatch</code> otherwise.</li>
+  </ol>
+
+  <h3>4.4 Flag flip order / stop-line (before <code>MCP_OAUTH_ENABLED=1</code>)</h3>
+  <div class="stepbox">
+    <h4>Stop-line checklist (Preview only)</h4>
+    <ol class="steps">
+      <li><b>NaaP Preview:</b> M2M id+secret + mint secret + allowlist + test-app public client wired; redeploy.</li>
+      <li><b>Verify mint config presence</b> (expect 401 unauthorized with wrong Bearer, not 404):
+<pre class="cmd">curl -sS -D - -X POST "$NAAP_PREVIEW/api/internal/mcp/mint" \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer wrong' \
+  -H "x-mcp-caller-origin: $STORYBOARD_PREVIEW_ORIGIN" \
+  -d '{"externalUserId":"ops-probe"}'
+# expect: HTTP 401 {"error":"unauthorized"}
+# still 404 ⇒ secret/allowlist not loaded — do not flip Storyboard flag</pre>
+      </li>
+      <li><b>Storyboard Preview:</b> set provider + mint URL + shared secret + caller origin + KV; keep <code>MCP_OAUTH_ENABLED</code> unset; redeploy; confirm broker still 404.</li>
+      <li><b>Prod regression tripwire</b> (must stay green): well-known short-TTL 404; broker 404; unbound <code>mcp_at_*</code> 401; demo/no-key 200.</li>
+      <li><b>Only then</b> on <em>one</em> Storyboard Preview: <code>MCP_OAUTH_ENABLED=1</code> and <code>MCP_OAUTH_PROVIDER=naap</code>.</li>
+      <li><b>Never</b> set <code>MCP_OAUTH_ENABLED=1</code> on Storyboard Production until Preview 12-row matrix + one billed test-app call (§2.3.1 bar) pass.</li>
+    </ol>
+  </div>
+
+  <h3>4.5 How to verify each step</h3>
+  <table>
+    <thead><tr><th>Step</th><th>Command / action</th><th>Expected</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Well-known short TTL (prod or preview)</td>
+        <td><code>curl -sSI https://&lt;host&gt;/.well-known/oauth-protected-resource</code></td>
+        <td>Flag OFF: <b>404</b>, <code>Cache-Control: public, max-age=60</code></td>
+      </tr>
+      <tr>
+        <td>Broker inert</td>
+        <td><code>curl -sSI https://&lt;host&gt;/api/mcp/oauth/authorize</code></td>
+        <td>Flag OFF or provider unset: <b>404</b></td>
+      </tr>
+      <tr>
+        <td>Unbound MCP token</td>
+        <td>POST <code>/api/mcp</code> with <code>Bearer mcp_at_probe…</code></td>
+        <td><b>401</b> + <code>WWW-Authenticate</code></td>
+      </tr>
+      <tr>
+        <td>Mint unconfigured</td>
+        <td>POST NaaP <code>/api/internal/mcp/mint</code></td>
+        <td><b>404</b> <code>not_found</code></td>
+      </tr>
+      <tr>
+        <td>Mint configured, bad secret</td>
+        <td>POST mint with wrong Bearer + allowlisted origin</td>
+        <td><b>401</b> <code>unauthorized</code></td>
+      </tr>
+      <tr>
+        <td>Mint configured, origin not allowlisted</td>
+        <td>POST mint with good Bearer + foreign origin</td>
+        <td><b>403</b> <code>forbidden</code></td>
+      </tr>
+      <tr>
+        <td>Flag ON discovery (Preview only)</td>
+        <td><code>curl -sS https://&lt;preview&gt;/.well-known/oauth-protected-resource</code></td>
+        <td><b>200</b> PRM JSON with <code>authorization_servers</code></td>
+      </tr>
+      <tr>
+        <td>Flag ON challenge (Preview only)</td>
+        <td>MCP connect without usable credential</td>
+        <td><b>401</b> with <code>resource_metadata=</code> (PR-05 path)</td>
+      </tr>
+      <tr>
+        <td>Scenario A e2e (Preview only)</td>
+        <td>Full OAuth dance → <code>mcp_at_*</code> → <code>tools/call</code></td>
+        <td>SDK sees <code>app_*_pmth_*</code>; signer 200; tickets in range; real asset URL</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2 id="stories">5 · User stories (based on test results)</h2>
+
+  <h3>What this ENABLES now</h3>
+  <ul>
+    <li><b>Paste Daydream <code>sk_*</code></b> — still the primary prod path; Track 1 invariants pin byte-identity.</li>
+    <li><b>Paste pymthouse composite <code>app_*_pmth_*</code></b> — classified as <code>pmth-composite</code> (log-only); billing tail unchanged when signer/routing already work for that key.</li>
+    <li><b>Flag-OFF safety</b> — OAuth broker and PRM/AS discovery stay dark; short-TTL well-known means a future flag flip is not stuck behind 24h immutable CDN cache.</li>
+    <li><b>Auth Resolution Layer</b> — single mode-selection site; tools/SDK stay auth-agnostic.</li>
+    <li><b>Unbound <code>mcp_at_*</code> cannot silently bill Daydream</b> — fail-closed 401 verified on prod.</li>
+    <li><b>oauth-store ready</b> — Upstash-backed binding module merged; used only when broker runs under flag ON.</li>
+    <li><b>Scenario A code path present</b> — NaaP mint route + Storyboard naap provider on <code>main</code>, inert until secrets + flag.</li>
+  </ul>
+
+  <h3>What becomes possible AFTER ops wire + Preview flag ON</h3>
+  <ul>
+    <li><b>NaaP-mediated OAuth (Scenario A):</b> Claude/MCP client discovers AS → PKCE authorize → NaaP identity → internal mint → opaque <code>mcp_at_*</code> → store lookup → composite <code>forwardBearer</code> → inference billed to the <b>test app</b>.</li>
+    <li><b>Connector “sign in” UX</b> without pasting a key (still Preview until prod promotion).</li>
+    <li><b>§2.3.1 billed proof</b> on Preview (signer 200 + tickets + asset) without waiting for FU-1 metering reads.</li>
+  </ul>
+
+  <h3>What is STILL NOT SUPPORTED / not possible</h3>
+  <ul>
+    <li><b>Prod OAuth login</b> until stop-line + Preview matrix — do not set <code>MCP_OAUTH_ENABLED=1</code> on Storyboard Production yet.</li>
+    <li><b>Scenario B</b> (pymthouse-direct OAuth without NaaP) — needs confidential <code>web_</code> client (OA-5) and PR-14/PR-15; public <code>app_</code> clients cannot do authorization_code for this design.</li>
+    <li><b>Metering debit confirmation</b> — FU-1 deferred; cannot claim “usage API shows the charge” yet.</li>
+    <li><b>LR front-door inference</b> if gateway still lacks <code>live_runner</code>/<code>call_runner</code> (OA-2 / Track 4).</li>
+    <li><b>Live mint against a customer app</b> — hard-blocked (RS-2); only test app id is accepted.</li>
+    <li><b>Refresh tokens / long MCP sessions / revocation</b> — N8/N11; short TTL only.</li>
+    <li><b>OAuth on REST proxy routes</b> — INV-6 / AP-8; MCP entry only.</li>
+  </ul>
+
+  <div class="callout ok">
+    <b>Legitimate stop-line end state (plan §9).</b>
+    If Preview mint cannot be wired, shipping P0 paste-key + inert OAuth head remains an approved outcome: invariants, resolution layer, composite visibility, durable store, and fail-closed <code>mcp_at_*</code> still have standalone value.
+  </div>
+
+  <p class="foot">
+    Sources: <code>gh pr view</code> storyboard #868–#876, naap #457/#458;
+    <code>curl</code> 2026-08-08 against <code>storyboard.daydream.monster</code>,
+    <code>operator.livepeer.org</code>, <code>naap-platform.vercel.app</code>;
+    plan doc <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a>;
+    code on <code>origin/main</code> for env names.
+    No credentials included.
+  </p>
+
+</div>
+</body>
+</html>
