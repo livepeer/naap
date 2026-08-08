@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MCP OAuth Tri-Mode Auth — PR-Cycle Implementation Plan</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --border:#2b3441;
+    --ink:#e6edf3; --mut:#9aa7b4; --accent:#4fa3ff; --accent2:#7ee787;
+    --warn:#f0b429; --bad:#ff6b6b; --ok:#4fd08a; --mid:#ffb454;
+    --chip:#222b38; --a:#5b9dff; --b:#c792ea;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1200px;margin:0 auto;padding:40px 28px 96px}
+  header.hero{background:linear-gradient(135deg,#12203a,#1a1030 60%,#0e1116);
+    border:1px solid var(--border);border-radius:16px;padding:32px 34px;margin-bottom:24px}
+  header.hero h1{margin:0 0 6px;font-size:28px;letter-spacing:-.4px}
+  header.hero .sub{color:var(--mut);font-size:15px;max-width:900px}
+  header.hero .meta{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{background:var(--chip);border:1px solid var(--border);color:var(--mut);
+    border-radius:999px;padding:4px 12px;font-size:12.5px}
+  .chip b{color:var(--ink);font-weight:600}
+  h2{font-size:21px;margin:44px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  h3{font-size:16.5px;margin:26px 0 8px;color:#cbd6e2}
+  h4{font-size:13.5px;margin:16px 0 6px;color:var(--mut)}
+  p{margin:10px 0}
+  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+  code{background:#0b0f14;border:1px solid var(--border);border-radius:5px;
+    padding:1px 6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.6px;color:#e3b341}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:16px 0}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:16px 0}
+  @media(max-width:860px){.grid-2{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+  .card h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut)}
+  .card .big{font-size:18px;font-weight:700}
+  .card-a{border-top:3px solid var(--a)}.card-b{border-top:3px solid var(--b)}
+  .card-c{border-top:3px solid var(--ok)}.card-k{border-top:3px solid var(--mid)}
+  .verdict{border-left:4px solid var(--accent);background:var(--panel2);border-radius:0 10px 10px 0;padding:14px 18px;margin:16px 0}
+  .verdict.no{border-left-color:var(--bad)}.verdict.yes{border-left-color:var(--ok)}
+  .verdict.cond{border-left-color:var(--warn)}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.3px;background:var(--panel);border-radius:10px;overflow:hidden}
+  th,td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:var(--panel2);color:#cbd6e2;font-weight:600;font-size:12.2px;text-transform:uppercase;letter-spacing:.4px}
+  tr:last-child td{border-bottom:none}
+  td.mono,th.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.2px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11.3px;font-weight:600;white-space:nowrap}
+  .t-yes{background:#12331f;color:var(--ok);border:1px solid #1e5637}
+  .t-no{background:#3a1418;color:var(--bad);border:1px solid #63232a}
+  .t-part{background:#3a2e12;color:var(--mid);border:1px solid #6b5320}
+  .t-keep{background:#122a33;color:#5ad1e0;border:1px solid #1e4f5c}
+  .t-new{background:#12331f;color:var(--ok);border:1px solid #1e5637}
+  .t-a{background:#122a44;color:var(--a);border:1px solid #1e4f7c}
+  .t-b{background:#2a1a44;color:var(--b);border:1px solid #4f2e7c}
+  .t-off{background:#22262e;color:#9aa7b4;border:1px solid #39414d}
+  ul.clean{margin:8px 0;padding-left:22px}ul.clean li{margin:5px 0}
+  ol.clean{margin:8px 0;padding-left:24px}ol.clean li{margin:6px 0}
+  .note{background:#1a2436;border:1px dashed #365;border-radius:10px;padding:12px 16px;margin:14px 0;color:#bcd}
+  .note.warn{background:#2a2312;border-color:#6b5320;color:#f2d999}
+  .note.bad{background:#2a1418;border-color:#63232a;color:#f5c2c7}
+  .toc{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 20px;margin:20px 0;columns:2;column-gap:30px}
+  .toc a{display:block;padding:3px 0;color:var(--mut)}.toc a:hover{color:var(--accent)}
+  .foot{margin-top:56px;padding-top:18px;border-top:1px solid var(--border);color:var(--mut);font-size:12.5px}
+  .phase{border-left:3px solid var(--accent);padding:4px 0 4px 18px;margin:18px 0}
+  .phase h3{margin:0 0 4px}.gate{font-size:12.5px;color:var(--accent2);margin:4px 0}
+  pre.code{background:#0b0f14;border:1px solid var(--border);border-radius:10px;padding:14px 16px;
+    overflow-x:auto;font-family:ui-monospace,Menlo,monospace;font-size:12.2px;line-height:1.5;color:#c9d4e0}
+  pre.iface{background:#0b0f14;border:1px solid var(--border);border-radius:10px;padding:14px 16px;
+    overflow-x:auto;font-family:ui-monospace,Menlo,monospace;font-size:12.2px;line-height:1.55;color:#c9d4e0;margin:12px 0}
+  .mermaid-wrap{background:#0b0f14;border:1px solid var(--border);border-radius:10px;padding:20px;margin:16px 0;overflow-x:auto}
+  .quickread{background:linear-gradient(180deg,#141b28,#0e1116);border:1px solid var(--border);border-radius:14px;padding:24px 28px;margin:24px 0 32px}
+  .quickread h2{margin-top:0;border:none;padding:0;font-size:18px}
+  .review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:12px 0}
+  .review-item{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:13px}
+  .review-item b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);margin-bottom:4px}
+  .pass{color:var(--ok);font-weight:700}.fix{color:var(--warn);font-weight:700}.risk{color:var(--bad);font-weight:700}
+  .pr{background:var(--panel);border:1px solid var(--border);border-left:4px solid var(--accent);
+    border-radius:0 12px 12px 0;padding:16px 20px;margin:18px 0}
+  .pr.blocked{border-left-color:var(--bad)}
+  .pr.deferred{border-left-color:#5a6472;opacity:.85}
+  .pr h3{margin:0 0 4px;font-size:15.5px;color:#e6edf3}
+  .pr .prmeta{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0 12px}
+  .pr table{margin:10px 0 0;font-size:12.9px}
+  .pr th{width:150px;white-space:nowrap}
+  .flabel{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+  .stopline{background:linear-gradient(135deg,#2a1418,#1a1220);border:2px solid #63232a;
+    border-radius:14px;padding:20px 24px;margin:20px 0}
+  .stopline h3{margin-top:0;color:#ff9b9b}
+</style>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', securityLevel: 'loose' });
+</script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>MCP OAuth Tri-Mode Auth — PR-Cycle Implementation Plan</h1>
+  <div class="sub">Executable plan for the tri-mode credential model in <span class="mono">MCP-OAUTH-PYMTHOUSE-DESIGN.html</span> (<span class="mono">52479d37</span>): <b>P0</b> pasted API key, <b>P1</b> NaaP-mediated OAuth (Scenario A), <b>P2</b> pymthouse-direct OAuth (Scenario B) — all as <em>credential providers behind one Auth Resolution Layer</em>. Every unit of work is a small, independently revertible PR that is only "done" when verified live in production. The Daydream <code>sk_*</code> → Daydream signer → BYOC orchestrator path must stay byte-identical.</div>
+  <div class="meta">
+    <span class="chip">Design source: <b class="mono">MCP-OAUTH-PYMTHOUSE-DESIGN.html @ 52479d37</b></span>
+    <span class="chip">Repos: <b>livepeer/storyboard</b> · <b>livepeer/simple-infra</b> · <b>livepeer/naap</b> · <b>pymthouse</b></span>
+    <span class="chip">Plan only · code-grounded · <b>2026-08-07</b></span>
+    <span class="chip">Billing target: <b>pymthouse TEST app</b> only</span>
+  </div>
+</header>
+
+<!-- ================= REVIEW VERDICT ================= -->
+<div class="quickread" id="review" style="margin-top:0;margin-bottom:24px;padding:20px 24px">
+  <h2 style="font-size:17px;margin:0 0 12px">Review verdict — 2026-08-07 (review pass 3, final)</h2>
+  <div class="review-grid">
+    <div class="review-item"><b>Complete</b><span class="fix">FIXED</span> — pass 2 ended mid-document: §5–§10 were <em>missing entirely</em> while the verdict already claimed them. All 17 PRs now written (§5), each with id · repo · real files · flag+default · acceptance · self-review · e2e · prod verify · rollback · revert-safety, plus the loop (§6), matrix (§7), risks (§8), rollout (§9) and asks (§10)</div>
+    <div class="review-item"><b>Consistent</b><span class="fix">FIXED</span> — <b>5</b> drifts vs design doc corrected (§1.4): PR-F registry is <em>already merged</em>, not deferred; <code>keyScheme()</code> has no composite case; <code>PYMTHOUSE_COMPOSITE_DIRECT</code> is retired; <code>authForRestProxy</code> is a second auth entry the design doc omits; the <span class="mono">.well-known</span> 404 is cached <code>immutable</code> for 24 h. All symbols re-verified against source this pass</div>
+    <div class="review-item"><b>Regression-safe</b><span class="pass">PASS</span> — 12-row matrix (§7) pins <code>sk_*</code> byte-identity at both Storyboard and SDK layers; INV-1…INV-6 golden tests land in PR-01 <em>before</em> any refactor</div>
+    <div class="review-item"><b>Not over-engineered</b><span class="fix">TRIMMED</span> — 11 items explicitly not built (§1.3); exactly 2 new Storyboard flags total; 1 mint output shape; no new registry; no device flow; no runtime picker</div>
+    <div class="review-item"><b>Decoupled</b><span class="pass">PASS</span> — <code>resolveAuth()</code> is the sole mode-selection site; <code>sdkCall</code> keeps its <code>apiKey: string</code> parameter (ISP); SDK/gateway/signer untouched by every PR in tracks 1–3</div>
+  </div>
+  <p style="font-size:13.4px;margin:12px 0 0;color:var(--mut)"><b>Two findings from this pass.</b> <b>(1)</b> The credentials the owner supplied unblock the <em>billed tail</em> but <b>not the mint step</b>. Both the composite mint (<span class="mono">POST …/users/{id}/keys</span>) and every usage/metering read authenticate with HTTP <b>Basic <code>m2m_id:m2m_secret</code></b> (<span class="mono">pymthouse-keys-bff.ts:33–40</span> <code>readM2mAuthHeader</code> → 503 <code>pymthouse_required</code> if either half is missing). A client <em>id</em> alone cannot form Basic credentials, so <b>the <code>pmth_cs_…</code> M2M client secret remains a hard open ask</b> gating PR-09/PR-10/PR-15 (OA-1). <b>(2) New blocker OA-6:</b> Storyboard has <b>no durable KV</b> — no <code>redis</code>/<code>@vercel/kv</code>/Postgres dependency exists, and the only durable store is <b>public</b> <span class="mono">@vercel/blob</span> (<span class="mono">storage.ts:11</span>). The <code>oauth-store</code> binds a billing credential, so neither an in-memory <code>Map</code> (AP-9) nor blob (<b>AP-11</b>, added this pass) is acceptable. PR-06 now gates Phase 1 on a provisioning decision, with "ship P0 and stop" pre-approved as the honest fallback (§9 stop line).</p>
+</div>
+
+<div class="toc">
+  <a href="#review">Review verdict</a>
+  <a href="#exec">1. Executive summary &amp; scope boundary</a>
+  <a href="#pre">2. Preconditions, dependencies &amp; blocked-by matrix</a>
+  <a href="#arch">3. Architecture — Auth Resolution Layer</a>
+  <a href="#diagrams">4. Target diagrams</a>
+  <a href="#prs">5. PR breakdown</a>
+  <a href="#loop">6. The PR-cycle LOOP</a>
+  <a href="#regression">7. Regression protection matrix</a>
+  <a href="#risks">8. Risks</a>
+  <a href="#rollout">9. Rollout, sequencing &amp; the stop line</a>
+  <a href="#open">10. Open questions &amp; owner asks</a>
+</div>
+
+<!-- ================= 1. EXEC ================= -->
+<h2 id="exec">1. Executive summary &amp; scope boundary</h2>
+
+<div class="verdict yes">
+  <b>Thesis:</b> tri-mode auth is a <em>head</em> change, not a <em>tail</em> change. Introduce one thin module — the <b>Auth Resolution Layer</b> (<code>resolveAuth(headers) → ResolvedCredential</code>) — in Storyboard, and make P0/P1/P2 three <em>credential providers</em> feeding it. Nothing below that boundary (MCP tool handlers, <code>sdkCall</code>, the SDK service, the gateway, the signer, the orchestrator) learns that OAuth exists. That single constraint is what keeps this from becoming a regression engine.
+</div>
+
+<h3>1.1 What ships, in three sentences</h3>
+<ol class="clean">
+  <li><b>Foundation (PR-01…PR-03, Storyboard, no flags):</b> lock today's behavior with golden tests, then extract <code>resolveAuth()</code> as a behavior-preserving refactor of <code>extractAuthOrDemo</code>, and add a log-only <code>plane</code>/<code>scheme</code> classification so we can observe traffic mix before changing anything.</li>
+  <li><b>OAuth head (PR-04…PR-08, Storyboard, <code>MCP_OAUTH_ENABLED</code> default OFF):</b> real RFC 9728 Protected Resource Metadata + Authorization Server metadata, an RFC 9728-compliant <code>WWW-Authenticate</code> challenge, a restart-safe <code>mcp_at_*</code> session store, the authorize/callback/token broker, and exactly one new branch in <code>resolveAuth</code> that turns <code>mcp_at_*</code> into a bound <code>forwardBearer</code>.</li>
+  <li><b>Mint providers + billed tail (PR-09…PR-16):</b> Scenario A mints via a new NaaP internal route wrapping the existing <code>createPymthouseApiKey</code>; Scenario B mints via a Storyboard-held M2M call to the same Builder endpoint; simple-infra gets a build-time guard for the LR gateway import plus canary-only key-routing config. Both scenarios emit the <em>same</em> composite shape, so there is one billed tail to test.</li>
+</ol>
+
+<h3>1.2 In scope</h3>
+<table>
+  <thead><tr><th>Area</th><th>In scope</th><th>Repo</th></tr></thead>
+  <tbody>
+    <tr><td>Auth Resolution Layer</td><td><code>resolveAuth()</code> module + <code>ResolvedCredential</code> contract + golden tests</td><td>storyboard</td></tr>
+    <tr><td>OAuth broker</td><td>PRM, AS metadata, authorize/callback/token, PKCE S256, <code>mcp_at_*</code> store</td><td>storyboard</td></tr>
+    <tr><td>Mint provider P1 (Scenario A)</td><td>NaaP internal mint route + Storyboard <code>naap</code> <code>BillingProvider</code></td><td>naap + storyboard</td></tr>
+    <tr><td>Mint provider P2 (Scenario B)</td><td>pymthouse <code>web_</code> auth-code + Storyboard-held M2M Builder mint</td><td>pymthouse + storyboard</td></tr>
+    <tr><td>SDK enablement</td><td>Build-time <code>call_runner</code> import guard; canary-only <code>KEY_ROUTING_FROM_ENV</code> / <code>PYMTHOUSE_SIGNER_URL</code> / <code>ORCH_PIN_BY_PATH</code> config + runbook</td><td>simple-infra</td></tr>
+    <tr><td>Connector surface</td><td><code>--oauth</code> URL-only connector emission + get-started sign-in copy</td><td>storyboard</td></tr>
+    <tr><td>Regression protection</td><td>INV-1…INV-6 golden tests + a 12-row live matrix run on every flag flip</td><td>all</td></tr>
+  </tbody>
+</table>
+
+<h3>1.3 Explicitly NOT building (anti-over-engineering list)</h3>
+<table>
+  <thead><tr><th>#</th><th>Not building</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>N1</td><td>A <em>new</em> provider registry</td><td>Already merged. <span class="mono">lib/mcp-server/auth/providers/{types,registry,daydream,generic-oauth}.ts</span> + <span class="mono">config/mcp-auth-providers.json</span> exist and are inert. We <b>add entries</b>, we do not rebuild. (Design doc §2.4/§2.7 calls this "PR-F deferred" — that is stale; see §1.4 D1.)</td></tr>
+    <tr><td>N2</td><td>RFC 8628 device flow provider</td><td>Auth-code + PKCE on a <code>web_</code> client is sufficient for Claude. Device flow only if PR-14 is refused outright.</td></tr>
+    <tr><td>N3</td><td>Runtime authorize-time A/B provider picker</td><td>One deployment = one <code>MCP_OAUTH_PROVIDER</code>. A picker means both mint paths live on one deployment — the exact combinatorial risk R5.</td></tr>
+    <tr><td>N4</td><td>A JWT-only billing shortcut (skip composite mint)</td><td>Would create a second billed tail to test. Composite-only, both scenarios (LSP: all providers return the same shape).</td></tr>
+    <tr><td>N5</td><td>Any third auth flag</td><td>Exactly two new Storyboard env knobs: <code>MCP_OAUTH_ENABLED</code> (boolean gate) and <code>MCP_OAUTH_PROVIDER</code> (which mint provider). No <code>MCP_OAUTH_MODE</code>, no <code>TRI_MODE_ENABLED</code>, no per-provider enable flags.</td></tr>
+    <tr><td>N6</td><td>Re-enabling the <code>naap_*</code> → <code>/keys/validate</code> RESOLVE path</td><td>Retired in <span class="mono">key_routing.py</span> (docstring + <code>c84caba</code>). Two pymthouse entry mechanisms is an anti-pattern; composite-direct is the one path.</td></tr>
+    <tr><td>N7</td><td>Storyboard-side key classification that drives routing</td><td><code>plane</code> is metrics only. <code>classify_key()</code> in the SDK stays authoritative. Duplicating the globs invites drift.</td></tr>
+    <tr><td>N8</td><td>Refresh tokens / long-lived MCP sessions in MVP</td><td>Short-TTL <code>mcp_at_*</code> + re-auth. Refresh rotation is a token-store complexity multiplier (R4) for no MVP benefit.</td></tr>
+    <tr><td>N9</td><td>Multi-tenant "one Storyboard URL, many pymthouse apps"</td><td>MVP is a single app id from env — and per the owner constraint, the <b>pymthouse TEST app</b> only.</td></tr>
+    <tr><td>N10</td><td>Swapping the simple-infra orchestrator or shared signer image</td><td><span class="mono">SIGNER-ORCH-DEPLOY-PLAN.md</span> §A.0 proves #3966/#3967 are signer-side; an orch image swap yields zero benefit and non-zero blast radius.</td></tr>
+    <tr><td>N11</td><td>Credential revocation plumbing in MVP</td><td>PR-17, deferred. MVP relies on short MCP token TTL.</td></tr>
+  </tbody>
+</table>
+
+<h3>1.4 Drift corrections vs the design doc (consistency pass)</h3>
+<table>
+  <thead><tr><th>#</th><th>Design doc says</th><th>Actual code</th><th>Plan resolution</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>D1</td>
+      <td>§2.4 / §2.7 / §15.5: "<code>BillingProvider</code> registry (PR-F, deferred)", "defer PR-F provider registry to Phase +3"</td>
+      <td><b>Already merged.</b> <span class="mono">lib/mcp-server/auth/providers/types.ts</span> defines <code>BillingProvider</code> with <code>authorizeUrl</code> / <code>resolveIdentity</code> / <code>issueCredential</code>; <span class="mono">registry.ts</span> exposes <code>getProvider(id?)</code> and <code>loadProviderRegistry()</code>; <span class="mono">generic-oauth.ts</span> is a config-driven adapter; <span class="mono">config/mcp-auth-providers.json</span> has one <code>daydream</code> entry. All inert (imported by nothing on the request path).</td>
+      <td>Plan <b>consumes</b> the merged registry. P1/P2 are two new provider files + two JSON entries. Deletes ~1 PR of scope versus the design doc's phasing.</td>
+    </tr>
+    <tr>
+      <td>D2</td>
+      <td>§2.3 table implies Storyboard can label a composite bearer's <code>plane</code> via <code>keyScheme()</code></td>
+      <td><code>keyScheme()</code> (<span class="mono">key-validation.ts:45–50</span>) returns only <code>naap</code> | <code>pmth</code> | <code>sk</code> | <code>opaque</code>. A composite <code>app_…_pmth_…</code> falls through to <b><code>opaque</code></b> — there is no composite case.</td>
+      <td>PR-03 adds a <code>pmth-composite</code> scheme keyed on the <code>_pmth_</code> segment (mirroring the SDK's <code>is_composite_bearer</code>), log-only. Called out as the one visible diagnostic change.</td>
+    </tr>
+    <tr>
+      <td>D3</td>
+      <td>§2.3 note and §4 reference <code>PYMTHOUSE_COMPOSITE_DIRECT</code> as a flag</td>
+      <td>Retired. <span class="mono">key_routing.py</span> <code>composite_direct_decision</code> docstring: "The former <code>PYMTHOUSE_COMPOSITE_DIRECT</code> enable-flag has been retired — DIRECT is now the default whenever the signer URL is configured."</td>
+      <td>Plan never references it. DIRECT is implied by <code>PYMTHOUSE_SIGNER_URL</code> being non-empty on the pymthouse path.</td>
+    </tr>
+    <tr>
+      <td>D4</td>
+      <td>Design doc treats <code>extractAuth</code> as the single auth entry point</td>
+      <td>There are <b>two</b>: <code>extractAuthOrDemo</code> (MCP, called at <span class="mono">mcp-http.ts:69</span>) and <code>authForRestProxy</code> (<span class="mono">auth-rest.ts:42</span>), used by ~10+ REST routes (<span class="mono">app/api/lora/*</span>, <span class="mono">app/api/voices/*</span>, <span class="mono">app/api/preview</span>, …).</td>
+      <td>PR-02 scopes <code>resolveAuth</code> to the <b>MCP</b> entry only and adds an explicit non-goal + a parity test (INV-6) asserting <code>authForRestProxy</code> is untouched. Reviewers must block any PR that adds OAuth to the REST proxy (anti-pattern AP-8).</td>
+    </tr>
+    <tr>
+      <td>D5</td>
+      <td>§2.6 G5: "PRM 404 when OFF (today's behavior)"</td>
+      <td>True, but both <span class="mono">.well-known</span> routes ship <code>Cache-Control: public, max-age=86400, immutable</code> and <code>revalidate = 86400</code> on the <b>404</b>. Flipping the flag ON does not reach clients or the CDN for up to 24 h.</td>
+      <td>PR-04 must drop <code>immutable</code> and shorten <code>max-age</code> <em>before</em> the flag is ever flipped, and the flip runbook includes a CDN purge. Tracked as risk R9 — this is the single most likely "we enabled it and nothing happened" failure.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================= 2. PRECONDITIONS ================= -->
+<h2 id="pre">2. Preconditions, dependencies &amp; blocked-by matrix</h2>
+
+<div class="note">
+  <b>Honesty rule (inherited from <span class="mono">BILLED-E2E-BLOCKER-AUDIT.md</span>):</b> this section states what is true in the repos and environments <em>today</em>, not what a merged PR implies. A merged code path that is not set in any <span class="mono">environments/*.yaml</span> is <b>not live</b>.
+</div>
+
+<h3>2.1 Resolved by the owner (2026-08-07)</h3>
+<table>
+  <thead><tr><th>#</th><th>Precondition</th><th>Status</th><th>What it unblocks</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>RS-1</td><td>A funded pymthouse <b>composite</b> bearer on the test app for billed e2e probes</td>
+      <td><span class="tag t-yes">RESOLVED</span> — supplied, held in-memory only</td>
+      <td>PR-12, PR-13 e2e (billed tail without needing the mint step). Also every row of the §7 matrix that exercises the pymthouse plane.</td>
+    </tr>
+    <tr>
+      <td>RS-2</td><td>Billing target confirmed as the <b>pymthouse TEST app</b>, not a live customer app</td>
+      <td><span class="tag t-yes">RESOLVED</span></td>
+      <td>Removes the "who gets billed by a probe" approval gate. Encoded as a hard constraint: every PR's e2e plan bills the test app only, and PR-10/PR-15 acceptance requires the app id to come from env with a test-app assertion.</td>
+    </tr>
+    <tr>
+      <td>RS-3</td><td>Correct pymthouse <b>production</b> signer host, <code>type=fixed</code> capable</td>
+      <td><span class="tag t-yes">RESOLVED</span> — <span class="mono">pymthouse-production.up.railway.app</span> (<b>not</b> <span class="mono">…-test-production</span>)</td>
+      <td>Two things. (a) <code>PYMTHOUSE_SIGNER_URL</code> for PR-12 now has a known-good value. (b) It plausibly closes <b>OQ-1</b> — <span class="mono">app.py:652</span> gates <code>ORCH_PIN_BY_PATH</code> on "the DMZ signer is <code>RemoteType_Fixed</code>-capable". PR-13 is therefore unblocked <em>pending empirical confirmation</em> (§2.3 OA-4).</td>
+    </tr>
+    <tr>
+      <td>RS-4</td><td><code>gcloud</code> auth for <span class="mono">sdk-staging-1</span> / <span class="mono">liverunner-staging-1</span></td>
+      <td><span class="tag t-yes">RESOLVED</span></td>
+      <td>PR-11/PR-12 can inspect the running container's env + verify which image digest is actually deployed (the R7 prod-drift check) rather than inferring from YAML.</td>
+    </tr>
+    <tr>
+      <td>RS-5</td><td>pymthouse M2M client <b>id</b></td>
+      <td><span class="tag t-part">PARTIAL</span> — id supplied; <b>secret not supplied</b></td>
+      <td>Nothing on its own. See OA-1 — Basic auth needs both halves.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <b>Secret handling for this plan and its execution.</b> The supplied composite bearer, M2M id, and any future M2M secret are <b>in-memory / env-only</b>. They must never be written to a file, a commit, a doc, a log line, a probe script default, or a VM's <span class="mono">.env</span> that outlives the run. Every PR's self-review checklist carries a "secret-scan the diff" item, and the §6 loop makes a clean secret scan a merge precondition. This document contains no key material.
+</div>
+
+<h3>2.2 Honest status of the four gating dependencies</h3>
+
+<h4>P-1 · <code>KEY_ROUTING_FROM_ENV</code> on the production SDK — <span class="tag t-no">NOT LIVE ANYWHERE</span></h4>
+<ul class="clean">
+  <li><b>Code:</b> merged on <span class="mono">simple-infra</span> <code>main</code>. <span class="mono">sdk-service-build/key_routing.py</span> is present on <code>origin/main</code> (last touched by <code>c84caba</code> "composite key is the default pymthouse driver"), and <span class="mono">app.py:636–664</span> wires <code>KEY_ROUTING_FROM_ENV</code>, <code>KEY_PATTERN_PYMTHOUSE</code> (default <code>app_*_pmth_*</code>), <code>KEY_PATTERN_DAYDREAM</code> (default <code>sk_*</code>), <code>KEY_ROUTING_UNMATCHED</code> (default <code>fail_closed</code>), <code>ORCH_PIN_BY_PATH</code>, <code>PYMTHOUSE_SIGNER_URL</code>.</li>
+  <li><b>Config:</b> <code>KEY_ROUTING_FROM_ENV</code> and <code>PYMTHOUSE_SIGNER_URL</code> appear in <b>zero</b> files under <span class="mono">simple-infra/environments/</span> — not staging, not canary, not production. The only related var present is <code>SIGNER_FROM_VALIDATE</code> (<code>"1"</code> in <span class="mono">environments/canary/byoc.canary.values.yaml</span> and <span class="mono">staging/sdk.naap-front-door.values.yaml</span>; empty in staging/production).</li>
+  <li><b>Consequence:</b> <code>_KEY_ROUTING_ACTIVE</code> is <code>False</code> on every deployed node, so <code>_effective_signer</code> (<span class="mono">app.py:1151–1200</span>) returns <code>(SIGNER_URL or None, static_headers)</code> for every bearer — the static Daydream signer. <span class="mono">STORYBOARD-SIGNER-ROUTING.md</span> independently states prod runs <span class="mono">sdk.daydream.monster</span> with the static <span class="mono">signer.daydream.live</span>.</li>
+  <li><b>Plan stance:</b> this is <b>good news for regression safety</b> (the <code>sk_*</code> path cannot change until someone sets a var) and a <b>real gate for the pymthouse plane</b>. PR-12 introduces the vars in a <b>new canary-only</b> overlay; production stays untouched for the whole plan. Blocks: PR-12, PR-13, and the pymthouse-plane rows of §7.</li>
+</ul>
+
+<h4>P-2 · pymthouse <code>web_</code> confidential client for Scenario B — <span class="tag t-no">NOT REGISTERED</span></h4>
+<ul class="clean">
+  <li>pymthouse runs a full OIDC AS (<span class="mono">src/app/api/v1/oidc/[...oidc]/route.ts</span>) but public <code>app_</code> clients have <code>authorization_code</code> stripped (<span class="mono">src/lib/oidc/grants.ts</span> / <code>syncPublicClientGrantTypes</code>), which is exactly the grant Claude's OAuth requires.</li>
+  <li><b>Blocks:</b> PR-14 (the registration itself, owned by pymthouse ops) and therefore PR-15 (the Storyboard <code>pymthouse</code> provider). <b>Does not block</b> PR-01…PR-13 or Scenario A. Scenario B is a strictly parallel branch of the plan.</li>
+</ul>
+
+<h4>P-3 · LR gateway rebuild — <span class="tag t-part">FIX EXISTS, NOT DEPLOYED</span></h4>
+<ul class="clean">
+  <li><b>Root cause (documented in <span class="mono">simple-infra/sdk-service-build/LR-NATIVE-DISPATCH.md</span> "Gap B"):</b> <code>app.py</code> does <code>from livepeer_gateway.live_runner import call_runner</code> at <span class="mono">app.py:451</span> and <span class="mono">app.py:579</span>. The vendored, <b>git-ignored</b> checkout at <span class="mono">sdk-service-build/livepeer-gateway/</span> is a BYOC/tool checkout with <b>no <code>live_runner.py</code></b> — I verified this directly: the vendored <span class="mono">src/livepeer_gateway/</span> contains <code>byoc.py</code>, <code>lv2v.py</code>, <code>remote_signer.py</code> … but <b>not</b> <code>live_runner.py</code>, <code>discovery.py</code>, <code>lr_compat.py</code>, while the upstream <span class="mono">livepeer-python-gateway</span> clone has all of them. The import raises, is swallowed, and <b>every LR capability silently falls back to BYOC</b>.</li>
+  <li><b>Fix shape:</b> pin a gateway ref that exports <code>call_runner</code> (<span class="mono">LR-NATIVE-DISPATCH.md</span> names <code>feat/byoc-inference-capabilities-protobuf</code> / <code>426f019</code>) and repoint <code>LR_ORCH_DISCOVERY</code> + <code>LR_OFFERINGS_JSON</code> at the per-cap <code>:8936</code> apps. A prebuilt <span class="mono">sdk-service:lr-call-runner-2026-07-28</span> image exists but is <b>not</b> the running tag.</li>
+  <li><b>Plan stance:</b> PR-11 converts this from a silent runtime fallback into a <b>build-time failure</b> (Docker build asserts the import), which is the durable fix. Deploying a rebuilt image is ops work gated on PR-11 + an owner (§2.3 OA-2). <b>Blocks:</b> PR-12's LR e2e and every "LR orchestrator" claim in §7.</li>
+</ul>
+
+<h4>P-4 · Signer-side gaps — <span class="tag t-part">PARTIALLY RESOLVED BY RS-3</span></h4>
+<table>
+  <thead><tr><th>Gap</th><th>Evidence</th><th>Status after RS-3</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>LR orchestrator advertises zero price → <code>/generate-live-payment</code> 400 <code>missing or zero priceInfo</code></td>
+      <td>Run 57 (<span class="mono">USER-E2E-DEMO-RESULTS.md:5044</span>): composite bearer <b>accepted</b> at <code>/sign-orchestrator-info</code> (200) but paygen fails on price. Run 55b root-cause: LR prices live in the Live-Runner registry, never in <code>CapabilitiesPrices</code>; offchain runners return <code>nil</code> price.</td>
+      <td><span class="tag t-part">Plausibly resolved — must verify.</span> Runs 55–57 targeted the <span class="mono">…-test-production</span> signer. A <code>type=fixed</code>-capable <b>production</b> signer computes the fee from a fixed tariff rather than the orchestrator's advertised <code>CapabilitiesPrices</code>, which is precisely the input that is zero on the LR box. <b>This is a hypothesis, not a result</b> — PR-12's first e2e gate is to re-run the Run-57 probe against <span class="mono">pymthouse-production.up.railway.app</span> and record pass/fail. If it still 400s, PR-12/PR-13 stay blocked on the orchestrator redeploy that Run 57 assigned to John.</td>
+    </tr>
+    <tr>
+      <td>Per-model fee + usage labels on the billed signer</td>
+      <td><span class="mono">SIGNER-ORCH-DEPLOY-PLAN.md</span> §A.0: go-livepeer #3966 (labels) and #3967 (<code>-byocPerCapPricing</code>) are <b>both signer-side</b>, both OPEN, and must ship in the <b>pymthouse DMZ signer image</b>.</td>
+      <td><span class="tag t-no">Open — but out of scope.</span> Affects fee <em>accuracy</em>, not whether OAuth works. Explicitly declared a non-goal so it cannot block a PR (§10 OA-5).</td>
+    </tr>
+    <tr>
+      <td>Signer <b>session</b> payment verification</td>
+      <td>Runs 50–57 proved <code>/sign-orchestrator-info</code> + <code>/generate-live-payment</code> single-shot. Repeated-payment / session behavior on the production signer is unverified.</td>
+      <td><span class="tag t-no">Open ask</span> — §2.3 OA-3. Gates only the "many tool calls per MCP session" durability claim, verified in PR-12's e2e step 4.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.3 Genuinely open asks (owner action required)</h3>
+<table>
+  <thead><tr><th>#</th><th>Ask</th><th>Owner</th><th>Blocks</th><th>Why it cannot be worked around</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>OA-1</b></td>
+      <td><b>pymthouse M2M client <em>secret</em></b> (<code>pmth_cs_…</code>) matching the supplied <code>m2m_</code> client id, scoped to the test app</td>
+      <td>John / pymthouse</td>
+      <td><span class="tag t-no">PR-09, PR-10, PR-15</span> + all usage/metering verification steps</td>
+      <td>Both the mint call and every usage read use HTTP <b>Basic</b>. <span class="mono">pymthouse-keys-bff.ts</span> <code>readM2mAuthHeader()</code> builds <code>Basic base64(m2mId + ":" + m2mSecret)</code> and <b>throws <code>pymthouse_required</code> (503) when either half is missing</b>; <span class="mono">pymthouse-client.ts:148</span> does the same for the usage/plan endpoints. A client id alone cannot form a Basic credential, and the composite app key 404s on those endpoints. History also shows this secret has been rotated at least twice (<span class="mono">USER-E2E-DEMO-RESULTS.md:1155</span>, <span class="mono">:2730</span>, <span class="mono">:4634</span>) — so please supply the <em>current</em> value, not a previously-issued one.</td>
+    </tr>
+    <tr>
+      <td><b>OA-6</b><br><span class="tag t-new">NEW</span></td>
+      <td>A <b>durable, private KV</b> (Upstash Redis / Vercel KV or equivalent) provisioned for Storyboard, to back the <code>oauth-store</code></td>
+      <td>Storyboard owner</td>
+      <td><span class="tag t-no">PR-06 → PR-07, PR-08</span></td>
+      <td>Raised by this review pass. Storyboard has <b>no KV today</b>: <span class="mono">package.json</span> carries no <code>redis</code>/<code>@vercel/kv</code>/<code>@upstash/redis</code>/Postgres client, and the only durable store is <span class="mono">@vercel/blob</span> (<span class="mono">lib/mcp-server/storage.ts:11</span>) used with <b>public, fixed pathnames</b> — writing a billing credential there would publish it (AP-11). The two tempting workarounds are both forbidden: an in-memory <code>Map</code> breaks on non-sticky instances (AP-9, and <span class="mono">app/api/mcp/auth/route.ts</span> already shows this pattern outbound), and blob is a leak. Provisioning is an <b>owner decision</b>, so it gates Phase 1 rather than being absorbed into PR-06.</td>
+    </tr>
+    <tr>
+      <td><b>OA-2</b></td>
+      <td>Owner + go-ahead to <b>rebuild and deploy</b> an SDK image whose vendored gateway exports <code>call_runner</code>, and to apply <code>LR_ORCH_DISCOVERY</code> / <code>LR_OFFERINGS_JSON</code> — on an <b>isolated</b> instance, not shared <span class="mono">sdk-staging-1</span></td>
+      <td>John / orch-infra + simple-infra</td>
+      <td><span class="tag t-no">PR-12 LR e2e, PR-13</span></td>
+      <td><span class="mono">LR-NATIVE-DISPATCH.md</span> warns the two vars on the <b>shared</b> staging SDK affect other consumers of the 8 fal caps. PR-11 makes the defect loud, but only a deploy makes LR dispatch actually work.</td>
+    </tr>
+    <tr>
+      <td><b>OA-3</b></td>
+      <td>Confirmation that the production signer supports <b>repeated / session</b> payment generation for many tool calls under one MCP session</td>
+      <td>John / pymthouse</td>
+      <td><span class="tag t-part">PR-12 acceptance (durability claim only)</span></td>
+      <td>An MCP session issues many <code>tools/call</code>s. If paygen is effectively single-shot per credential, the tri-mode UX still works but needs a documented per-call mint cost. Cheap to answer, expensive to discover in prod.</td>
+    </tr>
+    <tr>
+      <td><b>OA-4</b></td>
+      <td>Empirical confirmation that <code>type=fixed</code> on the production signer yields a payment for an <b>LR orchestrator that advertises zero <code>CapabilitiesPrices</code></b></td>
+      <td>us (PR-12 e2e) with John on standby</td>
+      <td><span class="tag t-part">PR-12, PR-13</span></td>
+      <td>This is the pivot between "PR-12 can be verified" and "we are still waiting on the Run-57 orchestrator redeploy". We can run it ourselves with RS-1 + RS-3 — it is listed as an ask only because a failure hands the next step back to John.</td>
+    </tr>
+    <tr>
+      <td><b>OA-5</b></td>
+      <td>pymthouse <b><code>web_</code> confidential client</b> registered with Storyboard redirect URIs (prod + preview)</td>
+      <td>pymthouse ops</td>
+      <td><span class="tag t-no">PR-14 → PR-15</span></td>
+      <td>Public <code>app_</code> clients cannot do <code>authorization_code</code> (<span class="mono">grants.ts</span>). Scenario B has no code workaround short of device flow (N2).</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.4 Blocked-by matrix</h3>
+<table>
+  <thead><tr><th>PR</th><th>Hard blockers</th><th>Can start now?</th></tr></thead>
+  <tbody>
+    <tr><td>PR-01 … PR-05</td><td>— none —</td><td><span class="tag t-yes">YES</span> — invariants, resolution layer and the inert OAuth head ship default-OFF</td></tr>
+    <tr><td>PR-06 … PR-08</td><td>OA-6 (durable KV)</td><td><span class="tag t-part">Blocked on a provisioning decision</span> — PR-06 needs a real store; an in-memory <code>Map</code> (AP-9) or blob (AP-11) is not an acceptable substitute</td></tr>
+    <tr><td>PR-09, PR-10</td><td>OA-1 (M2M secret)</td><td><span class="tag t-part">Code yes, verify no</span> — buildable with an injected fetch + mocked mint; cannot be prod-verified without OA-1</td></tr>
+    <tr><td>PR-11</td><td>— none —</td><td><span class="tag t-yes">YES</span> — build-time guard is self-contained</td></tr>
+    <tr><td>PR-12</td><td>OA-2, OA-4 (and OA-3 for the durability claim)</td><td><span class="tag t-no">NO</span></td></tr>
+    <tr><td>PR-13</td><td>PR-12 green + OA-4</td><td><span class="tag t-no">NO</span></td></tr>
+    <tr><td>PR-14</td><td>OA-5 — pymthouse ops</td><td><span class="tag t-no">NO</span></td></tr>
+    <tr><td>PR-15</td><td>PR-14, OA-1</td><td><span class="tag t-no">NO</span></td></tr>
+    <tr><td>PR-16</td><td>PR-04 merged (so the emitted connector matches a real PRM)</td><td><span class="tag t-part">After PR-04</span></td></tr>
+    <tr><td>PR-17</td><td>Deferred by design (N11)</td><td><span class="tag t-off">DEFERRED</span></td></tr>
+  </tbody>
+</table>
+
+<!-- ================= 3. ARCHITECTURE ================= -->
+<h2 id="arch">3. Architecture — the Auth Resolution Layer</h2>
+
+<h3>3.1 Module boundary</h3>
+<div class="verdict yes">
+  <b>One rule, mechanically enforceable:</b> <code>lib/mcp-server/auth/resolve.ts</code> is the <em>only</em> file in the Storyboard tree permitted to read <code>MCP_OAUTH_ENABLED</code>, <code>MCP_OAUTH_PROVIDER</code>, or the oauth-store. Anything else that imports them fails review. Everything downstream receives a single <code>string</code>.
+</div>
+
+<table>
+  <thead><tr><th>Layer</th><th>Real path</th><th>Sees</th><th>Never sees</th></tr></thead>
+  <tbody>
+    <tr><td>MCP HTTP entry</td><td class="mono">lib/mcp-server/mcp-http.ts:62–118</td><td><code>ResolvedCredential</code> from <code>resolveAuth(req.headers)</code></td><td>Header bytes after resolution; OAuth env</td></tr>
+    <tr><td><b>Auth Resolution Layer</b></td><td class="mono">lib/mcp-server/auth/resolve.ts <span class="tag t-new">NEW</span></td><td>Headers, OAuth flag, oauth-store, <code>keyScheme()</code></td><td>Tool args, SDK base URLs, signer URLs, Builder API</td></tr>
+    <tr><td>Credential providers</td><td class="mono">lib/mcp-server/auth/providers/*.ts</td><td>OAuth callback params; mint HTTP at <b>connect time only</b></td><td>Per-request inference; <code>sdkCall</code></td></tr>
+    <tr><td>Session store</td><td class="mono">lib/mcp-server/auth/oauth-store.ts <span class="tag t-new">NEW</span></td><td><code>mcp_at_*</code> → encrypted bound credential + TTL</td><td>Who minted it, which scenario</td></tr>
+    <tr><td>MCP tool handlers</td><td class="mono">lib/mcp-server/tools/*</td><td><code>auth.apiKey</code> exactly as today</td><td>OAuth mode, key prefixes, plane</td></tr>
+    <tr><td>SDK call</td><td class="mono">lib/mcp-server/sdk-call.ts:194–234</td><td><code>apiKey: string</code> → <code>Authorization: Bearer ${apiKey}</code> (line 204)</td><td><code>ResolvedCredential</code>, metadata, provider id</td></tr>
+    <tr><td>SDK service</td><td class="mono">simple-infra/sdk-service-build/app.py</td><td>The bearer, re-classified by <code>classify_key()</code></td><td>How the credential was obtained</td></tr>
+    <tr><td>Gateway / signer / orch</td><td class="mono">livepeer_gateway/byoc.py · DMZ · LR orch</td><td>A bearer and a payment</td><td>Everything above</td></tr>
+  </tbody>
+</table>
+
+<h3>3.2 The <code>ResolvedCredential</code> contract</h3>
+<pre class="iface">// lib/mcp-server/auth/resolve.ts — the ONLY new abstraction this plan adds.
+
+/** Billing-plane hint for logs and metrics ONLY. The SDK re-classifies
+ *  independently via classify_key(); this field must never drive routing. */
+export type BillingPlane = "daydream" | "pymthouse" | "unknown";
+
+export interface ResolvedCredential {
+  /** Verbatim bearer forwarded to the SDK. Always a shape the signer
+   *  accepts: sk_* or app_*_pmth_*. Never mcp_at_*. */
+  forwardBearer: string;
+
+  plane: BillingPlane;
+
+  metadata?: {
+    source: "api_key" | "oauth_session" | "demo";
+    /** Audit only — which provider minted it, when known. */
+    provider?: "naap" | "pymthouse" | "daydream";
+    /** keyScheme() output: naap | pmth | pmth-composite | sk | opaque */
+    scheme?: KeyScheme;
+    /** Present only for demo callers, preserving today's AuthContext. */
+    isDemo?: boolean;
+    demoIpHash?: string;
+  };
+}
+
+/** Bearer in, ResolvedCredential out. The single mode-selection site. */
+export function resolveAuth(
+  headers: Headers,
+  demoIpHash?: string,
+): ResolvedCredential;</pre>
+
+<p><b>Adapter, not rewrite.</b> <code>buildStoryboardMcpServer</code> takes an <code>AuthContext</code> today (<span class="mono">mcp-http.ts:99</span>). PR-02 keeps that signature and derives it from the <code>ResolvedCredential</code>: <code>{ apiKey: rc.forwardBearer, isDemo: rc.metadata?.isDemo, demoIpHash: rc.metadata?.demoIpHash }</code>. Zero tool files change in the entire plan — that is the ISP guarantee and it is checked by a diff-scope assertion in every PR's self-review.</p>
+
+<h3>3.3 Provider plug-in model (P0 / P1 / P2)</h3>
+<table>
+  <thead><tr><th></th><th>P0 — Passthrough</th><th>P1 — OAuth A (NaaP)</th><th>P2 — OAuth B (pymthouse)</th></tr></thead>
+  <tbody>
+    <tr><td><b>Runs</b></td><td>Every request, inside <code>resolveAuth</code></td><td>Once, at OAuth token issuance</td><td>Once, at OAuth token issuance</td></tr>
+    <tr><td><b>Implemented as</b></td><td>The existing <code>extractAuthOrDemo</code> body — no new code</td><td class="mono">auth/providers/naap.ts <span class="tag t-new">NEW</span></td><td class="mono">auth/providers/pymthouse.ts <span class="tag t-new">NEW</span></td></tr>
+    <tr><td><b>Upstream IdP</b></td><td>—</td><td>NaaP session OAuth (Google / GitHub)</td><td>pymthouse OIDC AS, <code>web_</code> confidential client</td></tr>
+    <tr><td><b>Mint caller</b></td><td>—</td><td>NaaP server (<b>existing</b> M2M env) via a new internal route</td><td>Storyboard server (<b>new</b> M2M env)</td></tr>
+    <tr><td><b>Mint endpoint</b></td><td>—</td><td colspan="2" style="text-align:center" class="mono">POST {origin}/api/v1/apps/{appId}/users/{externalUserId}/keys — identical</td></tr>
+    <tr><td><b><code>forwardBearer</code> out</b></td><td>The pasted key, verbatim</td><td colspan="2" style="text-align:center">Minted composite <code>app_*_pmth_*</code> — <b>one shape</b> (LSP)</td></tr>
+    <tr><td><b>Selected by</b></td><td>Always active; wins on a known key prefix</td><td><code>MCP_OAUTH_PROVIDER=naap</code></td><td><code>MCP_OAUTH_PROVIDER=pymthouse</code></td></tr>
+    <tr><td><b>Flag</b></td><td>None — today's behavior</td><td colspan="2" style="text-align:center"><code>MCP_OAUTH_ENABLED=1</code> required for either</td></tr>
+    <tr><td><b>Inference-code delta</b></td><td colspan="3" style="text-align:center"><span class="tag t-keep">NONE — all three</span></td></tr>
+  </tbody>
+</table>
+
+<h3>3.4 SOLID ownership table</h3>
+<table>
+  <thead><tr><th>Principle</th><th>Component</th><th>Owns</th><th>Must NOT own</th><th>Enforced by</th></tr></thead>
+  <tbody>
+    <tr><td><b>S</b>RP</td><td><code>resolve.ts</code></td><td>Header parse, flag read, store lookup, emit <code>ResolvedCredential</code></td><td>Tool logic, signer URLs, mint HTTP</td><td>INV-4: no <code>fetch</code> import in <code>resolve.ts</code></td></tr>
+    <tr><td><b>S</b>RP</td><td>Mint providers (P1/P2)</td><td>Browser dance + one-time composite mint → store</td><td>Per-request inference, SDK routing</td><td>Grep assertion: providers imported only by broker routes</td></tr>
+    <tr><td><b>S</b>RP</td><td>MCP tool handlers</td><td>Tool args, <code>sdkCall(..., { apiKey })</code></td><td>OAuth mode, key patterns, plane</td><td>Diff-scope check: no PR in tracks 1–3 touches <span class="mono">lib/mcp-server/tools/</span></td></tr>
+    <tr><td><b>S</b>RP</td><td><code>key_routing.py</code></td><td>Classify bearer → signer decision</td><td>How the credential was obtained</td><td>PR-11/12 touch no auth code; <code>_effective_signer</code> signature unchanged</td></tr>
+    <tr><td><b>O</b>CP</td><td><code>providers/registry.ts</code> (merged)</td><td>Add a provider via JSON + env</td><td>—</td><td>P1/P2 add files + JSON entries; <code>registry.ts</code> logic unchanged</td></tr>
+    <tr><td><b>L</b>SP</td><td>All mint providers</td><td>Return the same composite shape</td><td>A JWT-only billing variant (N4)</td><td>Shared contract test run against every provider</td></tr>
+    <tr><td><b>I</b>SP</td><td><code>sdkCall</code></td><td><code>apiKey: string</code> only</td><td><code>ResolvedCredential</code> or metadata</td><td>INV-5: <span class="mono">sdk-call.ts</span> byte-unchanged across the plan</td></tr>
+    <tr><td><b>D</b>IP</td><td>MCP server build</td><td>Depends on the <code>AuthContext</code> abstraction</td><td>Concrete oauth-store or NaaP client</td><td>Adapter in <span class="mono">mcp-http.ts</span>; no store import in tool tree</td></tr>
+  </tbody>
+</table>
+
+<h3>3.5 Anti-patterns reviewers must block</h3>
+<table>
+  <thead><tr><th>#</th><th>Anti-pattern</th><th>Why it breaks the design</th><th>Correct form</th></tr></thead>
+  <tbody>
+    <tr><td>AP-1</td><td><code>if (process.env.MCP_OAUTH_PROVIDER === 'naap')</code> anywhere outside <code>resolve.ts</code> / the broker routes</td><td>Tangles auth into unrelated layers; multiplies test surface</td><td>Resolve once; pass <code>forwardBearer</code></td></tr>
+    <tr><td>AP-2</td><td>Forwarding <code>mcp_at_*</code> to the SDK</td><td><code>classify_key</code> → <code>UNMATCHED</code> → <code>fail_closed</code> 401, or worse, silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code></td><td>Store lookup → composite; INV-3 asserts it</td></tr>
+    <tr><td>AP-3</td><td>Branching <code>_effective_signer</code> or <code>classify_key</code> on anything OAuth-shaped</td><td>The SDK must stay auth-agnostic; couples two repos' release cycles</td><td><code>classify_key(bearer)</code> on shape alone</td></tr>
+    <tr><td>AP-4</td><td>Re-implementing the key globs in TypeScript to drive routing</td><td>Two sources of truth drift silently; a Storyboard deploy could reroute billing</td><td><code>plane</code> is metrics only; SDK is authoritative</td></tr>
+    <tr><td>AP-5</td><td>Returning the composite (or any minted key) in the OAuth token response body</td><td>Leaks a long-lived billing credential to the client; defeats revocability</td><td>Server-side binding only; opaque <code>mcp_at_*</code> out</td></tr>
+    <tr><td>AP-6</td><td>A second flag per provider, or a flag that gates a sub-behavior of an existing flag</td><td>Flag combinatorics (R2): <var>n</var> flags = 2<sup><var>n</var></sup> untested states</td><td>Two knobs total (N5)</td></tr>
+    <tr><td>AP-7</td><td>Adding a JWT-only or validate-based second mint/billing path</td><td>Two billed tails, two failure modes, double the matrix</td><td>Composite-only (N4, N6)</td></tr>
+    <tr><td>AP-8</td><td>Wiring OAuth into <code>authForRestProxy</code></td><td>10+ REST routes would inherit an untested auth mode; not the MCP contract</td><td>MCP entry only; INV-6 asserts REST parity</td></tr>
+    <tr><td>AP-9</td><td>An in-memory <code>Map</code> as the oauth-store</td><td>Serverless/edge instances are not sticky — a token minted on one instance 401s on the next. Note <span class="mono">app/api/mcp/auth/route.ts</span> already does this for the <em>outbound</em> flow; do not copy it inbound</td><td>Restart-safe KV with TTL (PR-06)</td></tr>
+    <tr><td>AP-10</td><td>Enabling <code>KEY_ROUTING_FROM_ENV</code> on a <em>shared</em> SDK node to test OAuth</td><td>Couples the OAuth rollout to every other consumer of that node; violates guardrail G7</td><td>Canary-only overlay (PR-12); the two flags are independent</td></tr>
+    <tr><td>AP-11</td><td>Backing the oauth-store with <span class="mono">@vercel/blob</span> (or any public-by-default object store)</td><td>Storyboard's only durable store today is blob (<span class="mono">storage.ts:11</span>), written with <b>public, fixed pathnames</b>. Putting a composite billing credential there publishes it — strictly worse than AP-9's flakiness</td><td>A private KV with server-side TTL (PR-06, gated on OA-6)</td></tr>
+  </tbody>
+</table>
+
+<!-- ================= 4. DIAGRAMS ================= -->
+<h2 id="diagrams">4. Target diagrams</h2>
+
+<h3>4.1 Module boundary — where each PR lands</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TB
+  subgraph CL["Claude MCP client"]
+    C1["Bearer sk_* or app_*_pmth_* — P0"]
+    C2["URL + OAuth sign-in — P1 or P2"]
+  end
+
+  subgraph SB["Storyboard — the ONLY repo that learns about OAuth"]
+    PRM["PRM + AS metadata<br/>PR-04 · flag OFF"]
+    CHAL["401 WWW-Authenticate<br/>PR-05 · flag OFF"]
+    BRK["authorize / callback / token<br/>PR-07 · flag OFF"]
+    ST["oauth-store mcp_at_*<br/>PR-06"]
+    ARL["Auth Resolution Layer<br/>resolveAuth · PR-02 PR-03 PR-08"]
+  end
+
+  subgraph MINT["Mint providers — connect time only"]
+    PA["naap provider<br/>PR-10"]
+    PB["pymthouse provider<br/>PR-15"]
+  end
+
+  subgraph TAIL["Auth-agnostic tail — untouched by PR-01..PR-10"]
+    TOOLS["MCP tools · unchanged"]
+    SDKC["sdkCall apiKey · unchanged"]
+    CLS["SDK classify_key"]
+    SIG["signer · gateway · orch"]
+  end
+
+  C2 --> PRM --> BRK
+  C1 --> ARL
+  BRK --> PA
+  BRK --> PB
+  PA --> ST
+  PB --> ST
+  ST --> ARL
+  CHAL -.-> C2
+  ARL --> TOOLS --> SDKC --> CLS --> SIG
+</pre>
+</div>
+
+<h3>4.2 Resolution decision flow (the only mode-selection site)</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  IN["Authorization: Bearer token"] --> HDR{"Bearer present<br/>and length >= 16?"}
+  HDR -->|no| DEMO{"DEMO_RENDER_KEY set<br/>and no bearer attempt?"}
+  DEMO -->|yes| OUTD["forwardBearer = demo key<br/>source: demo"]
+  DEMO -->|no| E401["401 AuthError — today's message"]
+  HDR -->|yes| PFX{"Known key prefix?<br/>sk_ · app_*_pmth_* · naap_ · pmth_"}
+  PFX -->|yes| OUTK["forwardBearer = token verbatim<br/>source: api_key"]
+  PFX -->|no| SESS{"mcp_at_* AND MCP_OAUTH_ENABLED=1?"}
+  SESS -->|yes| LOOK["oauth-store lookup"]
+  LOOK -->|hit and not expired| OUTS["forwardBearer = bound composite<br/>source: oauth_session"]
+  LOOK -->|miss or expired| E4012["401 + WWW-Authenticate"]
+  SESS -->|no| OPQ["opaque >= 16 chars<br/>passthrough — today's default"]
+  OPQ --> OUTK
+  OUTK --> SDK["sdkCall — auth-agnostic"]
+  OUTS --> SDK
+  OUTD --> SDK
+</pre>
+</div>
+<p><b>Flag-OFF collapse:</b> with <code>MCP_OAUTH_ENABLED</code> unset, the <code>SESS</code> branch always takes <em>no</em>, so an <code>mcp_at_*</code>-shaped token falls into the opaque passthrough — <b>byte-identical to today</b>, where such a token is simply an unrecognized opaque bearer. INV-1 asserts exactly this.</p>
+
+<h3>4.3 Scenario A — full billed sequence (target)</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as User browser
+  participant C as Claude MCP
+  participant SB as Storyboard broker
+  participant NA as NaaP internal mint
+  participant BLD as pymthouse Builder
+  participant SDK as SDK service
+  participant DMZ as pymthouse prod signer
+  participant OR as LR orchestrator
+
+  C->>SB: POST /api/mcp tools/call — no auth
+  SB-->>C: 401 + WWW-Authenticate resource_metadata
+  C->>SB: GET /.well-known/oauth-protected-resource
+  SB-->>C: authorization_servers = Storyboard AS
+  C->>SB: authorize — PKCE S256
+  SB->>NA: redirect to NaaP login
+  U->>NA: Google or GitHub sign-in
+  NA-->>SB: callback with session identity
+  SB->>NA: POST /api/v1/internal/mcp/mint-credential
+  NA->>BLD: POST apps/{testApp}/users/{id}/keys — M2M Basic
+  BLD-->>NA: composite app_*_pmth_*
+  NA-->>SB: composite — server-side only
+  SB->>SB: oauth-store.bind(mcp_at_*, composite, ttl)
+  SB-->>C: access_token mcp_at_* — never the composite
+
+  C->>SB: tools/call create_media + Bearer mcp_at_*
+  SB->>SB: resolveAuth -> forwardBearer = composite
+  SB->>SDK: POST /inference Bearer composite
+  SDK->>SDK: classify_key -> PYMTHOUSE -> DIRECT
+  SDK->>DMZ: POST /generate-live-payment
+  DMZ-->>SDK: payment + segCreds
+  SDK->>OR: LR dispatch via call_runner
+  OR-->>SDK: image URL
+  SDK-->>SB: result
+  SB-->>C: tool result
+</pre>
+</div>
+
+<h3>4.4 Scenario B — mint delta only (tail identical to 4.3)</h3>
+<div class="mermaid-wrap">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as User browser
+  participant C as Claude MCP
+  participant SB as Storyboard broker
+  participant AS as pymthouse OIDC AS
+  participant BLD as pymthouse Builder
+
+  C->>SB: authorize — PKCE S256
+  SB->>AS: redirect oidc/auth client_id=web_...
+  U->>AS: pymthouse login
+  AS-->>SB: authorization code
+  SB->>AS: POST oidc/token — code + verifier, Basic web_
+  AS-->>SB: user JWT with sub
+  SB->>BLD: POST apps/{testApp}/users — upsert sub, M2M Basic
+  SB->>BLD: POST apps/{testApp}/users/{sub}/keys — M2M Basic
+  BLD-->>SB: composite app_*_pmth_*
+  SB->>SB: oauth-store.bind(mcp_at_*, composite, ttl)
+  SB-->>C: access_token mcp_at_*
+  Note over SB,BLD: From here the tail is byte-identical to 4.3 — no NaaP
+</pre>
+</div>
+
+<!-- ================= 5. PRs ================= -->
+<h2 id="prs">5. PR breakdown — 17 PRs in 5 tracks</h2>
+
+<p>Every PR below carries the same nine fields: <b>purpose · repo &amp; real files · flag + default · acceptance · self-review · e2e · prod verification · rollback · revert-safety</b>. Tracks 1–3 are Storyboard-only and ship <b>default-OFF</b>; track 4 is infrastructure; track 5 is enablement. <b>No PR in tracks 1–3 touches <span class="mono">lib/mcp-server/tools/</span>, <span class="mono">sdk-call.ts</span>, or any file in <span class="mono">simple-infra</span></b> — that diff-scope assertion is a literal checklist item on each one.</p>
+
+<table>
+  <thead><tr><th>Track</th><th>PRs</th><th>Repo</th><th>Ships behind</th><th>Blocked?</th></tr></thead>
+  <tbody>
+    <tr><td><b>1 — Invariants &amp; resolution layer</b></td><td>PR-01 · PR-02 · PR-03</td><td class="mono">storyboard-a3</td><td>No flag — pure refactor + tests</td><td><span class="tag t-yes">start now</span></td></tr>
+    <tr><td><b>2 — OAuth head (inert)</b></td><td>PR-04 … PR-08</td><td class="mono">storyboard-a3</td><td><code>MCP_OAUTH_ENABLED</code> unset</td><td><span class="tag t-yes">start now</span></td></tr>
+    <tr><td><b>3 — Mint providers</b></td><td>PR-09 · PR-10 · PR-15</td><td class="mono">NaaP + storyboard-a3</td><td><code>MCP_OAUTH_PROVIDER</code></td><td><span class="tag t-no">OA-1</span></td></tr>
+    <tr><td><b>4 — LR / signer infrastructure</b></td><td>PR-11 · PR-12 · PR-13</td><td class="mono">simple-infra</td><td>Canary overlay only</td><td><span class="tag t-part">PR-11 free</span></td></tr>
+    <tr><td><b>5 — Enablement &amp; deferred</b></td><td>PR-14 · PR-16 · PR-17</td><td>config · docs</td><td>—</td><td><span class="tag t-part">mixed</span></td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Reading a PR card.</b> <b>Acceptance</b> = what must be true to merge. <b>Self-review</b> = what the author asserts in the PR body before requesting review. <b>Revert-safety</b> = what happens if this PR alone is reverted while later PRs are already merged.
+</div>
+
+<h3>5.1 Track 1 — invariants first, then the resolution layer</h3>
+
+<div class="pr" id="pr-01">
+<h3>PR-01 · Golden auth invariants (INV-1…INV-6) — <em>tests only, no product code</em></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">no flag</span><span class="tag t-yes">unblocked</span><span class="tag t-new">lands first</span></div>
+<table>
+  <tr><th>Purpose</th><td>Freeze today's auth behavior as executable tests <b>before</b> a single line of auth code moves. This PR is the regression firewall for the whole plan; if it does not exist, nothing else may merge.</td></tr>
+  <tr><th>Files</th><td class="mono">lib/mcp-server/__tests__/auth-invariants.test.ts <span class="tag t-new">NEW</span></td></tr>
+  <tr><th>Flag &amp; default</th><td>None. Tests run unconditionally in CI, and are additionally parameterised over <code>MCP_OAUTH_ENABLED</code> ∈ {unset, "1"} so flag-OFF invariance is asserted from day one.</td></tr>
+  <tr><th>Acceptance</th><td>Six invariants green: <b>INV-1</b> an <code>mcp_at_*</code>-shaped bearer with the flag unset resolves exactly as an unrecognized opaque bearer does today; <b>INV-2</b> <code>sk_*</code> in → the <em>same byte string</em> out, <code>plane=daydream</code>; <b>INV-3</b> no code path can emit an <code>mcp_at_*</code> as <code>forwardBearer</code>; <b>INV-4</b> <span class="mono">resolve.ts</span> imports no <code>fetch</code>/HTTP client; <b>INV-5</b> <span class="mono">sdk-call.ts</span> is byte-unchanged (checksum test); <b>INV-6</b> <code>authForRestProxy</code> output is unchanged for all four key schemes.</td></tr>
+  <tr><th>Self-review</th><td>☐ Tests fail if I deliberately break each invariant (mutation-check each one, paste output in the PR body) ☐ no product file in the diff ☐ no network in tests ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>N/A — unit level by design. The live counterpart is the §7 matrix.</td></tr>
+  <tr><th>Prod verify</th><td>None (no runtime change). CI green on <code>main</code> is the gate.</td></tr>
+  <tr><th>Rollback</th><td>Revert the file. Zero runtime impact.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-no">Do not revert</span> — reverting this while tracks 1–3 are merged removes the only automated regression guard. Treat as append-only.</td></tr>
+</table>
+</div>
+
+<div class="pr" id="pr-02">
+<h3>PR-02 · Introduce <code>resolveAuth()</code> — the single mode-selection site</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">no flag</span><span class="tag t-part">after PR-01</span></div>
+<table>
+  <tr><th>Purpose</th><td>Create <span class="mono">auth/resolve.ts</span> and route the <b>MCP</b> entry through it. At this PR the body is <em>literally today's <code>extractAuthOrDemo</code> logic</em> wrapped in the <code>ResolvedCredential</code> shape (§3.2) — a pure refactor with no behavior delta.</td></tr>
+  <tr><th>Files</th><td class="mono">lib/mcp-server/auth/resolve.ts <span class="tag t-new">NEW</span> · lib/mcp-server/mcp-http.ts (call site ~:69, adapter to <code>AuthContext</code> at ~:99) · lib/mcp-server/auth.ts (<code>extractAuthOrDemo</code> :133 — re-exported, body moved, <b>not deleted</b>)</td></tr>
+  <tr><th>Flag &amp; default</th><td>None — there is no new behavior to gate. Adding a flag here would be AP-6.</td></tr>
+  <tr><th>Acceptance</th><td>INV-1…INV-6 still green, unmodified. <code>buildStoryboardMcpServer</code> signature unchanged. <b>Non-goal asserted in the PR body:</b> <code>authForRestProxy</code> (<span class="mono">auth-rest.ts:42</span>) is <em>not</em> routed through <code>resolveAuth</code> (D4 / AP-8).</td></tr>
+  <tr><th>Self-review</th><td>☐ diff touches 0 files under <span class="mono">lib/mcp-server/tools/</span> ☐ <span class="mono">sdk-call.ts</span> untouched ☐ no <code>fetch</code> in <span class="mono">resolve.ts</span> ☐ no <code>process.env.MCP_OAUTH_*</code> read outside <span class="mono">resolve.ts</span> ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Preview deploy; run three real MCP <code>tools/call</code>s with an <code>sk_*</code> key (one image, one status, one list) and diff the SDK-side request logs against the same calls on <code>main</code> — must be identical including header order.</td></tr>
+  <tr><th>Prod verify</th><td>After merge, one <code>sk_*</code> <code>create_media</code> against prod; confirm the Daydream signer path and BYOC orchestrator are hit exactly as before (compare against a pre-merge baseline capture taken in the same session).</td></tr>
+  <tr><th>Rollback</th><td>Single revert; the adapter is one call site.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> while PR-03 is merged. <b>Not</b> safe once PR-08 is merged (PR-08 adds the store lookup inside <code>resolveAuth</code>) — revert PR-08 first.</td></tr>
+</table>
+</div>
+
+<div class="pr" id="pr-03">
+<h3>PR-03 · <code>keyScheme()</code> gains a <code>pmth-composite</code> case — log-only</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">no flag</span><span class="tag t-part">after PR-02</span></div>
+<table>
+  <tr><th>Purpose</th><td>Close drift D2. Today a composite <code>app_…_pmth_…</code> falls through to <code>opaque</code>, so pymthouse traffic is invisible in Storyboard logs. Add the case, mirroring the SDK's <code>is_composite_bearer</code> (<code>_pmth_</code> segment test).</td></tr>
+  <tr><th>Files</th><td class="mono">lib/mcp-server/key-validation.ts (<code>keyScheme</code> :45–50, <code>KeyScheme</code> union) · <span class="mono">auth/resolve.ts</span> (populate <code>metadata.scheme</code> / <code>plane</code>)</td></tr>
+  <tr><th>Flag &amp; default</th><td>None. <b>This is the one intentionally visible diagnostic change in the plan</b>; it is safe precisely because nothing routes on it.</td></tr>
+  <tr><th>Acceptance</th><td>A composite bearer yields <code>scheme="pmth-composite"</code>, <code>plane="pymthouse"</code>. <b>Every existing <code>keyScheme</code> caller is enumerated in the PR body with a note on why the new enum value is inert for it</b> (this is the sharp edge: a <code>switch</code> without a <code>default</code> elsewhere would change behavior). No caller branches on the new value.</td></tr>
+  <tr><th>Self-review</th><td>☐ grepped all <code>keyScheme(</code> callers and listed them ☐ no routing/authorization decision reads <code>scheme</code> or <code>plane</code> (AP-4) ☐ INV-2 still green ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Preview: one <code>sk_*</code> call and one <b>composite</b> call (test app, RS-1 credential from env). Assert both succeed and only the log label differs.</td></tr>
+  <tr><th>Prod verify</th><td>Post-merge, confirm <code>sk_*</code> traffic still logs <code>scheme=sk</code> and error rates are flat for 30 min.</td></tr>
+  <tr><th>Rollback</th><td>Revert; the enum value disappears and composites go back to <code>opaque</code>.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> at any point — no downstream PR branches on the value (by construction, AP-4).</td></tr>
+</table>
+</div>
+
+<h3>5.2 Track 2 — the OAuth head, inert until a gate says otherwise</h3>
+
+<div class="pr" id="pr-04">
+<h3>PR-04 · Protected-resource + AS metadata, and the <b>cache-control fix</b></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_ENABLED unset → 404</span><span class="tag t-yes">unblocked</span><span class="tag t-part">R9 carrier</span></div>
+<table>
+  <tr><th>Purpose</th><td>Serve RFC 9728 PRM + AS metadata when the flag is ON; keep today's 404 when OFF. <b>Critically, fix the caching defect first</b> (drift D5): both routes currently return the 404 with <code>Cache-Control: public, max-age=86400, immutable</code> and <code>revalidate = 86400</code>, so a later flag flip would not reach clients or the CDN for up to 24 h.</td></tr>
+  <tr><th>Files</th><td class="mono">app/.well-known/oauth-protected-resource/route.ts · app/.well-known/oauth-authorization-server/route.ts</td></tr>
+  <tr><th>Flag &amp; default</th><td><code>MCP_OAUTH_ENABLED</code> — <b>unset (OFF)</b>. OFF ⇒ byte-identical 404 body/status to today, with only the cache headers changed.</td></tr>
+  <tr><th>Acceptance</th><td>Flag OFF: 404, same body, and <code>immutable</code> removed with <code>max-age</code> ≤ 60. Flag ON (preview only): valid PRM JSON whose <code>resource</code> and <code>authorization_servers</code> match the deployment origin. <b>The flip runbook in §9 includes a CDN purge step and is referenced from this PR.</b></td></tr>
+  <tr><th>Self-review</th><td>☐ cache headers changed in <em>both</em> routes ☐ verified with <code>curl -I</code> against a preview that the 404 is now revalidatable ☐ no other route's caching touched ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Preview with flag ON: point a real Claude connector at the URL and confirm it discovers the AS. With flag OFF: confirm Claude falls back to today's behavior.</td></tr>
+  <tr><th>Prod verify</th><td>Merge with flag OFF. <code>curl -I</code> prod both routes → 404 with short max-age. Then wait out one old TTL window <em>before</em> any flip (§9 gate G-B).</td></tr>
+  <tr><th>Rollback</th><td>Revert. Note the <em>old</em> long-TTL 404 may still be cached at the edge; purge on revert too.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-part">Safe only with the flag OFF.</span> Reverting while <code>MCP_OAUTH_ENABLED=1</code> makes clients discover an AS that has no metadata → hard 404 loop. <b>Turn the flag off first, then revert.</b></td></tr>
+</table>
+</div>
+
+<div class="pr" id="pr-05">
+<h3>PR-05 · <code>401 WWW-Authenticate</code> challenge on the MCP endpoint</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF</span><span class="tag t-part">after PR-04</span></div>
+<table>
+  <tr><th>Purpose</th><td>When the flag is ON and no usable credential is present, return <code>401</code> with <code>WWW-Authenticate: Bearer resource_metadata="…"</code> so Claude starts the OAuth dance. When OFF, today's unauthenticated behavior (including the demo path) is untouched.</td></tr>
+  <tr><th>Files</th><td class="mono">lib/mcp-server/mcp-http.ts · lib/mcp-server/auth/resolve.ts (challenge decision only)</td></tr>
+  <tr><th>Flag &amp; default</th><td><code>MCP_OAUTH_ENABLED</code> — <b>unset (OFF)</b>.</td></tr>
+  <tr><th>Acceptance</th><td>Flag OFF ⇒ <b>zero</b> response-shape change for: valid key, invalid key, <em>no</em> key, and demo caller. Flag ON ⇒ 401 + header only when no credential resolves. <b>The demo path must never be turned into a 401</b> — explicit test.</td></tr>
+  <tr><th>Self-review</th><td>☐ demo-caller regression test present ☐ 401 body contains no credential material ☐ challenge emitted from exactly one place ☐ INV-1 green ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Preview flag ON: Claude connect → expect challenge → discovery. Preview flag OFF: same four caller classes as acceptance, diffed against <code>main</code>.</td></tr>
+  <tr><th>Prod verify</th><td>Flag OFF in prod: sample the 401 rate on the MCP endpoint for 30 min — must be statistically unchanged.</td></tr>
+  <tr><th>Rollback</th><td>Revert, or simply unset the flag (which fully disables the behavior without a deploy).</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> with flag OFF; with flag ON, revert leaves clients unable to <em>start</em> auth — unset the flag first.</td></tr>
+</table>
+</div>
+<div class="pr" id="pr-06">
+<h3>PR-06 · <code>oauth-store</code> — restart-safe binding <code>mcp_at_*</code> → composite</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">unused until PR-07</span><span class="tag t-part">new infra dep</span><span class="tag t-no">R10 carrier</span></div>
+<table>
+  <tr><th>Purpose</th><td>Server-side, TTL'd binding from the opaque MCP token to the minted composite. The composite <b>never</b> leaves the server (AP-5).</td></tr>
+  <tr><th>Files</th><td class="mono">lib/mcp-server/auth/oauth-store.ts <span class="tag t-new">NEW</span> · package.json (one dependency)</td></tr>
+  <tr><th>Flag &amp; default</th><td>No flag — the module is <em>imported by nothing</em> until PR-07. Dead code on merge, by design.</td></tr>
+  <tr><th>Acceptance</th><td>Interface is exactly <code>bind(token, composite, ttlSec)</code> / <code>lookup(token)</code> / <code>revoke(token)</code> — nothing else. Values expire. <b>A cross-instance test proves a token bound on one process resolves on another.</b></td></tr>
+  <tr><th>Self-review</th><td>☐ <b>not</b> an in-memory <code>Map</code> (AP-9) ☐ <b>not</b> <span class="mono">@vercel/blob</span> (AP-11) ☐ TTL enforced server-side, not just on read ☐ composite never logged, even at debug ☐ no refresh-token surface (N8) ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Unit + a preview test that binds, redeploys (forcing a new lambda), then looks up — must still resolve.</td></tr>
+  <tr><th>Prod verify</th><td>None — no request path reaches it yet. Confirm bundle size delta is negligible and no new env var is <em>required</em> at boot.</td></tr>
+  <tr><th>Rollback</th><td>Revert (removes dead code + the dependency).</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> before PR-07; <span class="tag t-no">unsafe after</span> — PR-07/PR-08 import it. Revert those first.</td></tr>
+</table>
+<div class="note bad" style="margin:12px 0 0">
+  <b>Review finding — this PR introduces the plan's only new infrastructure dependency.</b> Storyboard today has <b>no KV/Redis</b>: <span class="mono">package.json</span> carries no <code>redis</code> / <code>@vercel/kv</code> / <code>@upstash/redis</code> / Postgres client, and the sole durable store is <span class="mono">@vercel/blob</span> (<span class="mono">lib/mcp-server/storage.ts:11</span>), used with <b>public, fixed pathnames</b>. Binding a billing credential in blob storage would publish it. So PR-06 must add a real KV, and that choice is an <b>owner decision, not an implementation detail</b> — it is tracked as <b>OA-6</b> (§2.3) and risk <b>R10</b> (§8). If no KV can be provisioned, the honest fallback is to <b>stop at the end of track 2</b> and ship P0 only; it is <em>not</em> acceptable to substitute an in-memory <code>Map</code> (AP-9) — <span class="mono">app/api/mcp/auth/route.ts</span> already does that for the outbound flow and it is exactly the pattern that breaks on a non-sticky instance.
+</div>
+</div>
+
+<div class="pr" id="pr-07">
+<h3>PR-07 · Broker routes — <code>authorize</code> / <code>callback</code> / <code>token</code> (PKCE S256)</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF → 404</span><span class="tag t-part">after PR-06</span></div>
+<table>
+  <tr><th>Purpose</th><td>The OAuth head itself: start the upstream dance, receive the code, exchange it, call the selected mint provider once, bind the result, and return an opaque <code>mcp_at_*</code>.</td></tr>
+  <tr><th>Files</th><td class="mono">app/api/mcp/oauth/authorize/route.ts · …/callback/route.ts · …/token/route.ts <span class="tag t-new">NEW</span> · lib/mcp-server/auth/providers/registry.ts (<b>consumed, not modified</b>)</td></tr>
+  <tr><th>Flag &amp; default</th><td><code>MCP_OAUTH_ENABLED</code> unset ⇒ all three routes <b>404</b>. <code>MCP_OAUTH_PROVIDER</code> selects the provider; unset ⇒ the routes 404 even when the gate is ON (fail-closed, no implicit default).</td></tr>
+  <tr><th>Acceptance</th><td>PKCE <b>S256 only</b> (<code>plain</code> rejected). <code>state</code> single-use and bound to the verifier. The token response contains <b>only</b> <code>access_token</code> (<code>mcp_at_*</code>), <code>token_type</code>, <code>expires_in</code> — <b>a test asserts the composite/JWT appears nowhere in the body or headers</b> (AP-5). Redirect URIs allow-listed. No refresh token issued (N8).</td></tr>
+  <tr><th>Self-review</th><td>☐ registry <em>logic</em> unchanged (OCP — I added no branch to it) ☐ no provider-name <code>if</code> outside these routes + <span class="mono">resolve.ts</span> (AP-1) ☐ error paths leak no upstream token ☐ flag-OFF 404 test ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Preview, flag ON, <code>MCP_OAUTH_PROVIDER=naap</code>: full browser dance to a bound <code>mcp_at_*</code>. Mint mocked here — the real mint is PR-09/PR-10.</td></tr>
+  <tr><th>Prod verify</th><td>Flag OFF: all three routes 404 in prod. Nothing else observable.</td></tr>
+  <tr><th>Rollback</th><td>Unset the flag (instant, no deploy), then revert.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-part">Safe with flag OFF.</span> With flag ON and PR-05 merged, reverting strands clients mid-dance — unset the flag first.</td></tr>
+</table>
+</div>
+
+<div class="pr" id="pr-08">
+<h3>PR-08 · <code>resolveAuth</code> learns the store lookup — the last wiring step</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF</span><span class="tag t-part">after PR-06, PR-07</span><span class="tag t-no">highest-blast-radius PR in track 2</span></div>
+<table>
+  <tr><th>Purpose</th><td>Teach the single resolution site that an <code>mcp_at_*</code> bearer + flag ON ⇒ look up the store and forward the bound composite. This is the only PR that changes what <code>forwardBearer</code> can be.</td></tr>
+  <tr><th>Files</th><td class="mono">lib/mcp-server/auth/resolve.ts</td></tr>
+  <tr><th>Flag &amp; default</th><td><code>MCP_OAUTH_ENABLED</code> — <b>unset (OFF)</b>. OFF ⇒ the <code>mcp_at_*</code> branch is unreachable and such a token falls through to opaque passthrough, exactly as today (INV-1).</td></tr>
+  <tr><th>Acceptance</th><td>INV-1/INV-2/INV-3 green with the flag <b>both</b> unset and set. Store miss or expired ⇒ <code>401</code>, <b>never</b> a fallthrough that forwards <code>mcp_at_*</code> to the SDK (INV-3 — the AP-2 catastrophe, whose worst case is silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code>). <code>sk_*</code> and composite bearers <b>never</b> consult the store (short-circuit before lookup — also a latency guarantee).</td></tr>
+  <tr><th>Self-review</th><td>☐ store lookup is strictly after the known-prefix checks ☐ no <code>fetch</code> added to <span class="mono">resolve.ts</span> (INV-4) ☐ failure mode is fail-closed ☐ <span class="mono">sdk-call.ts</span> untouched (INV-5) ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Preview flag ON: full dance → <code>mcp_at_*</code> → real <code>tools/call</code> → assert the SDK received a <code>app_*_pmth_*</code> and the job is billed to the <b>test app</b>. Then flag OFF and re-run the four §7 Daydream rows.</td></tr>
+  <tr><th>Prod verify</th><td>Merge flag OFF. Run §7 rows 1–4 (<code>sk_*</code>) against prod and diff against the pre-merge baseline — byte-identical forwarding required.</td></tr>
+  <tr><th>Rollback</th><td>Unset the flag first (kills the branch instantly), then revert.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-no">Revert this before PR-02/PR-06/PR-07.</span> It is the top of the dependency stack in track 2.</td></tr>
+</table>
+</div>
+
+<h3>5.3 Track 3 — mint providers (gated on OA-1)</h3>
+
+<div class="note warn">
+  <b>Whole-track blocker.</b> PR-09, PR-10 and PR-15 can all be <em>written</em> and unit-tested behind an injected <code>fetch</code>, but <b>none can be prod-verified without the pymthouse M2M client <em>secret</em></b> (OA-1). <span class="mono">pymthouse-keys-bff.ts</span> builds <code>Basic base64(m2mId + ":" + m2mSecret)</code> from <code>PYMTHOUSE_M2M_CLIENT_ID</code> + <code>PYMTHOUSE_M2M_CLIENT_SECRET</code> and returns <b>503 <code>pymthouse_required</code></b> when either half is missing (<span class="mono">:33–40</span>). A client id alone cannot form a Basic credential.
+</div>
+
+<div class="pr blocked" id="pr-09">
+<h3>PR-09 · NaaP internal mint route (server-to-server, M2M)</h3>
+<div class="prmeta"><span class="tag t-b">NaaP</span><span class="tag t-off">route-level allow-list</span><span class="tag t-no">blocked: OA-1</span></div>
+<table>
+  <tr><th>Purpose</th><td>Expose an authenticated internal endpoint that Storyboard's P1 provider calls to mint a composite for a NaaP-identified user, reusing NaaP's <b>existing</b> M2M env rather than giving Storyboard a second copy of it.</td></tr>
+  <tr><th>Files</th><td class="mono">apps/web-next/src/app/api/internal/mcp/mint/route.ts <span class="tag t-new">NEW</span> · apps/web-next/src/lib/pymthouse-keys-bff.ts (<b>reused as-is</b> — <code>readM2mAuthHeader</code>, <code>createPymthouseApiKey</code>)</td></tr>
+  <tr><th>Flag &amp; default</th><td>No feature flag. Guarded by a shared-secret header + origin allow-list; absent config ⇒ <b>404</b> (not 401 — the route should not advertise itself).</td></tr>
+  <tr><th>Acceptance</th><td>Mints against the <b>test app id from env</b> with an explicit assertion that the configured app id is the test app (RS-2). Returns the composite <b>only</b> over the internal channel. Rejects unauthenticated callers. Existing NaaP behavior untouched — no change to <span class="mono">pymthouse-keys-bff.ts</span> itself.</td></tr>
+  <tr><th>Self-review</th><td>☐ no existing NaaP route's behavior changed ☐ composite never logged ☐ test-app assertion present and failing-closed ☐ reuses <code>readM2mAuthHeader</code> rather than re-implementing Basic ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td><b>Requires OA-1.</b> With the secret in env: mint one key for a throwaway <code>externalUserId</code>, confirm it appears under the test app, then confirm a <code>create_media</code> with it bills the test app.</td></tr>
+  <tr><th>Prod verify</th><td>Route returns 404 until configured. After config, one mint + one billed call, then verify via the usage/metering API (<b>also needs OA-1</b>).</td></tr>
+  <tr><th>Rollback</th><td>Remove the env config ⇒ route 404s. Then revert.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-part">Safe alone</span> unless PR-10 is live and <code>MCP_OAUTH_PROVIDER=naap</code> — that combination breaks the dance. Unset the provider first.</td></tr>
+</table>
+</div>
+
+<div class="pr blocked" id="pr-10">
+<h3>PR-10 · Storyboard <code>naap</code> provider (P1) — registry entry + adapter</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_PROVIDER=naap</span><span class="tag t-no">blocked: OA-1, PR-09</span></div>
+<table>
+  <tr><th>Purpose</th><td>Implement <code>BillingProvider</code> for Scenario A: NaaP session OAuth for identity, then delegate the mint to PR-09's route. <b>Adds a file and a JSON entry — <span class="mono">registry.ts</span> logic is not modified</b> (OCP, N1).</td></tr>
+  <tr><th>Files</th><td class="mono">lib/mcp-server/auth/providers/naap.ts <span class="tag t-new">NEW</span> · config/mcp-auth-providers.json (one entry)</td></tr>
+  <tr><th>Flag &amp; default</th><td>Selected only by <code>MCP_OAUTH_PROVIDER=naap</code> <b>and</b> <code>MCP_OAUTH_ENABLED=1</code>. No third flag (N5).</td></tr>
+  <tr><th>Acceptance</th><td>Satisfies the <b>shared provider contract test</b> (LSP): returns a composite <code>app_*_pmth_*</code> and nothing else — no JWT-only variant (N4). App id sourced from env with a test-app assertion (RS-2). <span class="mono">registry.ts</span> shows a zero-line diff.</td></tr>
+  <tr><th>Self-review</th><td>☐ <span class="mono">registry.ts</span> diff is empty ☐ provider imported only by the broker routes (grep assertion) ☐ same contract test as P2 passes ☐ no key globs re-implemented (AP-4) ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td><b>Requires OA-1.</b> Preview, flag ON, provider=naap: full dance → <code>mcp_at_*</code> → <code>create_media</code> → asset returned <b>and</b> usage visible on the test app.</td></tr>
+  <tr><th>Prod verify</th><td>Enable on a <b>single</b> deployment only (N3 — one deployment, one provider). Run one billed test-app call and confirm §7 rows 1–4 are unaffected.</td></tr>
+  <tr><th>Rollback</th><td>Unset <code>MCP_OAUTH_PROVIDER</code> ⇒ broker fails closed; then revert.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> — P0 passthrough is unaffected by removing a provider.</td></tr>
+</table>
+</div>
+<h3>5.4 Track 4 — LR / signer infrastructure</h3>
+
+<div class="note">
+  <b>Scope fence for this track.</b> These PRs touch <b>deployment and build config</b>, never auth code. <code>classify_key()</code>, <code>_effective_signer()</code> and the key-pattern constants in <span class="mono">key_routing.py</span> are <b>not modified by any PR in this plan</b> (AP-3). The Daydream <code>sk_*</code> → Daydream signer → BYOC orchestrator path is out of scope everywhere.
+</div>
+
+<div class="pr" id="pr-11">
+<h3>PR-11 · Make the missing LR gateway export a <b>loud build-time failure</b></h3>
+<div class="prmeta"><span class="tag t-keep">simple-infra</span><span class="tag t-off">no runtime flag</span><span class="tag t-yes">unblocked — start now</span></div>
+<table>
+  <tr><th>Purpose</th><td>The vendored gateway in the deployed SDK image lacks <span class="mono">live_runner.py</span>, so <code>call_runner</code> is missing and LR dispatch fails at <em>runtime</em>, late and confusingly. Convert that into a build-time assertion so an image that cannot do LR dispatch <b>cannot be built</b>.</td></tr>
+  <tr><th>Files</th><td class="mono">sdk-service-build/ — build script + a <code>verify_gateway_exports</code> step in the image build; CI wiring</td></tr>
+  <tr><th>Flag &amp; default</th><td>None. Build-time only; zero runtime behavior change, therefore zero regression surface for <code>sk_*</code>.</td></tr>
+  <tr><th>Acceptance</th><td>Building the <b>current</b> image <b>fails</b> with a message naming <span class="mono">live_runner.py</span> / <code>call_runner</code> (demonstrate this in the PR body — a guard that passes today proves nothing). No runtime import path changes.</td></tr>
+  <tr><th>Self-review</th><td>☐ no change to <span class="mono">key_routing.py</span> ☐ guard failure message is actionable ☐ demonstrated failing on today's tree ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Build twice: once on the current tree (must fail), once with the gateway source restored (must pass).</td></tr>
+  <tr><th>Prod verify</th><td>None — nothing deploys. Using RS-4 (<code>gcloud</code>), record which image digest <span class="mono">sdk-staging-1</span> is actually running, so the R7 prod-drift claim rests on observation rather than YAML.</td></tr>
+  <tr><th>Rollback</th><td>Revert the build step.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Fully safe</span> — it is a guard, not a behavior.</td></tr>
+</table>
+</div>
+
+<div class="pr blocked" id="pr-12">
+<h3>PR-12 · Isolated LR canary — pymthouse composite → production signer → LR orch</h3>
+<div class="prmeta"><span class="tag t-keep">simple-infra</span><span class="tag t-off">canary overlay only</span><span class="tag t-no">blocked: OA-2, OA-4</span></div>
+<table>
+  <tr><th>Purpose</th><td>Prove the billed pymthouse tail end-to-end on an <b>isolated</b> SDK instance: composite bearer → <code>PYMTHOUSE_SIGNER_URL</code> (production signer, RS-3) → <code>type=fixed</code> payment → LR orchestrator dispatch.</td></tr>
+  <tr><th>Files</th><td class="mono">canary deployment overlay (env + image digest); no application source changes</td></tr>
+  <tr><th>Flag &amp; default</th><td>Canary instance only. <code>KEY_ROUTING_FROM_ENV</code> and <code>LR_ORCH_DISCOVERY</code>/<code>LR_OFFERINGS_JSON</code> are applied <b>here and nowhere else</b> — never on shared <span class="mono">sdk-staging-1</span> (AP-10, guardrail G7).</td></tr>
+  <tr><th>Acceptance</th><td>One composite-bearer call returns a real asset via an LR orchestrator, billed to the <b>test app</b>. <b>OA-4 is answered empirically</b>: does <code>type=fixed</code> produce a payment for an orchestrator advertising zero <code>CapabilitiesPrices</code>? A negative answer is a <em>valid, publishable outcome</em> that hands the next step back to the signer owner — it does not mean the PR failed.</td></tr>
+  <tr><th>Self-review</th><td>☐ shared staging env is provably untouched (diff the shared instance's env before/after) ☐ credentials injected at runtime, never baked into an image or a committed <span class="mono">.env</span> ☐ <code>sk_*</code> traffic never routed to this canary ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Matrix rows 5–8 (§7) on the canary. Plus, for the OA-3 durability question, <b>N sequential calls on one credential</b> to detect whether paygen is single-shot.</td></tr>
+  <tr><th>Prod verify</th><td>Canary is not production. Verify shared staging's error rate and the Daydream path are flat throughout the window.</td></tr>
+  <tr><th>Rollback</th><td>Delete the canary. Nothing else references it.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Fully safe</span> — additive infrastructure, zero shared-surface change.</td></tr>
+</table>
+</div>
+
+<div class="pr blocked deferred" id="pr-13">
+<h3>PR-13 · Promote the LR path beyond the canary</h3>
+<div class="prmeta"><span class="tag t-keep">simple-infra</span><span class="tag t-no">blocked: PR-12 green + OA-4</span><span class="tag t-off">scope deliberately unspecified</span></div>
+<table>
+  <tr><th>Purpose</th><td>Widen LR dispatch past the canary once — and only once — PR-12 is green.</td></tr>
+  <tr><th>Files</th><td>Deliberately not enumerated. <b>Writing this PR's file list before PR-12 answers OA-4 would be speculative design</b>; the promotion shape depends on whether <code>type=fixed</code> works and whether <code>ORCH_PIN_BY_PATH</code> is needed.</td></tr>
+  <tr><th>Flag &amp; default</th><td>Staged rollout, canary → subset → full, with the Daydream plane excluded at every stage.</td></tr>
+  <tr><th>Acceptance</th><td>Defined at the §9 stop line, after PR-12. Minimum bar: §7 rows 1–4 unchanged at every stage.</td></tr>
+  <tr><th>Self-review</th><td>☐ (authored after PR-12) ☐ no <span class="mono">key_routing.py</span> change ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Full §7 matrix at each stage.</td></tr>
+  <tr><th>Prod verify</th><td>Staged, with the Daydream error rate as the abort signal.</td></tr>
+  <tr><th>Rollback</th><td>Stage-by-stage revert to the previous overlay.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-part">Each stage independently revertible</span> — that is the design constraint on the promotion.</td></tr>
+</table>
+</div>
+
+<h3>5.5 Track 5 — enablement &amp; deferred</h3>
+
+<div class="pr blocked" id="pr-14">
+<h3>PR-14 · Register the pymthouse <code>web_</code> confidential client (config, not code)</h3>
+<div class="prmeta"><span class="tag t-b">pymthouse ops</span><span class="tag t-no">blocked: OA-5</span></div>
+<table>
+  <tr><th>Purpose</th><td>Scenario B needs an <code>authorization_code</code>-capable confidential client with Storyboard's prod + preview redirect URIs. Public <code>app_</code> clients cannot do auth-code (<span class="mono">grants.ts</span>), so there is no code workaround short of device flow (N2, explicitly not built).</td></tr>
+  <tr><th>Files</th><td>None in our repos — a pymthouse-side registration plus Storyboard env values.</td></tr>
+  <tr><th>Flag &amp; default</th><td>N/A. Credentials land in env only, never in a commit.</td></tr>
+  <tr><th>Acceptance</th><td>A <code>web_</code> client id exists, auth-code + PKCE S256 enabled, redirect URIs allow-listed for prod <b>and</b> preview, scoped to the <b>test app</b>.</td></tr>
+  <tr><th>Self-review</th><td>☐ no client secret in any file ☐ preview URIs included (otherwise every preview test fails late) ☐ test-app scoping confirmed</td></tr>
+  <tr><th>E2E</th><td>A manual auth-code round trip against the AS before PR-15 is written.</td></tr>
+  <tr><th>Prod verify</th><td>Covered by PR-15.</td></tr>
+  <tr><th>Rollback</th><td>Deregister the client.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe</span> while <code>MCP_OAUTH_PROVIDER≠pymthouse</code>.</td></tr>
+</table>
+</div>
+
+<div class="pr blocked" id="pr-15">
+<h3>PR-15 · Storyboard <code>pymthouse</code> provider (P2)</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_PROVIDER=pymthouse</span><span class="tag t-no">blocked: PR-14, OA-1</span></div>
+<table>
+  <tr><th>Purpose</th><td>Scenario B: pymthouse OIDC login for identity, then Storyboard mints the composite directly via M2M Basic. Same <code>BillingProvider</code> contract, same output shape as P1 (LSP) — only the identity source and the mint caller differ.</td></tr>
+  <tr><th>Files</th><td class="mono">lib/mcp-server/auth/providers/pymthouse.ts <span class="tag t-new">NEW</span> · config/mcp-auth-providers.json (one entry)</td></tr>
+  <tr><th>Flag &amp; default</th><td><code>MCP_OAUTH_PROVIDER=pymthouse</code> + <code>MCP_OAUTH_ENABLED=1</code>. Still no third flag (N5).</td></tr>
+  <tr><th>Acceptance</th><td>Passes the <b>same</b> shared contract test as PR-10, unmodified — that shared test is the LSP proof. Upserts the user then mints, both with M2M Basic. App id from env with a test-app assertion. <span class="mono">registry.ts</span> diff empty.</td></tr>
+  <tr><th>Self-review</th><td>☐ shared contract test not weakened or forked for this provider ☐ user JWT never forwarded to the SDK (composite only, N4) ☐ M2M secret read from env only ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td><b>Requires OA-1 + PR-14.</b> Full Scenario B dance on preview → billed test-app call → usage confirmed via the metering API.</td></tr>
+  <tr><th>Prod verify</th><td>A single deployment with provider=pymthouse; §7 rows 1–4 unaffected.</td></tr>
+  <tr><th>Rollback</th><td>Unset <code>MCP_OAUTH_PROVIDER</code>; then revert.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Safe alone</span> — removing one provider leaves P0 and P1 intact.</td></tr>
+</table>
+</div>
+
+<div class="pr" id="pr-16">
+<h3>PR-16 · Connector docs + one-click connect entry</h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">docs</span><span class="tag t-part">after PR-04</span></div>
+<table>
+  <tr><th>Purpose</th><td>Document the three ways to connect (paste <code>sk_*</code>, paste composite, OAuth sign-in) and emit a connector config that matches the real PRM.</td></tr>
+  <tr><th>Files</th><td class="mono">docs/ + the public connect page copy</td></tr>
+  <tr><th>Flag &amp; default</th><td>The OAuth option is documented as available <b>only</b> where <code>MCP_OAUTH_ENABLED=1</code>.</td></tr>
+  <tr><th>Acceptance</th><td>Emitted connector matches PR-04's PRM byte-for-byte. <b>No credential appears in any example</b> — placeholders only.</td></tr>
+  <tr><th>Self-review</th><td>☐ examples use placeholders, never a real key ☐ no claim of an unshipped capability ☐ secret-scan clean</td></tr>
+  <tr><th>E2E</th><td>Follow the doc verbatim on a clean machine and connect successfully.</td></tr>
+  <tr><th>Prod verify</th><td>Page renders; links resolve.</td></tr>
+  <tr><th>Rollback</th><td>Revert.</td></tr>
+  <tr><th>Revert-safety</th><td><span class="tag t-yes">Fully safe.</span></td></tr>
+</table>
+</div>
+
+<div class="pr deferred" id="pr-17">
+<h3>PR-17 · Credential revocation plumbing — <span class="tag t-off">DEFERRED (N11)</span></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">not scheduled</span></div>
+<table>
+  <tr><th>Purpose</th><td>Propagate an MCP-token revocation to the minted composite. <b>Deliberately out of MVP</b>: the store's short TTL bounds exposure, and building revocation now means a second lifecycle to test across two providers.</td></tr>
+  <tr><th>Trigger to build</th><td>Any of: TTL must exceed ~24 h; a real multi-tenant need appears (N9 reversed); or a security review requires immediate revocation.</td></tr>
+  <tr><th>Flag &amp; default</th><td>N/A — listed so that "revocation is missing" is a <em>recorded decision</em> rather than an oversight found in review.</td></tr>
+  <tr><th>Everything else</th><td>Intentionally unspecified until the trigger fires (see PR-13's rationale).</td></tr>
+</table>
+</div>
+<!-- ================= 6. LOOP ================= -->
+<h2 id="loop">6. The PR-cycle LOOP</h2>
+
+<p>Every PR in §5 runs the same eight-step loop. The loop exists to make one thing structurally impossible: <b>merging a change whose flag-OFF behavior has not been measured against a baseline captured from the same session.</b></p>
+
+<table>
+  <thead><tr><th>#</th><th>Step</th><th>Exit condition (all must hold to proceed)</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><b>Baseline</b> — capture current behavior for the rows this PR could touch</td><td>Baseline artifacts saved <em>before</em> any code is written. A baseline captured after the change is not a baseline.</td></tr>
+    <tr><td>2</td><td><b>Branch</b> from latest <code>main</code>, one PR = one concern</td><td>PR maps to exactly one §5 card. If it needs two cards, it is two PRs.</td></tr>
+    <tr><td>3</td><td><b>Invariant gate</b> — run INV-1…INV-6 unmodified</td><td>Green <b>before</b> implementing. <b>If a PR requires editing an invariant test, stop and escalate</b> — that is the plan's tripwire, not a chore.</td></tr>
+    <tr><td>4</td><td><b>Implement</b> to the card's file list</td><td>Diff-scope assertion holds: no <span class="mono">tools/</span>, no <span class="mono">sdk-call.ts</span>, no <span class="mono">key_routing.py</span>.</td></tr>
+    <tr><td>5</td><td><b>Self-review</b> — author completes the card's checklist in the PR body</td><td>Every box ticked with evidence, not assertion. <b>Secret scan clean</b> is non-negotiable.</td></tr>
+    <tr><td>6</td><td><b>E2E</b> on preview, flag OFF <em>and</em> ON</td><td>Flag OFF result is <b>byte-identical to the step-1 baseline</b>. Flag ON matches the card's acceptance.</td></tr>
+    <tr><td>7</td><td><b>Merge with the flag OFF</b>, then verify in prod</td><td>Prod verification from the card passes. <b>No PR is merged with a flag ON.</b> Flag flips are a separate, gated act (§9).</td></tr>
+    <tr><td>8</td><td><b>Record</b> the rollback + revert-safety note on the merge commit</td><td>The next engineer can revert without re-deriving the dependency order.</td></tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <b>Anti-pattern review is part of every approval.</b> A reviewer must explicitly confirm the diff contains none of AP-1…AP-11 (§3.5). The three that have historically slipped through are <b>AP-1</b> (a provider <code>if</code> leaking outside <span class="mono">resolve.ts</span>), <b>AP-6</b> (a "small" extra flag), and <b>AP-9/AP-11</b> (a convenient but non-durable token store).
+</div>
+
+<!-- ================= 7. REGRESSION ================= -->
+<h2 id="regression">7. Regression protection matrix</h2>
+
+<div class="verdict yes">
+  <b>The non-negotiable invariant.</b> Daydream <code>sk_*</code> → Daydream signer → BYOC orchestrator must remain <b>byte-identical</b> through every PR in this plan. All new behavior is scoped to LR orchestrators and the pymthouse signer. Rows 1–4 below are the regression tripwire; <b>any deviation halts the plan</b> rather than triggering a fix-forward.
+</div>
+
+<h3>7.1 The 12-row live matrix</h3>
+<p>Run on every flag flip, and rows 1–4 on every merge in tracks 1–3.</p>
+<table>
+  <thead><tr><th>#</th><th>Bearer</th><th><code>MCP_OAUTH_ENABLED</code></th><th>Expected <code>forwardBearer</code></th><th>Expected plane / signer</th><th>Guard</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td class="mono">sk_* valid</td><td>unset</td><td>same bytes in and out</td><td>Daydream signer → BYOC orch</td><td><span class="tag t-yes">INV-2</span></td></tr>
+    <tr><td>2</td><td class="mono">sk_* valid</td><td><b>1</b></td><td>same bytes in and out</td><td>Daydream signer → BYOC orch — <b>flag must not matter</b></td><td><span class="tag t-yes">INV-2</span></td></tr>
+    <tr><td>3</td><td class="mono">sk_* invalid</td><td>unset / 1</td><td>forwarded verbatim</td><td>Same rejection as today, same status + body</td><td><span class="tag t-yes">INV-2</span></td></tr>
+    <tr><td>4</td><td>no bearer (demo caller)</td><td>unset</td><td>demo path unchanged</td><td>Demo budget applies exactly as today</td><td><span class="tag t-yes">INV-1</span></td></tr>
+    <tr><td>5</td><td class="mono">app_*_pmth_* valid</td><td>unset</td><td>same bytes in and out</td><td>pymthouse signer (DIRECT via <code>PYMTHOUSE_SIGNER_URL</code>) → LR orch</td><td><span class="tag t-part">canary</span></td></tr>
+    <tr><td>6</td><td class="mono">app_*_pmth_* valid</td><td><b>1</b></td><td>same bytes in and out</td><td>Identical to row 5 — a composite <b>never</b> consults the store</td><td><span class="tag t-part">PR-08</span></td></tr>
+    <tr><td>7</td><td class="mono">app_*_pmth_* invalid</td><td>unset / 1</td><td>forwarded verbatim</td><td>Signer-side rejection, surfaced unchanged</td><td><span class="tag t-part">canary</span></td></tr>
+    <tr><td>8</td><td class="mono">app_*_pmth_*</td><td>unset</td><td>—</td><td><b>Billed to the TEST app only</b> — assert app id on every probe</td><td><span class="tag t-yes">RS-2</span></td></tr>
+    <tr><td>9</td><td class="mono">mcp_at_* shaped</td><td>unset</td><td>treated as unrecognized opaque, <b>exactly as today</b></td><td>Whatever today does with an unknown opaque bearer</td><td><span class="tag t-yes">INV-1</span></td></tr>
+    <tr><td>10</td><td class="mono">mcp_at_* bound</td><td><b>1</b></td><td>bound composite <code>app_*_pmth_*</code></td><td>pymthouse signer → LR orch, test app billed</td><td><span class="tag t-part">PR-08</span></td></tr>
+    <tr><td>11</td><td class="mono">mcp_at_* expired / unknown</td><td><b>1</b></td><td><b>none — 401</b></td><td>Fail closed. <b>Never</b> a fallthrough to the SDK</td><td><span class="tag t-yes">INV-3</span></td></tr>
+    <tr><td>12</td><td>any</td><td>any</td><td><code>mcp_at_*</code> must <b>never</b> appear as <code>forwardBearer</code></td><td>Prevents <code>UNMATCHED</code> → <code>fail_closed</code>, or silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code></td><td><span class="tag t-yes">INV-3</span></td></tr>
+  </tbody>
+</table>
+
+<h3>7.2 The six golden invariants (PR-01)</h3>
+<table>
+  <thead><tr><th>ID</th><th>Asserts</th><th>Fails loudly when…</th></tr></thead>
+  <tbody>
+    <tr><td><b>INV-1</b></td><td>Flag-OFF invariance: an <code>mcp_at_*</code>-shaped bearer with the flag unset behaves as an unrecognized opaque bearer</td><td>Someone makes the OAuth branch reachable without the flag</td></tr>
+    <tr><td><b>INV-2</b></td><td><code>sk_*</code> byte-identity in → out, <code>plane=daydream</code></td><td>Any PR mutates, normalizes, or re-cases the Daydream bearer</td></tr>
+    <tr><td><b>INV-3</b></td><td>No code path emits <code>mcp_at_*</code> as <code>forwardBearer</code>; store miss ⇒ 401</td><td>A fallthrough is added to <code>resolveAuth</code> (AP-2) — the highest-severity failure in the plan</td></tr>
+    <tr><td><b>INV-4</b></td><td><span class="mono">resolve.ts</span> imports no <code>fetch</code>/HTTP client</td><td>Mint logic creeps into the resolution layer (SRP breach)</td></tr>
+    <tr><td><b>INV-5</b></td><td><span class="mono">sdk-call.ts</span> byte-unchanged across the whole plan</td><td>Someone widens <code>sdkCall</code> to accept a <code>ResolvedCredential</code> (ISP breach)</td></tr>
+    <tr><td><b>INV-6</b></td><td><code>authForRestProxy</code> output unchanged for all key schemes</td><td>OAuth is wired into the REST proxy (AP-8) — 10+ routes would silently inherit it</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Why invariants ship in PR-01, before the refactor.</b> A golden test written <em>after</em> a refactor encodes the refactor's behavior, not the original. Landing INV-1…INV-6 first is what converts "we believe this is non-breaking" into "the build fails if it breaks."
+</div>
+<!-- ================= 8. RISKS ================= -->
+<h2 id="risks">8. Risks</h2>
+
+<p>Each risk carries a <b>likelihood</b>, an <b>impact</b>, an <b>early-warning signal</b> (the thing to watch <em>before</em> it becomes an incident) and a <b>concrete mitigation</b> already embedded in a PR. The two the plan is most exposed to are <b>R1 (regression)</b> and <b>R3 (agent/implementation complexity)</b>.</p>
+
+<table>
+  <thead><tr><th>#</th><th>Risk</th><th>L</th><th>I</th><th>Early-warning signal</th><th>Mitigation (where it lives)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>R1</b></td>
+      <td><b>Regression on the Daydream <code>sk_*</code> plane</b> — the one outcome that is unacceptable at any severity</td>
+      <td><span class="tag t-part">Low</span></td>
+      <td><span class="tag t-no">Critical</span></td>
+      <td>Any diff in §7 rows 1–4 versus the session baseline; a rise in MCP 401s; a <code>sk_*</code> call reaching a non-BYOC orchestrator</td>
+      <td>INV-2/INV-5 in <b>PR-01 before any refactor</b>; rows 1–4 re-run on every track 1–3 merge; <code>resolveAuth</code> short-circuits on known prefixes before any store lookup (PR-08); no PR touches <span class="mono">key_routing.py</span>. <b>Deviation halts the plan — no fix-forward.</b></td>
+    </tr>
+    <tr>
+      <td><b>R2</b></td>
+      <td><b>Flag combinatorial explosion</b> — <var>n</var> flags ⇒ 2<sup><var>n</var></sup> states, most never tested</td>
+      <td><span class="tag t-part">Medium</span></td>
+      <td><span class="tag t-part">High</span></td>
+      <td>A PR proposing a third env knob, or a flag that gates a sub-behavior of an existing flag</td>
+      <td>Hard cap of <b>two</b> Storyboard knobs (N5); AP-6 is a blocking review item; the §7 matrix enumerates the full flag cross-product precisely because it is small enough to enumerate</td>
+    </tr>
+    <tr>
+      <td><b>R3</b></td>
+      <td><b>Agent / implementation complexity</b> — 17 PRs across 3 repos with long blocked chains invites context loss, speculative building of blocked work, and silent drift from this plan</td>
+      <td><span class="tag t-no">High</span></td>
+      <td><span class="tag t-part">High</span></td>
+      <td>A PR that does not map to exactly one §5 card; work starting on PR-12/PR-15 while OA-1/OA-2 are open; an invariant test being <em>edited</em> rather than satisfied; a PR body whose checklist is asserted without evidence</td>
+      <td>One PR = one card (§6 step 2); the blocked-by matrix (§2.4) is the only authority on what may start; <b>editing an INV test is an escalation tripwire, not a task</b> (§6 step 3); the stop line (§9) makes "ship P0 and stop" an explicit, pre-approved outcome rather than a failure</td>
+    </tr>
+    <tr>
+      <td><b>R4</b></td>
+      <td><b>Token-store complexity creep</b> — refresh tokens, rotation, revocation and multi-tenancy each multiply the lifecycle surface</td>
+      <td><span class="tag t-part">Medium</span></td>
+      <td><span class="tag t-part">Medium</span></td>
+      <td>The word "refresh" or "rotate" appearing in a track-2 PR; the store interface growing past three methods</td>
+      <td>Store interface frozen at <code>bind</code>/<code>lookup</code>/<code>revoke</code> (PR-06 acceptance); refresh tokens excluded (N8); revocation parked as PR-17 with a written trigger (N11); short TTL substitutes for lifecycle machinery</td>
+    </tr>
+    <tr>
+      <td><b>R5</b></td>
+      <td><b>Two mint paths live on one deployment</b> via a runtime provider picker</td>
+      <td><span class="tag t-part">Low</span></td>
+      <td><span class="tag t-part">High</span></td>
+      <td>A proposal for authorize-time provider selection or an A/B picker</td>
+      <td>One deployment = one <code>MCP_OAUTH_PROVIDER</code> (N3); both providers satisfy one shared contract test so there is nothing to A/B (LSP); AP-1 blocks provider conditionals outside the broker</td>
+    </tr>
+    <tr>
+      <td><b>R6</b></td>
+      <td><b>Credential leakage</b> — composite in a token response, a log line, a probe script default, or a commit</td>
+      <td><span class="tag t-part">Medium</span></td>
+      <td><span class="tag t-no">Critical</span></td>
+      <td>Any credential-shaped string in a diff, a log sample, or a test fixture</td>
+      <td>AP-5 blocks returning minted keys to clients, with a PR-07 test asserting absence from body <em>and</em> headers; secret-scan is a merge precondition on every card; credentials are env/in-memory only (§2.1 note); PR-06 forbids logging the composite even at debug</td>
+    </tr>
+    <tr>
+      <td><b>R7</b></td>
+      <td><b>Production drift</b> — the deployed SDK image does not match the repo, so plans are made against source that is not running</td>
+      <td><span class="tag t-no">High</span></td>
+      <td><span class="tag t-part">Medium</span></td>
+      <td>A YAML-derived claim about prod that nobody confirmed against the running container</td>
+      <td>RS-4 (<code>gcloud</code>) makes this checkable: PR-11's prod-verify step records the <b>actual running image digest</b>; PR-11 turns the missing <code>call_runner</code> from a runtime surprise into a build failure</td>
+    </tr>
+    <tr>
+      <td><b>R8</b></td>
+      <td><b>Scope creep while blocked</b> — idle capacity gets spent building speculative work on OA-blocked tracks</td>
+      <td><span class="tag t-no">High</span></td>
+      <td><span class="tag t-part">Medium</span></td>
+      <td>Design work appearing for PR-13 or PR-17 before their triggers fire</td>
+      <td>PR-13 and PR-17 have <b>deliberately unspecified</b> file lists with written triggers; §2.4 gates starts; the unblocked surface (PR-01…PR-08, PR-11) is large enough to absorb capacity honestly</td>
+    </tr>
+    <tr>
+      <td><b>R9</b></td>
+      <td><b>The cached 404</b> — <span class="mono">.well-known</span> routes serve their 404 with <code>immutable</code>, <code>max-age=86400</code>, so a flag flip does not reach clients or the CDN for up to 24 h</td>
+      <td><span class="tag t-no">High</span></td>
+      <td><span class="tag t-part">Medium</span></td>
+      <td>"We enabled it and nothing happened" — the single most likely confusing failure in this plan</td>
+      <td>PR-04 removes <code>immutable</code> and shortens <code>max-age</code> <b>before</b> any flip; gate G-B waits out one old TTL window; the flip runbook includes a CDN purge (§9)</td>
+    </tr>
+    <tr>
+      <td><b>R10</b></td>
+      <td><b>No durable KV exists in Storyboard</b> — the only durable store is public <span class="mono">@vercel/blob</span>, so the store needs a genuinely new dependency</td>
+      <td><span class="tag t-no">High</span></td>
+      <td><span class="tag t-no">Critical</span> if solved wrongly</td>
+      <td>A PR-06 implementation backed by a <code>Map</code>, a module-global, or blob storage; or "it works locally" with no cross-instance test</td>
+      <td>AP-9 + <b>AP-11</b> block both wrong answers; PR-06 requires a cross-instance test; escalated as <b>OA-6</b> because provisioning is an owner decision; if refused, the pre-approved outcome is <b>stop after track 2 and ship P0</b></td>
+    </tr>
+    <tr>
+      <td><b>R11</b></td>
+      <td><b>Billing a live customer app</b> instead of the test app during a probe</td>
+      <td><span class="tag t-part">Low</span></td>
+      <td><span class="tag t-no">Critical</span></td>
+      <td>An app id appearing as a literal in a script, or any probe without an app-id assertion</td>
+      <td>RS-2 fixes the target to the test app; PR-09/PR-10/PR-15 acceptance requires the app id to come from <b>env with a failing-closed test-app assertion</b>; §7 row 8 checks it on every matrix run</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================= 9. ROLLOUT ================= -->
+<h2 id="rollout">9. Rollout, sequencing &amp; the stop line</h2>
+
+<div class="phase">
+  <h3>Phase 0 — Foundation <span class="tag t-yes">start immediately</span></h3>
+  <p>PR-01 → PR-02 → PR-03, then PR-11 in parallel (different repo, no shared surface).</p>
+  <p class="gate"><b>Gate G-A:</b> INV-1…INV-6 green on <code>main</code>; §7 rows 1–4 match the pre-plan baseline; PR-11 demonstrably fails on today's tree.</p>
+</div>
+
+<div class="phase">
+  <h3>Phase 1 — Inert OAuth head <span class="tag t-yes">unblocked</span></h3>
+  <p>PR-04 → PR-05 → PR-06 → PR-07 → PR-08. Everything merges with <code>MCP_OAUTH_ENABLED</code> unset. <b>PR-06 requires OA-6 to be answered first.</b></p>
+  <p class="gate"><b>Gate G-B:</b> all five merged flag-OFF; prod shows zero behavior delta for 24 h; the old long-TTL 404 has aged out and a CDN purge is scheduled; the store passes its cross-instance test.</p>
+</div>
+
+<div class="phase">
+  <h3>Phase 2 — First flag flip, preview only <span class="tag t-part">needs OA-1</span></h3>
+  <p>PR-09 → PR-10. Flip <code>MCP_OAUTH_ENABLED=1</code> + <code>MCP_OAUTH_PROVIDER=naap</code> on <b>one preview deployment</b>, never prod.</p>
+  <p class="gate"><b>Gate G-C:</b> full 12-row matrix green on preview; one billed test-app call verified through the metering API; rows 1–4 still byte-identical in prod with the flag off.</p>
+</div>
+
+<div class="phase">
+  <h3>Phase 3 — LR canary <span class="tag t-no">needs OA-2, OA-4</span></h3>
+  <p>PR-12 on an isolated instance. PR-13 is authored <em>only after</em> PR-12 answers OA-4.</p>
+  <p class="gate"><b>Gate G-D:</b> a composite bearer produces a real asset via an LR orchestrator, billed to the test app, with shared staging provably untouched.</p>
+</div>
+
+<div class="phase">
+  <h3>Phase 4 — Scenario B <span class="tag t-no">needs OA-5, OA-1</span></h3>
+  <p>PR-14 → PR-15, then PR-16 docs. PR-17 stays deferred.</p>
+  <p class="gate"><b>Gate G-E:</b> both providers pass the same shared contract test unmodified; the 12-row matrix is green under each provider selection.</p>
+</div>
+
+<div class="verdict cond">
+  <b>The stop line.</b> If OA-1 (M2M secret) or OA-6 (a durable KV) cannot be resolved, the plan <b>stops cleanly at the end of Phase 1</b> and ships <b>P0 passthrough only</b>: users paste an <code>sk_*</code> or a composite key, exactly as today, with the OAuth head merged but inert. That is a <b>legitimate, pre-approved end state</b>, not a failure — Phase 0 and Phase 1 deliver the invariant harness, the resolution layer, the composite log visibility and the LR build guard on their own merits. Declaring this up front is what prevents the far worse outcome: shipping a half-wired OAuth path to work around a missing credential.
+</div>
+
+<!-- ================= 10. OPEN ================= -->
+<h2 id="open">10. Open questions &amp; owner asks</h2>
+
+<h3>10.1 Resolved 2026-08-07 — no longer blocking</h3>
+<ul class="clean">
+  <li><b>RS-1</b> — funded pymthouse <b>composite</b> bearer on the test app. Supplied, held in memory only. Unblocks the billed tail without the mint step.</li>
+  <li><b>RS-2</b> — billing target is the <b>TEST app</b>, never a live customer app. Now a hard, asserted constraint (§7 row 8, R11).</li>
+  <li><b>RS-3</b> — signer is the pymthouse <b>production</b> host <span class="mono">pymthouse-production.up.railway.app</span> (<b>not</b> <span class="mono">…-test-production</span>), <code>type=fixed</code> capable. Gives <code>PYMTHOUSE_SIGNER_URL</code> a known-good value and plausibly closes OQ-1, pending OA-4.</li>
+  <li><b>RS-4</b> — <code>gcloud</code> auth enabled. Converts the R7 prod-drift check from inference to observation.</li>
+</ul>
+
+<h3>10.2 Still open — ordered by what they block</h3>
+<table>
+  <thead><tr><th>#</th><th>Ask</th><th>Owner</th><th>Blocks</th><th>If unanswered</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>OA-1</b></td>
+      <td><b>pymthouse M2M client <em>secret</em></b> (<code>pmth_cs_…</code>) matching the supplied client id, scoped to the test app. <b>The supplied <code>m2m_…</code> value is a client <em>id</em>, and an id alone is not sufficient.</b></td>
+      <td>John / pymthouse</td>
+      <td><span class="tag t-no">PR-09, PR-10, PR-15 + all usage/metering reads</span></td>
+      <td>Track 3 can be written but never verified → stop line (ship P0)</td>
+    </tr>
+    <tr>
+      <td><b>OA-6</b></td>
+      <td><b>A durable KV for the oauth-store</b> (Upstash/Vercel KV or equivalent). <span class="tag t-new">NEW — raised by this review pass</span></td>
+      <td>Storyboard owner</td>
+      <td><span class="tag t-no">PR-06 → PR-07, PR-08</span></td>
+      <td>Phase 1 cannot complete safely; the only correct response is the stop line, <b>not</b> an in-memory or blob-backed store</td>
+    </tr>
+    <tr>
+      <td><b>OA-2</b></td>
+      <td>Go-ahead to rebuild + deploy an SDK image whose gateway exports <code>call_runner</code>, on an <b>isolated</b> instance</td>
+      <td>John / orch-infra</td>
+      <td><span class="tag t-no">PR-12, PR-13</span></td>
+      <td>LR dispatch stays broken; Phase 3 does not start</td>
+    </tr>
+    <tr>
+      <td><b>OA-5</b></td>
+      <td>pymthouse <b><code>web_</code> confidential client</b> with Storyboard prod + preview redirect URIs</td>
+      <td>pymthouse ops</td>
+      <td><span class="tag t-no">PR-14 → PR-15</span></td>
+      <td>Scenario B is not buildable; Scenario A is unaffected</td>
+    </tr>
+    <tr>
+      <td><b>OA-3</b></td>
+      <td>Does the production signer support <b>repeated / session</b> payment generation across many tool calls?</td>
+      <td>John / pymthouse</td>
+      <td><span class="tag t-part">PR-12 durability claim only</span></td>
+      <td>Tri-mode still works; we document a per-call mint cost. Measurable ourselves in PR-12's e2e</td>
+    </tr>
+    <tr>
+      <td><b>OA-4</b></td>
+      <td>Does <code>type=fixed</code> yield a payment for an LR orchestrator advertising <b>zero <code>CapabilitiesPrices</code></b>?</td>
+      <td>us (PR-12), John on standby</td>
+      <td><span class="tag t-part">PR-12, PR-13</span></td>
+      <td>Answerable by us with RS-1 + RS-3; a negative answer hands the next step back to the signer owner</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note bad">
+  <b>The single most important open item.</b> <b>OA-1 — the pymthouse M2M client <em>secret</em> is still required.</b> This was checked against the code rather than assumed: <span class="mono">pymthouse-keys-bff.ts:33–40</span> reads <code>PYMTHOUSE_M2M_CLIENT_ID</code> <em>and</em> <code>PYMTHOUSE_M2M_CLIENT_SECRET</code>, builds <code>Basic base64(id:secret)</code>, and returns <b>503 <code>pymthouse_required</code></b> if either is missing; the usage/plan endpoints authenticate the same way, which is why the composite app key 404s against them. <b>The client id supplied on 2026-08-07 does not close this ask.</b> Please supply the <em>current</em> secret — it has been rotated before.
+</div>
+
+</div>
+</body>
+</html>
