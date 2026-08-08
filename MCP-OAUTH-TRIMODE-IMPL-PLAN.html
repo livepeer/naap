@@ -286,6 +286,18 @@
   </tbody>
 </table>
 
+<div class="note warn" id="tkv-status">
+  <b>T-KV execution status — 2026-08-08 (partial / blocked).</b>
+  <ul class="clean">
+    <li><b>Target project:</b> Vercel <span class="mono">storyboard</span> on team Livepeer Foundation (<span class="mono">prj_hrsAcH3Y5gMuQuIToHp81ynTvncA</span> / <span class="mono">team_GOhUouAF8PsQO4CVvzpIriQV</span>) — prod host <span class="mono">storyboard.daydream.monster</span>.</li>
+    <li><b>Chosen adapter:</b> Marketplace <b>Upstash Redis</b> via <span class="mono">@upstash/redis</span> (Vercel KV product retired). Intended resource name: <span class="mono">storyboard-mcp-oauth</span>.</li>
+    <li><b>Env var names (no secret values):</b> prefer Marketplace defaults <span class="mono">KV_REST_API_URL</span> + <span class="mono">KV_REST_API_TOKEN</span> (also accept <span class="mono">UPSTASH_REDIS_REST_URL</span> + <span class="mono">UPSTASH_REDIS_REST_TOKEN</span>). Wire Production <b>and</b> Preview. App must boot when absent (PR-06 clean-boot path).</li>
+    <li><b>Blocker:</b> the Vercel token supplied for provisioning is <b>project-scoped</b> — it can read/write project env and project metadata, but API returns <span class="mono">forbidden</span> on <span class="mono">integrationResource:create</span> / listing integration configurations. CLI <span class="mono">vercel integration add upstash/redis</span> fails with <span class="mono">User not found</span> for the same token. <b>T-KV-1 not signed off</b>; T-KV-2…6 therefore cannot be closed for a live resource.</li>
+    <li><b>Unblock:</b> (1) account-scoped Livepeer Foundation token with marketplace install rights, or (2) owner creates Upstash Redis in the Vercel dashboard for <span class="mono">storyboard</span> (prod+preview) and confirms env injection. AP-9 / AP-11 remain blocking — do not substitute Map or blob.</li>
+    <li><b>Criteria checklist:</b> T-KV-1 ☐ · T-KV-2 ☐ (adapter designed for clean boot; env not yet wired) · T-KV-3 ☐ (Upstash platform property once provisioned) · T-KV-4 ☑ in adapter code (<span class="mono">SET EX</span> ≤ 24h) · T-KV-5 ☑ in adapter code (<span class="mono">mcp:oauth:at:{sha256}</span>) · T-KV-6 ☑ in adapter contract (lookup → server-side only).</li>
+  </ul>
+</div>
+
 <p style="font-size:13.4px;color:var(--mut)"><b>Choice note (brief, deliberately not a design chapter).</b> <b>Vercel KV</b> and <b>Upstash Redis</b> are the same underlying product family and both fit: managed Redis, encryption at rest, TLS, native per-key TTL, single-digit-ms latency from the same region, and a free/low tier that comfortably covers MVP token volume (bindings are small, short-lived, and written once per OAuth dance). <b>Recommendation: Vercel KV / Upstash Redis</b> — native <code>SET … EX</code> satisfies T-KV-4 with no application-level expiry logic, which is exactly the complexity R4 warns about. Rejected: <span class="mono">@vercel/blob</span> (public by default — AP-11), an in-memory <code>Map</code> (non-sticky instances — AP-9), and standing up Postgres purely for this (a schema, migrations and a connection pool for one TTL'd key-value pair is over-engineering). Whichever is chosen, T-KV-1…T-KV-6 are the bar.</p>
 
 <h3>2.2 Honest status of the four gating dependencies</h3>
@@ -692,6 +704,9 @@ sequenceDiagram
 <div class="note">
   <b>Track 1 MERGED on <span class="mono">livepeer/storyboard</span> <code>main</code>:</b> PR-01 <span class="mono">#868 → 7e39673f</span> · PR-02 <span class="mono">#869 → 788202b6</span> · PR-03 <span class="mono">#870 → 667afd74</span>. Merged <code>resolveAuth</code> <b>fail-closes unbound <code>mcp_at_*</code> unconditionally</b> (not gated on <code>MCP_OAUTH_ENABLED</code>) — intentional AP-2 guard. <b>Process:</b> Track 2+ must use a <b>single worker</b> (no parallel agents on auth code) to avoid R3 collision.
 </div>
+<div class="note">
+  <b>Track 2 progress — 2026-08-08 (single worker):</b> PR-04 <span class="mono">#871 → 7b0d00e2</span> <span class="tag t-yes">MERGED</span> (prod verified: well-known 404 <code>Cache-Control: public, max-age=60</code>, no <code>immutable</code>) · PR-05 <span class="mono">#872 → 94fb7459</span> <span class="tag t-yes">MERGED</span> (prod verified: 401 still <code>WWW-Authenticate: Bearer realm="storyboard-mcp"</code> with flag OFF) · PR-06 <span class="mono">#873</span> <span class="tag t-part">OPEN — merge gated on T-KV</span> · PR-07/PR-08 not started. <code>MCP_OAUTH_ENABLED</code> remains <b>unset in prod</b>.
+</div>
 
 <div class="pr" id="pr-01">
 <h3>PR-01 · Golden auth invariants (INV-1…INV-6) — <em>tests only, no product code</em></h3>
@@ -745,8 +760,8 @@ sequenceDiagram
 <h3>5.2 Track 2 — the OAuth head, inert until a gate says otherwise</h3>
 
 <div class="pr" id="pr-04">
-<h3>PR-04 · Protected-resource + AS metadata, and the <b>cache-control fix</b></h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_ENABLED unset → 404</span><span class="tag t-yes">unblocked</span><span class="tag t-part">R9 carrier</span></div>
+<h3>PR-04 · Protected-resource + AS metadata, and the <b>cache-control fix</b> <span class="tag t-yes">MERGED #871 → 7b0d00e2</span></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_ENABLED unset → 404</span><span class="tag t-yes">MERGED</span><span class="tag t-part">R9 carrier</span></div>
 <table>
   <tr><th>Purpose</th><td>Serve RFC 9728 PRM + AS metadata when the flag is ON; keep today's 404 when OFF. <b>Critically, fix the caching defect first</b> (drift D5): both routes currently return the 404 with <code>Cache-Control: public, max-age=86400, immutable</code> and <code>revalidate = 86400</code>, so a later flag flip would not reach clients or the CDN for up to 24 h.</td></tr>
   <tr><th>Files</th><td class="mono">app/.well-known/oauth-protected-resource/route.ts · app/.well-known/oauth-authorization-server/route.ts</td></tr>
@@ -761,8 +776,8 @@ sequenceDiagram
 </div>
 
 <div class="pr" id="pr-05">
-<h3>PR-05 · <code>401 WWW-Authenticate</code> challenge on the MCP endpoint</h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF</span><span class="tag t-part">after PR-04</span></div>
+<h3>PR-05 · <code>401 WWW-Authenticate</code> challenge on the MCP endpoint <span class="tag t-yes">MERGED #872 → 94fb7459</span></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF</span><span class="tag t-yes">MERGED</span><span class="tag t-part">after PR-04</span></div>
 <table>
   <tr><th>Purpose</th><td>When the flag is ON and no usable credential is present, return <code>401</code> with <code>WWW-Authenticate: Bearer resource_metadata="…"</code> so Claude starts the OAuth dance. When OFF, today's unauthenticated behavior (including the demo path) is untouched.</td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/mcp-http.ts · lib/mcp-server/auth/resolve.ts (challenge decision only)</td></tr>
@@ -776,8 +791,8 @@ sequenceDiagram
 </table>
 </div>
 <div class="pr" id="pr-06">
-<h3>PR-06 · <code>oauth-store</code> — restart-safe binding <code>mcp_at_*</code> → composite</h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">unused until PR-07</span><span class="tag t-part">new infra dep — funded (RS-6)</span><span class="tag t-yes">merge gate: T-KV-1…6</span></div>
+<h3>PR-06 · <code>oauth-store</code> — restart-safe binding <code>mcp_at_*</code> → composite <span class="tag t-part">OPEN #873 — T-KV gate</span></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">unused until PR-07</span><span class="tag t-part">new infra dep — funded (RS-6)</span><span class="tag t-no">merge gate: T-KV-1…6</span></div>
 <table>
   <tr><th>Purpose</th><td>Server-side, TTL'd binding from the opaque MCP token to the minted composite. The composite <b>never</b> leaves the server (AP-5).</td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/auth/oauth-store.ts <span class="tag t-new">NEW</span> · package.json (one dependency)</td></tr>
