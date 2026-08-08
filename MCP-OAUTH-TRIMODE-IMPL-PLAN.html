@@ -147,8 +147,8 @@
 
 <h3>1.1 What ships, in three sentences</h3>
 <ol class="clean">
-  <li><b>Foundation (PR-01…PR-03, Storyboard, no flags):</b> lock today's behavior with golden tests, then extract <code>resolveAuth()</code> as a behavior-preserving refactor of <code>extractAuthOrDemo</code>, and add a log-only <code>plane</code>/<code>scheme</code> classification so we can observe traffic mix before changing anything.</li>
-  <li><b>OAuth head (PR-04…PR-08, Storyboard, <code>MCP_OAUTH_ENABLED</code> default OFF):</b> real RFC 9728 Protected Resource Metadata + Authorization Server metadata, an RFC 9728-compliant <code>WWW-Authenticate</code> challenge, a restart-safe <code>mcp_at_*</code> session store, the authorize/callback/token broker, and exactly one new branch in <code>resolveAuth</code> that turns <code>mcp_at_*</code> into a bound <code>forwardBearer</code>.</li>
+  <li><b>Foundation (PR-01…PR-03, Storyboard, no flags):</b> <span class="tag t-yes">MERGED</span> lock today's behavior with golden tests, extract <code>resolveAuth()</code> from <code>extractAuthOrDemo</code>, and add a log-only <code>plane</code>/<code>scheme</code> classification. One intentional Auth Resolution delta: unbound <code>mcp_at_*</code> is <b>fail-closed always</b> (not gated on <code>MCP_OAUTH_ENABLED</code>) — invented prefix; prevents AP-2 silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code>.</li>
+  <li><b>OAuth head (PR-04…PR-08, Storyboard, <code>MCP_OAUTH_ENABLED</code> default OFF):</b> real RFC 9728 Protected Resource Metadata + Authorization Server metadata, an RFC 9728-compliant <code>WWW-Authenticate</code> challenge, a restart-safe <code>mcp_at_*</code> session store, the authorize/callback/token broker, and (PR-08) store lookup so <b>bound</b> <code>mcp_at_*</code> becomes a composite <code>forwardBearer</code> — unbound already fail-closes from Track 1.</li>
   <li><b>Mint providers + billed tail (PR-09…PR-16):</b> Scenario A mints via a new NaaP internal route wrapping the existing <code>createPymthouseApiKey</code>; Scenario B mints via a Storyboard-held M2M call to the same Builder endpoint; simple-infra gets a build-time guard for the LR gateway import plus canary-only key-routing config. Both scenarios emit the <em>same</em> composite shape, so there is one billed tail to test.</li>
 </ol>
 
@@ -585,18 +585,18 @@ flowchart TD
   DEMO -->|no| E401["401 AuthError — today's message"]
   HDR -->|yes| PFX{"Known key prefix?<br/>sk_ · app_*_pmth_* · naap_ · pmth_"}
   PFX -->|yes| OUTK["forwardBearer = token verbatim<br/>source: api_key"]
-  PFX -->|no| SESS{"mcp_at_* AND MCP_OAUTH_ENABLED=1?"}
-  SESS -->|yes| LOOK["oauth-store lookup"]
-  LOOK -->|hit and not expired| OUTS["forwardBearer = bound composite<br/>source: oauth_session"]
-  LOOK -->|miss or expired| E4012["401 + WWW-Authenticate"]
-  SESS -->|no| OPQ["opaque >= 16 chars<br/>passthrough — today's default"]
+  PFX -->|no| MCP{"mcp_at_* prefix?"}
+  MCP -->|yes| BOUND{"bound in oauth-store?<br/>(PR-08 wires lookup)"}
+  BOUND -->|hit and not expired| OUTS["forwardBearer = bound composite<br/>source: oauth_session"]
+  BOUND -->|unbound / miss / expired| E4012["401 fail-closed — never forwardBearer<br/>(flag-OFF and ON alike)"]
+  MCP -->|no| OPQ["opaque >= 16 chars<br/>passthrough"]
   OPQ --> OUTK
   OUTK --> SDK["sdkCall — auth-agnostic"]
   OUTS --> SDK
   OUTD --> SDK
 </pre>
 </div>
-<p><b>Flag-OFF collapse:</b> with <code>MCP_OAUTH_ENABLED</code> unset, the <code>SESS</code> branch always takes <em>no</em>, so an <code>mcp_at_*</code>-shaped token falls into the opaque passthrough — <b>byte-identical to today</b>, where such a token is simply an unrecognized opaque bearer. INV-1 asserts exactly this.</p>
+<p><b>Auth Resolution contract (merged Track 1):</b> unbound <code>mcp_at_*</code> is <b>rejected / fail-closed by <code>resolveAuth</code> always</b> — not gated on <code>MCP_OAUTH_ENABLED</code>. This is an intentional, low-risk flag-OFF entry change (prefix is invented; no production client holds <code>mcp_at_*</code> yet) and prevents AP-2 silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code>. <code>extractAuth</code> may still treat <code>mcp_at_*</code> as opaque for the INV-1 legacy path until callers fully migrate; the Auth Resolution contract itself is fail-closed. <b>PR-08:</b> when oauth-store lands, bound <code>mcp_at_*</code> resolves to the composite; unbound still fail-closes.</p>
 
 <h3>4.3 Scenario A — full billed sequence (target)</h3>
 <div class="mermaid-wrap">
@@ -676,8 +676,8 @@ sequenceDiagram
 <table>
   <thead><tr><th>Track</th><th>PRs</th><th>Repo</th><th>Ships behind</th><th>Blocked?</th></tr></thead>
   <tbody>
-    <tr><td><b>1 — Invariants &amp; resolution layer</b></td><td>PR-01 <span class="tag t-yes">shipped → PR #868</span> · PR-02 · PR-03</td><td class="mono">storyboard-a3</td><td>No flag — pure refactor + tests</td><td><span class="tag t-yes">start now</span></td></tr>
-    <tr><td><b>2 — OAuth head (inert)</b></td><td>PR-04 … PR-08</td><td class="mono">storyboard-a3</td><td><code>MCP_OAUTH_ENABLED</code> unset</td><td><span class="tag t-yes">start now</span></td></tr>
+    <tr><td><b>1 — Invariants &amp; resolution layer</b></td><td>PR-01 <span class="tag t-yes">MERGED #868 → 7e39673f</span> · PR-02 <span class="tag t-yes">MERGED #869 → 788202b6</span> · PR-03 <span class="tag t-yes">MERGED #870 → 667afd74</span></td><td class="mono">storyboard-a3</td><td>No flag — tests + resolveAuth + intentional <code>mcp_at_*</code> fail-close</td><td><span class="tag t-yes">MERGED</span></td></tr>
+    <tr><td><b>2 — OAuth head (inert)</b></td><td>PR-04 … PR-08</td><td class="mono">storyboard-a3</td><td><code>MCP_OAUTH_ENABLED</code> unset</td><td><span class="tag t-yes">start now</span> — <b>single worker</b> (no parallel agents on auth code; avoids R3 collision)</td></tr>
     <tr><td><b>3 — Mint providers</b></td><td>PR-09 · PR-10 · PR-15</td><td class="mono">NaaP + storyboard-a3</td><td><code>MCP_OAUTH_PROVIDER</code></td><td><span class="tag t-no">OA-1</span></td></tr>
     <tr><td><b>4 — LR / signer infrastructure</b></td><td>PR-11 · PR-12 · PR-13</td><td class="mono">simple-infra</td><td>Canary overlay only</td><td><span class="tag t-part">PR-11 free</span></td></tr>
     <tr><td><b>5 — Enablement &amp; deferred</b></td><td>PR-14 · PR-16 · PR-17</td><td>config · docs</td><td>—</td><td><span class="tag t-part">mixed</span></td></tr>
@@ -688,7 +688,10 @@ sequenceDiagram
   <b>Reading a PR card.</b> <b>Acceptance</b> = what must be true to merge. <b>Self-review</b> = what the author asserts in the PR body before requesting review. <b>Revert-safety</b> = what happens if this PR alone is reverted while later PRs are already merged.
 </div>
 
-<h3>5.1 Track 1 — invariants first, then the resolution layer</h3>
+<h3>5.1 Track 1 — invariants first, then the resolution layer <span class="tag t-yes">MERGED</span></h3>
+<div class="note">
+  <b>Track 1 MERGED on <span class="mono">livepeer/storyboard</span> <code>main</code>:</b> PR-01 <span class="mono">#868 → 7e39673f</span> · PR-02 <span class="mono">#869 → 788202b6</span> · PR-03 <span class="mono">#870 → 667afd74</span>. Merged <code>resolveAuth</code> <b>fail-closes unbound <code>mcp_at_*</code> unconditionally</b> (not gated on <code>MCP_OAUTH_ENABLED</code>) — intentional AP-2 guard. <b>Process:</b> Track 2+ must use a <b>single worker</b> (no parallel agents on auth code) to avoid R3 collision.
+</div>
 
 <div class="pr" id="pr-01">
 <h3>PR-01 · Golden auth invariants (INV-1…INV-6) — <em>tests only, no product code</em></h3>
@@ -698,7 +701,7 @@ sequenceDiagram
   <tr><th>Files</th><td class="mono">tests/unit/mcp-oauth-auth-invariants.test.ts <span class="tag t-new">NEW</span></td> </tr>
   <tr><th>Path correction</th><td><span class="tag t-part">drift fixed 2026-08-08</span> Earlier drafts said <span class="mono">lib/mcp-server/__tests__/</span>. That path <b>would never run</b>: <span class="mono">vitest.config.ts</span> includes only <span class="mono">tests/unit/**</span>, <span class="mono">tests/sim/**</span> and the creative-kit package. Tests live in <span class="mono">tests/unit/</span>.</td></tr>
   <tr><th>Flag &amp; default</th><td>None. Tests run unconditionally in CI, and are additionally parameterised over <code>MCP_OAUTH_ENABLED</code> ∈ {unset, "1"} so flag-OFF invariance is asserted from day one.</td></tr>
-  <tr><th>Acceptance</th><td>Six invariants green: <b>INV-1</b> an <code>mcp_at_*</code>-shaped bearer with the flag unset resolves exactly as an unrecognized opaque bearer does today; <b>INV-2</b> <code>sk_*</code> in → the <em>same byte string</em> out, <code>plane=daydream</code>; <b>INV-3</b> no code path can emit an <code>mcp_at_*</code> as <code>forwardBearer</code>; <b>INV-4</b> <span class="mono">resolve.ts</span> imports no <code>fetch</code>/HTTP client; <b>INV-5</b> <span class="mono">sdk-call.ts</span> is byte-unchanged (checksum test); <b>INV-6</b> <code>authForRestProxy</code> output is unchanged for all four key schemes.</td></tr>
+  <tr><th>Acceptance</th><td>Six invariants green: <b>INV-1</b> flag-OFF P0 paths (<code>sk_*</code>, demo, composites) stay byte-identical; <code>extractAuth</code> may still treat <code>mcp_at_*</code> as opaque for the legacy path until callers migrate, but <code>resolveAuth</code> <b>always fail-closes</b> unbound <code>mcp_at_*</code>; <b>INV-2</b> <code>sk_*</code> in → the <em>same byte string</em> out, <code>plane=daydream</code>; <b>INV-3</b> no code path can emit an <code>mcp_at_*</code> as <code>forwardBearer</code>; <b>INV-4</b> <span class="mono">resolve.ts</span> imports no <code>fetch</code>/HTTP client; <b>INV-5</b> <span class="mono">sdk-call.ts</span> is byte-unchanged (checksum test); <b>INV-6</b> <code>authForRestProxy</code> output is unchanged for all four key schemes.</td></tr>
   <tr><th>Self-review</th><td>☐ Tests fail if I deliberately break each invariant (mutation-check each one, paste output in the PR body) ☐ no product file in the diff ☐ no network in tests ☐ secret-scan clean</td></tr>
   <tr><th>E2E</th><td>N/A — unit level by design. The live counterpart is the §7 matrix.</td></tr>
   <tr><th>Prod verify</th><td>None (no runtime change). CI green on <code>main</code> is the gate.</td></tr>
@@ -711,7 +714,7 @@ sequenceDiagram
 <h3>PR-02 · Introduce <code>resolveAuth()</code> — the single mode-selection site</h3>
 <div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">no flag</span><span class="tag t-part">after PR-01</span></div>
 <table>
-  <tr><th>Purpose</th><td>Create <span class="mono">auth/resolve.ts</span> and route the <b>MCP</b> entry through it. At this PR the body is <em>literally today's <code>extractAuthOrDemo</code> logic</em> wrapped in the <code>ResolvedCredential</code> shape (§3.2) — a pure refactor with no behavior delta.</td></tr>
+  <tr><th>Purpose</th><td>Create <span class="mono">auth/resolve.ts</span> and route the <b>MCP</b> entry through it. Body is today's <code>extractAuthOrDemo</code> logic wrapped in the <code>ResolvedCredential</code> shape (§3.2), <b>plus one intentional delta:</b> unbound <code>mcp_at_*</code> is fail-closed by <code>resolveAuth</code> always (not gated on <code>MCP_OAUTH_ENABLED</code>) — invented prefix; prevents AP-2. <span class="tag t-yes">MERGED #869 → 788202b6</span></td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/auth/resolve.ts <span class="tag t-new">NEW</span> · lib/mcp-server/mcp-http.ts (call site ~:69, adapter to <code>AuthContext</code> at ~:99) · lib/mcp-server/auth.ts (<code>extractAuthOrDemo</code> :133 — re-exported, body moved, <b>not deleted</b>)</td></tr>
   <tr><th>Flag &amp; default</th><td>None — there is no new behavior to gate. Adding a flag here would be AP-6.</td></tr>
   <tr><th>Acceptance</th><td>INV-1…INV-6 still green, unmodified. <code>buildStoryboardMcpServer</code> signature unchanged. <b>Non-goal asserted in the PR body:</b> <code>authForRestProxy</code> (<span class="mono">auth-rest.ts:42</span>) is <em>not</em> routed through <code>resolveAuth</code> (D4 / AP-8).</td></tr>
@@ -811,10 +814,10 @@ sequenceDiagram
 <h3>PR-08 · <code>resolveAuth</code> learns the store lookup — the last wiring step</h3>
 <div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF</span><span class="tag t-part">after PR-06, PR-07</span><span class="tag t-no">highest-blast-radius PR in track 2</span></div>
 <table>
-  <tr><th>Purpose</th><td>Teach the single resolution site that an <code>mcp_at_*</code> bearer + flag ON ⇒ look up the store and forward the bound composite. This is the only PR that changes what <code>forwardBearer</code> can be.</td></tr>
+  <tr><th>Purpose</th><td>Wire oauth-store into the single resolution site: bound <code>mcp_at_*</code> ⇒ forward the composite. Track 1 already fail-closes <em>unbound</em> <code>mcp_at_*</code>; this PR is the only change that can make <code>forwardBearer</code> a minted composite from an OAuth session. <b>Note:</b> when oauth-store lands, bound <code>mcp_at_*</code> resolves to composite; unbound still fail-closes.</td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/auth/resolve.ts</td></tr>
-  <tr><th>Flag &amp; default</th><td><code>MCP_OAUTH_ENABLED</code> — <b>unset (OFF)</b>. OFF ⇒ the <code>mcp_at_*</code> branch is unreachable and such a token falls through to opaque passthrough, exactly as today (INV-1).</td></tr>
-  <tr><th>Acceptance</th><td>INV-1/INV-2/INV-3 green with the flag <b>both</b> unset and set. Store miss or expired ⇒ <code>401</code>, <b>never</b> a fallthrough that forwards <code>mcp_at_*</code> to the SDK (INV-3 — the AP-2 catastrophe, whose worst case is silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code>). <code>sk_*</code> and composite bearers <b>never</b> consult the store (short-circuit before lookup — also a latency guarantee).</td></tr>
+  <tr><th>Flag &amp; default</th><td><code>MCP_OAUTH_ENABLED</code> — <b>unset (OFF)</b>. OFF ⇒ store lookup not used for success paths; unbound <code>mcp_at_*</code> still <b>fail-closes</b> (Track 1 contract — not opaque passthrough). ON ⇒ bound hit → composite; unbound / miss / expired → 401.</td></tr>
+  <tr><th>Acceptance</th><td>INV-1/INV-2/INV-3 green with the flag <b>both</b> unset and set. Store miss, expired, or unbound ⇒ <code>401</code>, <b>never</b> a fallthrough that forwards <code>mcp_at_*</code> to the SDK (INV-3 — the AP-2 catastrophe, whose worst case is silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code>). <code>sk_*</code> and composite bearers <b>never</b> consult the store (short-circuit before lookup — also a latency guarantee).</td></tr>
   <tr><th>Self-review</th><td>☐ store lookup is strictly after the known-prefix checks ☐ no <code>fetch</code> added to <span class="mono">resolve.ts</span> (INV-4) ☐ failure mode is fail-closed ☐ <span class="mono">sdk-call.ts</span> untouched (INV-5) ☐ secret-scan clean</td></tr>
   <tr><th>E2E</th><td>Preview flag ON: full dance → <code>mcp_at_*</code> → real <code>tools/call</code> → assert the SDK received a <code>app_*_pmth_*</code> and the job is billed to the <b>test app</b>. Then flag OFF and re-run the four §7 Daydream rows.</td></tr>
   <tr><th>Prod verify</th><td>Merge flag OFF. Run §7 rows 1–4 (<code>sk_*</code>) against prod and diff against the pre-merge baseline — byte-identical forwarding required.</td></tr>
@@ -1017,10 +1020,10 @@ sequenceDiagram
     <tr><td>6</td><td class="mono">app_*_pmth_* valid</td><td><b>1</b></td><td>same bytes in and out</td><td>Identical to row 5 — a composite <b>never</b> consults the store</td><td><span class="tag t-part">PR-08</span></td></tr>
     <tr><td>7</td><td class="mono">app_*_pmth_* invalid</td><td>unset / 1</td><td>forwarded verbatim</td><td>Signer-side rejection, surfaced unchanged</td><td><span class="tag t-part">canary</span></td></tr>
     <tr><td>8</td><td class="mono">app_*_pmth_*</td><td>unset</td><td>—</td><td><b>Billed to the TEST app only</b> — assert app id on every probe. Proof bar = <b>signer 200 + <code>numTickets</code> in range + real asset URL</b>; usage-API debit read <span class="tag t-off">deferred (FU-1)</span></td><td><span class="tag t-yes">RS-2</span> <span class="tag t-off">§2.3.1</span></td></tr>
-    <tr><td>9</td><td class="mono">mcp_at_* shaped</td><td>unset</td><td>treated as unrecognized opaque, <b>exactly as today</b></td><td>Whatever today does with an unknown opaque bearer</td><td><span class="tag t-yes">INV-1</span></td></tr>
-    <tr><td>10</td><td class="mono">mcp_at_* bound</td><td><b>1</b></td><td>bound composite <code>app_*_pmth_*</code></td><td>pymthouse signer → LR orch, test app billed</td><td><span class="tag t-part">PR-08</span></td></tr>
-    <tr><td>11</td><td class="mono">mcp_at_* expired / unknown</td><td><b>1</b></td><td><b>none — 401</b></td><td>Fail closed. <b>Never</b> a fallthrough to the SDK</td><td><span class="tag t-yes">INV-3</span></td></tr>
-    <tr><td>12</td><td>any</td><td>any</td><td><code>mcp_at_*</code> must <b>never</b> appear as <code>forwardBearer</code></td><td>Prevents <code>UNMATCHED</code> → <code>fail_closed</code>, or silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code></td><td><span class="tag t-yes">INV-3</span></td></tr>
+    <tr><td>9</td><td class="mono">mcp_at_* unbound</td><td>unset / 1</td><td><b>none — 401</b> by <code>resolveAuth</code> (fail-closed always; <b>not</b> gated on flag)</td><td>Intentional low-risk flag-OFF entry change (invented prefix). Never opaque-forward. Prevents AP-2 / silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code>. <code>extractAuth</code> may still classify opaque for INV-1 legacy until callers migrate</td><td><span class="tag t-yes">INV-3</span></td></tr>
+    <tr><td>10</td><td class="mono">mcp_at_* bound</td><td><b>1</b></td><td>bound composite <code>app_*_pmth_*</code></td><td>pymthouse signer → LR orch, test app billed. <b>PR-08:</b> store lands → bound resolves to composite; unbound still fail-closes</td><td><span class="tag t-part">PR-08</span></td></tr>
+    <tr><td>11</td><td class="mono">mcp_at_* expired / unknown</td><td>unset / 1</td><td><b>none — 401</b></td><td>Fail closed. <b>Never</b> a fallthrough to the SDK</td><td><span class="tag t-yes">INV-3</span></td></tr>
+    <tr><td>12</td><td>any</td><td>any</td><td><code>mcp_at_*</code> must <b>never</b> appear as <code>forwardBearer</code></td><td>Auth Resolution contract: unbound rejected; bound (PR-08) replaced by composite before forward. Prevents <code>UNMATCHED</code> → <code>fail_closed</code>, or silent Daydream billing under <code>KEY_ROUTING_UNMATCHED=daydream</code></td><td><span class="tag t-yes">INV-3</span></td></tr>
   </tbody>
 </table>
 
@@ -1028,9 +1031,9 @@ sequenceDiagram
 <table>
   <thead><tr><th>ID</th><th>Asserts</th><th>Fails loudly when…</th></tr></thead>
   <tbody>
-    <tr><td><b>INV-1</b></td><td>Flag-OFF invariance: an <code>mcp_at_*</code>-shaped bearer with the flag unset behaves as an unrecognized opaque bearer</td><td>Someone makes the OAuth branch reachable without the flag</td></tr>
+    <tr><td><b>INV-1</b></td><td>Flag-OFF P0 invariance (<code>sk_*</code>, demo, composites byte-identical). <code>extractAuth</code> may still treat <code>mcp_at_*</code> as opaque for the legacy path until callers migrate; <code>resolveAuth</code> always fail-closes unbound <code>mcp_at_*</code></td><td>Someone reintroduces opaque-forward of <code>mcp_at_*</code> from <code>resolveAuth</code>, or mutates P0 flag-OFF paths</td></tr>
     <tr><td><b>INV-2</b></td><td><code>sk_*</code> byte-identity in → out, <code>plane=daydream</code></td><td>Any PR mutates, normalizes, or re-cases the Daydream bearer</td></tr>
-    <tr><td><b>INV-3</b></td><td>No code path emits <code>mcp_at_*</code> as <code>forwardBearer</code>; store miss ⇒ 401</td><td>A fallthrough is added to <code>resolveAuth</code> (AP-2) — the highest-severity failure in the plan</td></tr>
+    <tr><td><b>INV-3</b></td><td>No code path emits <code>mcp_at_*</code> as <code>forwardBearer</code>; unbound / store miss / expired ⇒ 401 (fail-closed always, not flag-gated)</td><td>A fallthrough is added to <code>resolveAuth</code> (AP-2) — the highest-severity failure in the plan</td></tr>
     <tr><td><b>INV-4</b></td><td><span class="mono">resolve.ts</span> imports no <code>fetch</code>/HTTP client</td><td>Mint logic creeps into the resolution layer (SRP breach)</td></tr>
     <tr><td><b>INV-5</b></td><td><span class="mono">sdk-call.ts</span> byte-unchanged across the whole plan</td><td>Someone widens <code>sdkCall</code> to accept a <code>ResolvedCredential</code> (ISP breach)</td></tr>
     <tr><td><b>INV-6</b></td><td><code>authForRestProxy</code> output unchanged for all key schemes</td><td>OAuth is wired into the REST proxy (AP-8) — 10+ routes would silently inherit it</td></tr>
@@ -1070,7 +1073,7 @@ sequenceDiagram
       <td><span class="tag t-no">High</span></td>
       <td><span class="tag t-part">High</span></td>
       <td>A PR that does not map to exactly one §5 card; work starting on PR-12/PR-15 while OA-1/OA-2 are open; an invariant test being <em>edited</em> rather than satisfied; a PR body whose checklist is asserted without evidence</td>
-      <td>One PR = one card (§6 step 2); the blocked-by matrix (§2.4) is the only authority on what may start; <b>editing an INV test is an escalation tripwire, not a task</b> (§6 step 3); the stop line (§9) makes "ship P0 and stop" an explicit, pre-approved outcome rather than a failure</td>
+      <td>One PR = one card (§6 step 2); the blocked-by matrix (§2.4) is the only authority on what may start; <b>editing an INV test is an escalation tripwire, not a task</b> (§6 step 3); the stop line (§9) makes "ship P0 and stop" an explicit, pre-approved outcome rather than a failure. <b>Process (post Track 1 collision): Track 2+ must use a single worker — no parallel agents on auth code — to avoid R3 collision.</b></td>
     </tr>
     <tr>
       <td><b>R4</b></td>
@@ -1143,14 +1146,14 @@ sequenceDiagram
 <h2 id="rollout">9. Rollout, sequencing &amp; the stop line</h2>
 
 <div class="phase">
-  <h3>Phase 0 — Foundation <span class="tag t-yes">start immediately</span></h3>
-  <p>PR-01 → PR-02 → PR-03, then PR-11 in parallel (different repo, no shared surface).</p>
-  <p class="gate"><b>Gate G-A:</b> INV-1…INV-6 green on <code>main</code>; §7 rows 1–4 match the pre-plan baseline; PR-11 demonstrably fails on today's tree.</p>
+  <h3>Phase 0 — Foundation <span class="tag t-yes">MERGED</span></h3>
+  <p>PR-01 <span class="mono">#868 → 7e39673f</span> → PR-02 <span class="mono">#869 → 788202b6</span> → PR-03 <span class="mono">#870 → 667afd74</span> on <span class="mono">livepeer/storyboard</span> <code>main</code>. Unbound <code>mcp_at_*</code> fail-closes in <code>resolveAuth</code> always. PR-11 may still proceed in parallel (different repo, no shared surface).</p>
+  <p class="gate"><b>Gate G-A:</b> <span class="tag t-yes">passed</span> — Track 1 merged; INV-1…INV-6 green on <code>main</code>; §7 rows 1–4 remain the ongoing tripwire.</p>
 </div>
 
 <div class="phase">
   <h3>Phase 1 — Inert OAuth head <span class="tag t-yes">unblocked</span></h3>
-  <p>PR-04 → PR-05 → PR-06 → PR-07 → PR-08. Everything merges with <code>MCP_OAUTH_ENABLED</code> unset. <b>Un-gated by decision RS-6</b> — the KV is being provisioned, so this phase proceeds. Run owner task <b>T-KV</b> (§2.1.1) in parallel with PR-04/PR-05 so it is signed off by the time PR-06 is ready to merge; it is on the critical path for nothing else.</p>
+  <p>PR-04 → PR-05 → PR-06 → PR-07 → PR-08. Everything merges with <code>MCP_OAUTH_ENABLED</code> unset. <b>Un-gated by decision RS-6</b> — the KV is being provisioned, so this phase proceeds. Run owner task <b>T-KV</b> (§2.1.1) alongside PR-04/PR-05 so it is signed off by the time PR-06 is ready to merge. <b>Single worker on Storyboard auth code</b> (no parallel agents) — Track 1 R3 collision lesson.</p>
   <p class="gate"><b>Gate G-B:</b> all five merged flag-OFF; <b>T-KV-1…T-KV-6 signed off</b>; prod shows zero behavior delta for 24 h; the old long-TTL 404 has aged out and a CDN purge is scheduled; the store passes its cross-instance test.</p>
 </div>
 
