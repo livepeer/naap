@@ -704,7 +704,7 @@ sequenceDiagram
   <b>Track 1 MERGED on <span class="mono">livepeer/storyboard</span> <code>main</code>:</b> PR-01 <span class="mono">#868 → 7e39673f</span> · PR-02 <span class="mono">#869 → 788202b6</span> · PR-03 <span class="mono">#870 → 667afd74</span>. Merged <code>resolveAuth</code> <b>fail-closes unbound <code>mcp_at_*</code> unconditionally</b> (not gated on <code>MCP_OAUTH_ENABLED</code>) — intentional AP-2 guard. <b>Process:</b> Track 2+ must use a <b>single worker</b> (no parallel agents on auth code) to avoid R3 collision.
 </div>
 <div class="note">
-  <b>Track 2 progress — 2026-08-08 (single worker) <span class="tag t-yes">COMPLETE</span>:</b> PR-04 <span class="mono">#871 → 7b0d00e2</span> · PR-05 <span class="mono">#872 → 94fb7459</span> · PR-06 <span class="mono">#873 → fb7d33db</span> · PR-07 <span class="mono">#874 → 4177fd63</span> · PR-08 <span class="mono">#875 → 883a8a8c</span> — all <span class="tag t-yes">MERGED</span>. T-KV signed off. Prod verify (flag OFF): broker authorize 404; unbound <code>mcp_at_*</code> 401 fail-closed; well-known still Bearer-only 404 body. <code>MCP_OAUTH_ENABLED</code> remains <b>unset in prod</b>. <b>Track 3:</b> PR-09 <span class="mono">livepeer/naap#458 → 49d95d0d</span> <span class="tag t-yes">MERGED</span> · PR-10 <span class="mono">livepeer/storyboard#876</span> open (code + unit tests; <span class="mono">registry.ts</span> untouched). M2M secret <em>received</em> but not yet wired on NaaP Vercel (project-scoped Storyboard token cannot write <span class="mono">web-next</span> / naap-platform env) — verify still gated.
+  <b>Track 2 progress — 2026-08-08 (single worker) <span class="tag t-yes">COMPLETE</span>:</b> PR-04 <span class="mono">#871 → 7b0d00e2</span> · PR-05 <span class="mono">#872 → 94fb7459</span> · PR-06 <span class="mono">#873 → fb7d33db</span> · PR-07 <span class="mono">#874 → 4177fd63</span> · PR-08 <span class="mono">#875 → 883a8a8c</span> — all <span class="tag t-yes">MERGED</span>. T-KV signed off. Prod verify (flag OFF): broker authorize 404; unbound <code>mcp_at_*</code> 401 fail-closed; well-known still Bearer-only 404 body. <code>MCP_OAUTH_ENABLED</code> remains <b>unset in prod</b>. <b>Track 3:</b> PR-09 <span class="mono">livepeer/naap#458 → 49d95d0d</span> <span class="tag t-yes">MERGED</span> · PR-10 <span class="mono">livepeer/storyboard#876 → a4b468e6</span> <span class="tag t-yes">MERGED</span> (registry.ts untouched). M2M secret <em>received</em> but not yet wired on NaaP Vercel (project-scoped Storyboard token cannot write <span class="mono">web-next</span> / naap-platform env) — verify still gated.
 </div>
 
 <div class="pr" id="pr-01">
@@ -863,7 +863,7 @@ sequenceDiagram
 </div>
 
 <div class="pr" id="pr-10">
-<h3>PR-10 · Storyboard <code>naap</code> provider (P1) — registry entry + adapter <span class="tag t-part">OPEN storyboard#876</span></h3>
+<h3>PR-10 · Storyboard <code>naap</code> provider (P1) — registry entry + adapter <span class="tag t-yes">MERGED storyboard#876 → a4b468e6</span></h3>
 <div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_PROVIDER=naap</span><span class="tag t-part">verify gated on NaaP env wire + PR-09</span></div>
 <table>
   <tr><th>Purpose</th><td>Implement <code>BillingProvider</code> for Scenario A: NaaP session OAuth for identity, then delegate the mint to PR-09's route. <b>Adds a file and a JSON entry — <span class="mono">registry.ts</span> logic is not modified</b> (OCP, N1).</td></tr>
