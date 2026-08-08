@@ -286,15 +286,14 @@
   </tbody>
 </table>
 
-<div class="note warn" id="tkv-status">
-  <b>T-KV execution status — 2026-08-08 (partial / blocked).</b>
+<div class="note" id="tkv-status">
+  <b>T-KV execution status — 2026-08-08 <span class="tag t-yes">SIGNED OFF</span>.</b>
   <ul class="clean">
-    <li><b>Target project:</b> Vercel <span class="mono">storyboard</span> on team Livepeer Foundation (<span class="mono">prj_hrsAcH3Y5gMuQuIToHp81ynTvncA</span> / <span class="mono">team_GOhUouAF8PsQO4CVvzpIriQV</span>) — prod host <span class="mono">storyboard.daydream.monster</span>.</li>
-    <li><b>Chosen adapter:</b> Marketplace <b>Upstash Redis</b> via <span class="mono">@upstash/redis</span> (Vercel KV product retired). Intended resource name: <span class="mono">storyboard-mcp-oauth</span>.</li>
-    <li><b>Env var names (no secret values):</b> prefer Marketplace defaults <span class="mono">KV_REST_API_URL</span> + <span class="mono">KV_REST_API_TOKEN</span> (also accept <span class="mono">UPSTASH_REDIS_REST_URL</span> + <span class="mono">UPSTASH_REDIS_REST_TOKEN</span>). Wire Production <b>and</b> Preview. App must boot when absent (PR-06 clean-boot path).</li>
-    <li><b>Blocker:</b> the Vercel token supplied for provisioning is <b>project-scoped</b> — it can read/write project env and project metadata, but API returns <span class="mono">forbidden</span> on <span class="mono">integrationResource:create</span> / listing integration configurations. CLI <span class="mono">vercel integration add upstash/redis</span> fails with <span class="mono">User not found</span> for the same token. <b>T-KV-1 not signed off</b>; T-KV-2…6 therefore cannot be closed for a live resource.</li>
-    <li><b>Unblock:</b> (1) account-scoped Livepeer Foundation token with marketplace install rights, or (2) owner creates Upstash Redis in the Vercel dashboard for <span class="mono">storyboard</span> (prod+preview) and confirms env injection. AP-9 / AP-11 remain blocking — do not substitute Map or blob.</li>
-    <li><b>Criteria checklist:</b> T-KV-1 ☐ · T-KV-2 ☐ (adapter designed for clean boot; env not yet wired) · T-KV-3 ☐ (Upstash platform property once provisioned) · T-KV-4 ☑ in adapter code (<span class="mono">SET EX</span> ≤ 24h) · T-KV-5 ☑ in adapter code (<span class="mono">mcp:oauth:at:{sha256}</span>) · T-KV-6 ☑ in adapter contract (lookup → server-side only).</li>
+    <li><b>Target project:</b> Vercel <span class="mono">storyboard</span> on team Livepeer Foundation (<span class="mono">prj_hrsAcH3Y5gMuQuIToHp81ynTvncA</span>) — prod host <span class="mono">storyboard.daydream.monster</span>.</li>
+    <li><b>Resource:</b> Upstash Redis (Marketplace) — REST host <span class="mono">hot-pony-162309.upstash.io</span>. Wired Production <b>and</b> Preview.</li>
+    <li><b>Env var names (no secret values):</b> <span class="mono">KV_REST_API_URL</span>, <span class="mono">KV_REST_API_TOKEN</span>, <span class="mono">KV_REST_API_READ_ONLY_TOKEN</span>, <span class="mono">KV_URL</span>, <span class="mono">REDIS_URL</span>. Adapter also accepts <span class="mono">UPSTASH_REDIS_REST_*</span> aliases. Clean boot when absent (PR-06).</li>
+    <li><b>Smoke:</b> REST <span class="mono">SET/GET/TTL/DEL</span> with short TTL succeeded against the provisioned store (values not logged).</li>
+    <li><b>Criteria checklist:</b> T-KV-1 ☑ · T-KV-2 ☑ · T-KV-3 ☑ (Upstash encryption at rest + TLS REST) · T-KV-4 ☑ (<span class="mono">SET EX</span> ≤ 24h in adapter) · T-KV-5 ☑ (<span class="mono">mcp:oauth:at:{sha256}</span>) · T-KV-6 ☑ (lookup → server-side <code>forwardBearer</code> only). AP-9 / AP-11 remain blocking anti-patterns.</li>
   </ul>
 </div>
 
