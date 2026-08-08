@@ -704,7 +704,7 @@ sequenceDiagram
   <b>Track 1 MERGED on <span class="mono">livepeer/storyboard</span> <code>main</code>:</b> PR-01 <span class="mono">#868 → 7e39673f</span> · PR-02 <span class="mono">#869 → 788202b6</span> · PR-03 <span class="mono">#870 → 667afd74</span>. Merged <code>resolveAuth</code> <b>fail-closes unbound <code>mcp_at_*</code> unconditionally</b> (not gated on <code>MCP_OAUTH_ENABLED</code>) — intentional AP-2 guard. <b>Process:</b> Track 2+ must use a <b>single worker</b> (no parallel agents on auth code) to avoid R3 collision.
 </div>
 <div class="note">
-  <b>Track 2 progress — 2026-08-08 (single worker):</b> PR-04 <span class="mono">#871 → 7b0d00e2</span> <span class="tag t-yes">MERGED</span> (prod verified: well-known 404 <code>Cache-Control: public, max-age=60</code>, no <code>immutable</code>) · PR-05 <span class="mono">#872 → 94fb7459</span> <span class="tag t-yes">MERGED</span> (prod verified: 401 still <code>WWW-Authenticate: Bearer realm="storyboard-mcp"</code> with flag OFF) · PR-06 <span class="mono">#873</span> <span class="tag t-part">OPEN — merge gated on T-KV</span> · PR-07/PR-08 not started. <code>MCP_OAUTH_ENABLED</code> remains <b>unset in prod</b>.
+  <b>Track 2 progress — 2026-08-08 (single worker) <span class="tag t-yes">COMPLETE</span>:</b> PR-04 <span class="mono">#871 → 7b0d00e2</span> · PR-05 <span class="mono">#872 → 94fb7459</span> · PR-06 <span class="mono">#873 → fb7d33db</span> · PR-07 <span class="mono">#874 → 4177fd63</span> · PR-08 <span class="mono">#875 → 883a8a8c</span> — all <span class="tag t-yes">MERGED</span>. T-KV signed off. Prod verify (flag OFF): broker authorize 404; unbound <code>mcp_at_*</code> 401 fail-closed; well-known still Bearer-only 404 body. <code>MCP_OAUTH_ENABLED</code> remains <b>unset in prod</b>. <b>Track 3:</b> PR-09 <span class="mono">livepeer/naap#458</span> open (code + unit tests); M2M secret <em>received</em> but not yet wired on NaaP Vercel (project-scoped Storyboard token cannot write <span class="mono">web-next</span> / naap-platform env) — verify still gated.
 </div>
 
 <div class="pr" id="pr-01">
@@ -790,8 +790,8 @@ sequenceDiagram
 </table>
 </div>
 <div class="pr" id="pr-06">
-<h3>PR-06 · <code>oauth-store</code> — restart-safe binding <code>mcp_at_*</code> → composite <span class="tag t-part">OPEN #873 — T-KV gate</span></h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">unused until PR-07</span><span class="tag t-part">new infra dep — funded (RS-6)</span><span class="tag t-no">merge gate: T-KV-1…6</span></div>
+<h3>PR-06 · <code>oauth-store</code> — restart-safe binding <code>mcp_at_*</code> → composite <span class="tag t-yes">MERGED #873 → fb7d33db</span></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-yes">T-KV signed off</span><span class="tag t-yes">@upstash/redis</span></div>
 <table>
   <tr><th>Purpose</th><td>Server-side, TTL'd binding from the opaque MCP token to the minted composite. The composite <b>never</b> leaves the server (AP-5).</td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/auth/oauth-store.ts <span class="tag t-new">NEW</span> · package.json (one dependency)</td></tr>
@@ -809,8 +809,8 @@ sequenceDiagram
 </div>
 
 <div class="pr" id="pr-07">
-<h3>PR-07 · Broker routes — <code>authorize</code> / <code>callback</code> / <code>token</code> (PKCE S256)</h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF → 404</span><span class="tag t-part">after PR-06</span></div>
+<h3>PR-07 · Broker routes — <code>authorize</code> / <code>callback</code> / <code>token</code> (PKCE S256) <span class="tag t-yes">MERGED #874 → 4177fd63</span></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF → 404</span><span class="tag t-yes">merged</span></div>
 <table>
   <tr><th>Purpose</th><td>The OAuth head itself: start the upstream dance, receive the code, exchange it, call the selected mint provider once, bind the result, and return an opaque <code>mcp_at_*</code>.</td></tr>
   <tr><th>Files</th><td class="mono">app/api/mcp/oauth/authorize/route.ts · …/callback/route.ts · …/token/route.ts <span class="tag t-new">NEW</span> · lib/mcp-server/auth/providers/registry.ts (<b>consumed, not modified</b>)</td></tr>
@@ -825,8 +825,8 @@ sequenceDiagram
 </div>
 
 <div class="pr" id="pr-08">
-<h3>PR-08 · <code>resolveAuth</code> learns the store lookup — the last wiring step</h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF</span><span class="tag t-part">after PR-06, PR-07</span><span class="tag t-no">highest-blast-radius PR in track 2</span></div>
+<h3>PR-08 · <code>resolveAuth</code> learns the store lookup — the last wiring step <span class="tag t-yes">MERGED #875 → 883a8a8c</span></h3>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">flag OFF</span><span class="tag t-yes">merged</span></div>
 <table>
   <tr><th>Purpose</th><td>Wire oauth-store into the single resolution site: bound <code>mcp_at_*</code> ⇒ forward the composite. Track 1 already fail-closes <em>unbound</em> <code>mcp_at_*</code>; this PR is the only change that can make <code>forwardBearer</code> a minted composite from an OAuth session. <b>Note:</b> when oauth-store lands, bound <code>mcp_at_*</code> resolves to composite; unbound still fail-closes.</td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/auth/resolve.ts</td></tr>
@@ -843,12 +843,12 @@ sequenceDiagram
 <h3>5.3 Track 3 — mint providers (gated on OA-1)</h3>
 
 <div class="note warn">
-  <b>Whole-track blocker.</b> PR-09, PR-10 and PR-15 can all be <em>written</em> and unit-tested behind an injected <code>fetch</code>, but <b>none can be prod-verified without the pymthouse M2M client <em>secret</em></b> (OA-1). <span class="mono">pymthouse-keys-bff.ts</span> builds <code>Basic base64(m2mId + ":" + m2mSecret)</code> from <code>PYMTHOUSE_M2M_CLIENT_ID</code> + <code>PYMTHOUSE_M2M_CLIENT_SECRET</code> and returns <b>503 <code>pymthouse_required</code></b> when either half is missing (<span class="mono">:33–40</span>). A client id alone cannot form a Basic credential.
+  <b>Verify blocker (updated 2026-08-08).</b> M2M client secret is <b>now in hand</b> (OA-1 received). PR-09/PR-10 can be written, unit-tested, and merged; <b>live mint / §2.3.1 e2e</b> still needs the secret wired on NaaP Preview (plus shared mint secret + allow-list) without pointing prod at the wrong app. Metering-read verification remains <span class="tag t-off">DEFERRED → FU-1</span>.
 </div>
 
-<div class="pr blocked" id="pr-09">
-<h3>PR-09 · NaaP internal mint route (server-to-server, M2M)</h3>
-<div class="prmeta"><span class="tag t-b">NaaP</span><span class="tag t-off">route-level allow-list</span><span class="tag t-no">blocked: OA-1</span></div>
+<div class="pr" id="pr-09">
+<h3>PR-09 · NaaP internal mint route (server-to-server, M2M) <span class="tag t-part">OPEN naap#458</span></h3>
+<div class="prmeta"><span class="tag t-b">NaaP</span><span class="tag t-off">route-level allow-list</span><span class="tag t-part">OA-1 secret received — NaaP env wire pending</span></div>
 <table>
   <tr><th>Purpose</th><td>Expose an authenticated internal endpoint that Storyboard's P1 provider calls to mint a composite for a NaaP-identified user, reusing NaaP's <b>existing</b> M2M env rather than giving Storyboard a second copy of it.</td></tr>
   <tr><th>Files</th><td class="mono">apps/web-next/src/app/api/internal/mcp/mint/route.ts <span class="tag t-new">NEW</span> · apps/web-next/src/lib/pymthouse-keys-bff.ts (<b>reused as-is</b> — <code>readM2mAuthHeader</code>, <code>createPymthouseApiKey</code>)</td></tr>
@@ -1210,11 +1210,11 @@ sequenceDiagram
   <thead><tr><th>#</th><th>Ask</th><th>Owner</th><th>Blocks</th><th>If unanswered</th></tr></thead>
   <tbody>
     <tr>
-      <td><b>OA-1</b></td>
-      <td><b>pymthouse M2M client <em>secret</em></b> (<code>pmth_cs_…</code>) matching the supplied client id, scoped to the test app. <b>The supplied <code>m2m_…</code> value is a client <em>id</em>, and an id alone is not sufficient.</b></td>
-      <td>John / pymthouse</td>
-      <td><span class="tag t-no">PR-09, PR-10, PR-15 — the MINT path</span><br><span class="tag t-off">metering reads deferred (FU-1)</span></td>
-      <td>Track 3 can be written but never <em>run</em> — <code>createPymthouseApiKey()</code> throws 503 without the secret. Metering verification is de-scoped (§2.3.1), which lowers the proof bar but <b>does not unblock the mint</b>. If unavailable: stop line (ship P0)</td>
+      <td><b>OA-1</b><br><span class="tag t-part">secret received</span></td>
+      <td><b>pymthouse M2M client secret</b> matching <code>m2m_5ad456…</code> / test app — <b>value supplied 2026-08-08 (in memory only; rotate after use)</b>. Remaining: wire <code>PYMTHOUSE_M2M_CLIENT_SECRET</code> (+ confirm id/issuer/public client) on NaaP <b>Preview first</b>, plus Storyboard↔NaaP shared mint secret/allow-list. Storyboard project-scoped Vercel token cannot write NaaP <span class="mono">web-next</span> env.</td>
+      <td>ops / Livepeer Foundation Vercel access</td>
+      <td><span class="tag t-part">PR-09/PR-10 verify</span> (code unblocked)<br><span class="tag t-off">metering reads deferred (FU-1)</span></td>
+      <td>Code + unit tests can merge; live mint + §2.3.1 e2e wait on Preview env wire. Do not point prod at the wrong app.</td>
     </tr>
     <tr>
       <td><b>T-KV</b><br><span class="tag t-yes">decided</span></td>
