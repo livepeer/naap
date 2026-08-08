@@ -671,10 +671,12 @@ sequenceDiagram
 
 <p>Every PR below carries the same nine fields: <b>purpose · repo &amp; real files · flag + default · acceptance · self-review · e2e · prod verification · rollback · revert-safety</b>. Tracks 1–3 are Storyboard-only and ship <b>default-OFF</b>; track 4 is infrastructure; track 5 is enablement. <b>No PR in tracks 1–3 touches <span class="mono">lib/mcp-server/tools/</span>, <span class="mono">sdk-call.ts</span>, or any file in <span class="mono">simple-infra</span></b> — that diff-scope assertion is a literal checklist item on each one.</p>
 
+<div class="note"><b>Repo naming.</b> <span class="mono">storyboard-a3</span> throughout this plan is the <em>local working-copy</em> name; the GitHub remote is <b><span class="mono">livepeer/storyboard</span></b> (PRs open there). <span class="mono">NaaP</span> is <span class="mono">livepeer/naap</span>. Both were verified against <code>git remote -v</code> before PR-01.</div>
+
 <table>
   <thead><tr><th>Track</th><th>PRs</th><th>Repo</th><th>Ships behind</th><th>Blocked?</th></tr></thead>
   <tbody>
-    <tr><td><b>1 — Invariants &amp; resolution layer</b></td><td>PR-01 · PR-02 · PR-03</td><td class="mono">storyboard-a3</td><td>No flag — pure refactor + tests</td><td><span class="tag t-yes">start now</span></td></tr>
+    <tr><td><b>1 — Invariants &amp; resolution layer</b></td><td>PR-01 <span class="tag t-yes">shipped → PR #868</span> · PR-02 · PR-03</td><td class="mono">storyboard-a3</td><td>No flag — pure refactor + tests</td><td><span class="tag t-yes">start now</span></td></tr>
     <tr><td><b>2 — OAuth head (inert)</b></td><td>PR-04 … PR-08</td><td class="mono">storyboard-a3</td><td><code>MCP_OAUTH_ENABLED</code> unset</td><td><span class="tag t-yes">start now</span></td></tr>
     <tr><td><b>3 — Mint providers</b></td><td>PR-09 · PR-10 · PR-15</td><td class="mono">NaaP + storyboard-a3</td><td><code>MCP_OAUTH_PROVIDER</code></td><td><span class="tag t-no">OA-1</span></td></tr>
     <tr><td><b>4 — LR / signer infrastructure</b></td><td>PR-11 · PR-12 · PR-13</td><td class="mono">simple-infra</td><td>Canary overlay only</td><td><span class="tag t-part">PR-11 free</span></td></tr>
@@ -693,7 +695,8 @@ sequenceDiagram
 <div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">no flag</span><span class="tag t-yes">unblocked</span><span class="tag t-new">lands first</span></div>
 <table>
   <tr><th>Purpose</th><td>Freeze today's auth behavior as executable tests <b>before</b> a single line of auth code moves. This PR is the regression firewall for the whole plan; if it does not exist, nothing else may merge.</td></tr>
-  <tr><th>Files</th><td class="mono">lib/mcp-server/__tests__/auth-invariants.test.ts <span class="tag t-new">NEW</span></td></tr>
+  <tr><th>Files</th><td class="mono">tests/unit/mcp-oauth-auth-invariants.test.ts <span class="tag t-new">NEW</span></td> </tr>
+  <tr><th>Path correction</th><td><span class="tag t-part">drift fixed 2026-08-08</span> Earlier drafts said <span class="mono">lib/mcp-server/__tests__/</span>. That path <b>would never run</b>: <span class="mono">vitest.config.ts</span> includes only <span class="mono">tests/unit/**</span>, <span class="mono">tests/sim/**</span> and the creative-kit package. Tests live in <span class="mono">tests/unit/</span>.</td></tr>
   <tr><th>Flag &amp; default</th><td>None. Tests run unconditionally in CI, and are additionally parameterised over <code>MCP_OAUTH_ENABLED</code> ∈ {unset, "1"} so flag-OFF invariance is asserted from day one.</td></tr>
   <tr><th>Acceptance</th><td>Six invariants green: <b>INV-1</b> an <code>mcp_at_*</code>-shaped bearer with the flag unset resolves exactly as an unrecognized opaque bearer does today; <b>INV-2</b> <code>sk_*</code> in → the <em>same byte string</em> out, <code>plane=daydream</code>; <b>INV-3</b> no code path can emit an <code>mcp_at_*</code> as <code>forwardBearer</code>; <b>INV-4</b> <span class="mono">resolve.ts</span> imports no <code>fetch</code>/HTTP client; <b>INV-5</b> <span class="mono">sdk-call.ts</span> is byte-unchanged (checksum test); <b>INV-6</b> <code>authForRestProxy</code> output is unchanged for all four key schemes.</td></tr>
   <tr><th>Self-review</th><td>☐ Tests fail if I deliberately break each invariant (mutation-check each one, paste output in the PR body) ☐ no product file in the diff ☐ no network in tests ☐ secret-scan clean</td></tr>
