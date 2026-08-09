@@ -94,6 +94,7 @@
     <a href="#main">2 · On main</a>
     <a href="#prod">3 · Prod verification</a>
     <a href="#ops">4 · Ops gaps guide</a>
+    <a href="#ops-now">4.0 · Wire Preview mint NOW</a>
     <a href="#remaining">5 · Remaining PR table</a>
     <a href="#stories">6 · User stories</a>
     <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html">7 · Live E2E report</a>
@@ -413,8 +414,145 @@
     <b>Rotate reminder.</b> Any M2M client secret or mint shared secret that appeared in chat / agent memory must be rotated after wiring. Do not paste values into this doc, tickets, or commit history.
   </div>
 
+  <h3 id="ops-now">4.0 Wire Preview mint NOW (Scenario A checklist)</h3>
+  <p class="muted">
+    Code is on main (NaaP PR-09 <span class="sha">49d95d0d</span> + login bridge <a href="https://github.com/livepeer/naap/pull/459">#459</a>;
+    Storyboard PR-10 <code>providers/naap.ts</code> + broker). Live e2e is still
+    <b>BLOCKED</b> on Preview env (see E2E report C8). Follow this order — do <b>not</b>
+    set Storyboard Production <code>MCP_OAUTH_ENABLED=1</code>.
+  </p>
+
+  <div class="stepbox">
+    <h4>Projects &amp; environments</h4>
+    <ul>
+      <li><b>NaaP:</b> Vercel project <code>naap-platform</code> (repo <code>livepeer/naap</code>, app <code>apps/web-next</code>). Set vars on <b>Preview</b> only for this test. Prod hosts (<code>operator.livepeer.org</code> / <code>naap-platform.vercel.app</code> Production) stay unconfigured for mint until stop-line.</li>
+      <li><b>Storyboard:</b> Vercel project <code>storyboard</code> (repo <code>livepeer/storyboard</code>, prod <code>storyboard.daydream.monster</code>). Set vars on <b>Preview</b> only. Keep Production <code>MCP_OAUTH_ENABLED</code> <em>unset</em>.</li>
+      <li><b>Vercel Authentication:</b> Preview URLs often return SSO 401/302. Use a team member session, Deployment Protection bypass token, or temporarily allowlist probe paths — otherwise mint/login curls are not observable (E2E C8).</li>
+    </ul>
+
+    <h4>Step A — generate shared mint secret + allowlist</h4>
+<pre class="cmd"># local only — do not paste output into chat/tickets/git
+openssl rand -hex 32
+# → store as &lt;SHARED_MINT_SECRET&gt;</pre>
+    <ol class="steps">
+      <li>Pick the Storyboard Preview origin you will call from (exact string, no trailing slash), e.g. <code>https://storyboard-git-&lt;branch&gt;-&lt;team&gt;.vercel.app</code>.</li>
+      <li>NaaP Preview allowlist = that origin (comma-separated if multiple). Login-bridge redirect allowlist is <b>derived</b> as <code>{origin}/api/mcp/oauth/callback</code> from <code>MCP_INTERNAL_MINT_ALLOWLIST</code> (or set explicit <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code>).</li>
+      <li>Storyboard Preview <code>MCP_INTERNAL_MINT_CALLER_ORIGIN</code> = the <b>same</b> origin string (sent as <code>X-Mcp-Caller-Origin</code>).</li>
+      <li>Put the <b>same</b> <code>&lt;SHARED_MINT_SECRET&gt;</code> on both projects’ Preview as <code>MCP_INTERNAL_MINT_SECRET</code>.</li>
+    </ol>
+
+    <h4>Step B — NaaP Preview env (then Redeploy)</h4>
+    <p class="muted">Vercel → <code>naap-platform</code> → Settings → Environment Variables → <b>Preview</b>.</p>
+    <ul>
+      <li><code>MCP_INTERNAL_MINT_SECRET=&lt;SHARED_MINT_SECRET&gt;</code></li>
+      <li><code>MCP_INTERNAL_MINT_ALLOWLIST=https://&lt;storyboard-preview&gt;.vercel.app</code></li>
+      <li><code>MCP_OAUTH_REDIRECT_ALLOWLIST=https://&lt;storyboard-preview&gt;.vercel.app/api/mcp/oauth/callback</code> (optional if mint allowlist derivation is enough)</li>
+      <li><code>PYMTHOUSE_M2M_CLIENT_ID=m2m_&lt;…&gt;</code> + <code>PYMTHOUSE_M2M_CLIENT_SECRET=&lt;…&gt;</code> (from chat — rotate after wiring)</li>
+      <li><code>PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870d7ae33589a3f0660</code> (hard RS-2; mismatch ⇒ mint <b>503</b> <code>billing_app_mismatch</code>)</li>
+      <li><code>PYMTHOUSE_ISSUER_URL=https://&lt;pymthouse-host&gt;/api/v1/oidc</code> (existing NaaP value — keep consistent)</li>
+      <li>HMAC: existing <code>NEXTAUTH_SECRET</code> is enough; or set <code>MCP_OAUTH_BRIDGE_SECRET</code></li>
+    </ul>
+    <p>Redeploy Preview (Deployments → … → Redeploy, or push an empty commit). Env without redeploy = still 404.</p>
+
+    <h4>Step C — find Preview URLs</h4>
+<pre class="cmd"># NaaP Preview (after redeploy)
+vercel ls naap-platform   # or Vercel UI → project → Deployments → Preview
+# Storyboard Preview
+vercel ls storyboard
+# GitHub: PR Checks → “Vercel Preview” comment / deployment URL
+# Typical shapes:
+#   https://naap-platform-git-&lt;branch&gt;-&lt;team&gt;.vercel.app
+#   https://storyboard-git-&lt;branch&gt;-&lt;team&gt;.vercel.app
+export NAAP_PREVIEW='https://&lt;naap-preview&gt;.vercel.app'
+export STORYBOARD_PREVIEW_ORIGIN='https://&lt;storyboard-preview&gt;.vercel.app'
+export SHARED_MINT_SECRET='&lt;SHARED_MINT_SECRET&gt;'   # shell only, never commit</pre>
+
+    <h4>Step D — mint smoke (prove config BEFORE OAuth flag)</h4>
+<pre class="cmd"># D1) wrong Bearer → must be 401 (config loaded). Still 404 ⇒ secret/allowlist not on this deployment.
+curl -sS -D - -o /tmp/mint-wrong.json -X POST "$NAAP_PREVIEW/api/internal/mcp/mint" \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer wrong' \
+  -H "x-mcp-caller-origin: $STORYBOARD_PREVIEW_ORIGIN" \
+  -d '{"externalUserId":"ops-probe"}'
+# expect: HTTP/1.1 401 … {"error":"unauthorized"}
+
+# D2) foreign origin → 403
+curl -sS -D - -o /tmp/mint-forbid.json -X POST "$NAAP_PREVIEW/api/internal/mcp/mint" \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer $SHARED_MINT_SECRET" \
+  -H 'x-mcp-caller-origin: https://evil.example' \
+  -d '{"externalUserId":"ops-probe"}'
+# expect: 403 {"error":"forbidden"}
+
+# D3) allowlisted + good secret → 200 composite (bills test app)
+curl -sS -D - -o /tmp/mint-ok.json -X POST "$NAAP_PREVIEW/api/internal/mcp/mint" \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer $SHARED_MINT_SECRET" \
+  -H "x-mcp-caller-origin: $STORYBOARD_PREVIEW_ORIGIN" \
+  -d '{"externalUserId":"ops-probe","label":"mcp-oauth-smoke"}'
+# expect: 200 {"apiKey":"app_98575870d7ae33589a3f0660_pmth_…"}
+# do NOT log/paste apiKey; unset SHARED_MINT_SECRET when done</pre>
+    <p class="muted">Stop here if D1 is still 404 or D3 is 502/503 — do not flip Storyboard OAuth yet.</p>
+
+    <h4>Step E — Storyboard Preview env (flag still OFF)</h4>
+    <p class="muted">Vercel → <code>storyboard</code> → Preview. Exact names from <code>oauth-flags.ts</code> + <code>providers/naap.ts</code>.</p>
+    <ul>
+      <li><code>NAAP_MCP_ORIGIN=$NAAP_PREVIEW</code></li>
+      <li><code>NAAP_MCP_MINT_URL=$NAAP_PREVIEW/api/internal/mcp/mint</code></li>
+      <li><code>MCP_INTERNAL_MINT_SECRET=&lt;SHARED_MINT_SECRET&gt;</code> (same as NaaP)</li>
+      <li><code>MCP_INTERNAL_MINT_CALLER_ORIGIN=$STORYBOARD_PREVIEW_ORIGIN</code></li>
+      <li><code>MCP_OAUTH_PROVIDER=naap</code></li>
+      <li><code>MCP_OAUTH_BILLING_APP_ID=app_98575870d7ae33589a3f0660</code> (or <code>PYMTHOUSE_PUBLIC_CLIENT_ID</code> same value)</li>
+      <li><code>KV_REST_API_URL</code> + <code>KV_REST_API_TOKEN</code> (oauth-store; confirm Preview inherits Marketplace KV)</li>
+      <li><b>Leave <code>MCP_OAUTH_ENABLED</code> unset</b> → redeploy → confirm broker still 404:
+<pre class="cmd">curl -sSI "$STORYBOARD_PREVIEW_ORIGIN/api/mcp/oauth/authorize"
+# expect: 404</pre>
+      </li>
+    </ul>
+
+    <h4>Step F — flag flip (Preview only)</h4>
+    <ol>
+      <li>Prod tripwire still green: Storyboard Production well-known short-TTL 404; broker 404; unbound <code>mcp_at_*</code> 401.</li>
+      <li>On <em>one</em> Storyboard Preview only: set <code>MCP_OAUTH_ENABLED=1</code> (must be the string <code>1</code>; <code>true</code> does nothing) and keep <code>MCP_OAUTH_PROVIDER=naap</code>.</li>
+      <li>Redeploy Preview. Confirm discovery:
+<pre class="cmd">curl -sS "$STORYBOARD_PREVIEW_ORIGIN/.well-known/oauth-protected-resource"
+# expect: 200 PRM JSON with authorization_servers
+curl -sSI "$STORYBOARD_PREVIEW_ORIGIN/api/mcp/oauth/authorize"
+# expect: not a blanket 404 (may 400 without PKCE params — that means flag ON)</pre>
+      </li>
+      <li><b>Never</b> set Production <code>MCP_OAUTH_ENABLED=1</code> until Scenario A Preview green + §4.4 / E2E §4 stop-line.</li>
+    </ol>
+
+    <h4>Step G — minimal Scenario A e2e (browser)</h4>
+    <ol>
+      <li>Open MCP client / Claude connector against <code>$STORYBOARD_PREVIEW_ORIGIN</code> (or hit authorize with PKCE), complete NaaP Google/GitHub login.</li>
+      <li>Expect: Storyboard callback → identity → NaaP mint → token exchange → opaque <code>mcp_at_*</code> (composite never in URL).</li>
+      <li>Call <code>create_media</code> (or MCP <code>tools/call</code>) with that session — expect signer 200 + real asset URL billed to test app.</li>
+      <li>Optional login-bridge-only probe (no full PKCE):
+<pre class="cmd">curl -sSI "$NAAP_PREVIEW/login?mcp_oauth=1&amp;state=st_probe&amp;redirect_uri=$STORYBOARD_PREVIEW_ORIGIN/api/mcp/oauth/callback"
+# expect: redirect into login (not error=mcp_oauth_invalid); after sign-in, land on Storyboard callback with state + identity</pre>
+      </li>
+    </ol>
+
+    <h4>Green vs common failures</h4>
+    <table>
+      <thead><tr><th>Symptom</th><th>Meaning</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Mint <b>404</b> <code>not_found</code></td><td>Secret or allowlist absent / not redeployed</td><td>Set both Preview vars; Redeploy</td></tr>
+        <tr><td>Mint <b>401</b> <code>unauthorized</code></td><td>Config loaded; Bearer wrong</td><td>Align shared secret on both projects</td></tr>
+        <tr><td>Mint <b>403</b> <code>forbidden</code></td><td>Caller origin not on allowlist</td><td>Exact origin match (scheme+host, no trailing slash)</td></tr>
+        <tr><td>Mint <b>503</b> <code>billing_app_mismatch</code></td><td><code>PYMTHOUSE_PUBLIC_CLIENT_ID</code> ≠ test app</td><td>Set to <code>app_98575870d7ae33589a3f0660</code></td></tr>
+        <tr><td>Mint <b>502</b> <code>mint_failed</code></td><td>M2M / pymthouse upstream failed</td><td>Check M2M id+secret + issuer on NaaP Preview</td></tr>
+        <tr><td><code>/login?error=mcp_oauth_invalid</code></td><td>Redirect URI not allowlisted / bridge inert</td><td>Mint allowlist origin or explicit redirect allowlist</td></tr>
+        <tr><td>Broker / well-known <b>404</b> after flag</td><td>Flag not <code>1</code>, provider unset, or wrong deployment</td><td><code>MCP_OAUTH_ENABLED=1</code> + <code>MCP_OAUTH_PROVIDER=naap</code> on that Preview</td></tr>
+        <tr><td>MCP <b>401</b> + unbound <code>mcp_at_*</code></td><td>Token not bound in oauth-store</td><td>KV env on Preview; complete full authorize→token dance</td></tr>
+        <tr><td>Vercel Auth <b>401/302</b> on Preview</td><td>Deployment Protection</td><td>SSO / bypass token before judging mint</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <h3>4.1 NaaP Preview env vars</h3>
-  <p class="muted">Project: Vercel <code>naap-platform</code> (Preview). Exact names from PR-09 mint + #459 login bridge + pymthouse BFF.</p>
+  <p class="muted">Project: Vercel <code>naap-platform</code> (Preview; <code>apps/web-next</code>). Exact names from PR-09 mint + #459 login bridge + pymthouse BFF.</p>
   <table>
     <thead><tr><th>Name</th><th>Purpose</th><th>Placeholder</th></tr></thead>
     <tbody>
@@ -439,7 +577,7 @@ curl -sSI "$NAAP_PREVIEW/login?mcp_oauth=1&amp;state=st_probe&amp;redirect_uri=$
 #    $STORYBOARD_PREVIEW_ORIGIN/api/mcp/oauth/callback?state=st_probe&amp;external_user_id=…&amp;code=mcp_id_…</pre>
 
   <h3>4.2 Storyboard Preview env vars</h3>
-  <p class="muted">Exact names from <code>oauth-flags.ts</code>, <code>oauth-store.ts</code>, <code>providers/naap.ts</code> on storyboard <code>main</code>.</p>
+  <p class="muted">Project: Vercel <code>storyboard</code> (Preview). Exact names from <code>oauth-flags.ts</code>, <code>oauth-store.ts</code>, <code>providers/naap.ts</code> on storyboard <code>main</code>. See §4.0 for flag order.</p>
   <table>
     <thead><tr><th>Name</th><th>Purpose</th><th>Placeholder / notes</th></tr></thead>
     <tbody>
