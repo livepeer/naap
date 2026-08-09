@@ -62,19 +62,60 @@
 
   <h1>MCP OAuth Tri-Mode — Live E2E Matrix Report</h1>
   <p class="sub">
-    Single-worker live matrix run against production hosts (and Preview where reachable)
-    on <b>2026-08-09T01:44–01:47Z</b>. Credentials used in-memory only; <b>no secrets</b> in this doc.
+    Single-worker live matrix. Earlier pass <b>2026-08-09T01:44–01:47Z</b>; Scenario A re-probe
+    <b>2026-08-09T02:35–02:40Z</b>. Credentials used in-memory only; <b>no secrets</b> in this doc.
     Companion to <a href="./MCP-OAUTH-TRIMODE-STATUS.html">MCP-OAUTH-TRIMODE-STATUS.html</a>
     / naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>.
   </p>
 
   <div class="hero">
-    <b>Verdict: Ready for ops + production OAuth enable? NO.</b><br>
-    Flag-OFF / paste-key regression is green. User stories that require OAuth login → mint →
-    bound <code>mcp_at_*</code> → inference are <b>not</b> fully e2e-verified. Preview mint/OAuth
-    env is not proven wired (prod mint still 404; login bridge <code>mcp_oauth_invalid</code>;
-    Preview hosts behind Vercel Auth). Do <b>not</b> set <code>MCP_OAUTH_ENABLED=1</code> on
-    Storyboard Production.
+    <b>Verdict: Scenario A e2e = BLOCKED (not GREEN).</b><br>
+    NaaP mint is now <b>wired</b> on the custom-domain hosts (wrong Bearer → app
+    <code>401 {"error":"unauthorized"}</code>, not config-dark 404). Login-bridge allowlists the
+    Storyboard Preview callback (with <code>state</code>). Storyboard Production OAuth flag remains
+    <b>OFF</b>. Storyboard/NaaP <code>*.vercel.app</code> Previews are behind <b>Vercel Authentication</b>
+    (SSO login wall) — cannot observe Preview discovery/authorize or finish PKCE /
+    <code>create_media</code> from automation. Do <b>not</b> set Production
+    <code>MCP_OAUTH_ENABLED=1</code>.
+  </div>
+
+  <div class="callout warn" id="scenario-a-now">
+    <b>Scenario A re-probe (02:35–02:40Z) — evidence</b>
+    <ul>
+      <li><b>Mint smoke (reachable):</b>
+        <code>POST https://operator.livepeer.org/api/internal/mcp/mint</code> +
+        <code>https://naap-platform.vercel.app/…</code> with wrong Bearer →
+        <b>401</b> <code>{"error":"unauthorized"}</code> (app-level; proves
+        <code>MCP_INTERNAL_MINT_SECRET</code> + allowlist present). M2M client-secret as Bearer also
+        401 (expected — mint uses shared mint secret, not M2M). D3=200 not proven (shared secret
+        not available to agent).</li>
+      <li><b>Mint smoke (Preview alias):</b>
+        <code>naap-platform-git-feat-mcp-oauth-log-1b639e-…vercel.app</code> → Vercel
+        <b>401 Protected deployment</b> / 302 → <code>vercel.com/sso-api</code> (SSO). App mint status
+        not observable on Preview hostname.</li>
+      <li><b>Login bridge:</b>
+        <code>GET /login?mcp_oauth=1&amp;redirect_uri=&lt;SB Preview callback&gt;&amp;state=…</code>
+        → <b>307</b> <code>/login?callbackUrl=/api/v1/auth/mcp/complete</code> +
+        <code>naap_mcp_oauth_pending</code> cookie. Same with
+        <code>storyboard.daydream.monster</code> callback → <code>mcp_oauth_invalid</code>
+        (prod SB origin not allowlisted — expected).</li>
+      <li><b>Storyboard flag:</b> Production
+        <code>/.well-known/oauth-authorization-server</code> +
+        <code>/api/mcp/oauth/authorize</code> → <b>404</b> Bearer-only / <code>not_found</code>
+        (flag <b>OFF</b>). Target Preview
+        <code>storyboard-git-feat-mcp-oauth-pr16-c-a54035-…</code> → SSO redirect to
+        <code>vercel.com/login</code>; Playwright stopped at login (needs GitHub/Google/SAML SSO
+        or automation bypass). <b>Cannot confirm Preview <code>MCP_OAUTH_ENABLED</code></b> —
+        if authorize is 404 after SSO, paste Block C.</li>
+      <li><b>Not run:</b> PKCE authorize→callback→mint→bound <code>mcp_at_*</code>→
+        <code>create_media</code> asset. No full-chain proof → not GREEN.</li>
+    </ul>
+    <p class="muted" style="margin:8px 0 0"><b>Next user action:</b> Open the Storyboard Preview URL in a
+      browser, complete <b>Vercel Authentication</b> (Continue with GitHub / Google / SAML SSO), then
+      re-hit <code>/.well-known/oauth-authorization-server</code>. If 404 → paste Block C
+      (<code>MCP_OAUTH_ENABLED=1</code> Preview-only). Optionally share
+      <code>VERCEL_AUTOMATION_BYPASS_SECRET</code> / a share link so agents can probe without SSO.
+      Do not enable Production OAuth flag.</p>
   </div>
 
   <p class="toc muted">
@@ -176,28 +217,26 @@
       <tr>
         <td>C8</td>
         <td>Probe NaaP / Storyboard Preview mint env wired → Scenario A e2e if yes</td>
-        <td><span class="pill blocked">BLOCKED (ops)</span></td>
+        <td><span class="pill blocked">BLOCKED (SSO + flag)</span></td>
         <td>
-          <b>Prod NaaP:</b> mint still <b>404</b> <code>not_found</code> (secret/allowlist absent).
-          Login bridge → <code>/login?error=mcp_oauth_invalid</code> (redirect allowlist absent).<br>
-          <b>NaaP Preview URLs</b> (e.g. <code>naap-platform-git-feat-mcp-oauth-tri-…vercel.app</code>)
-          return <b>Vercel Authentication</b> 401/302 — app mint status not observable without SSO bypass.<br>
-          <b>Storyboard Preview</b> deployments exist but also SSO-redirect; cannot confirm
-          <code>MCP_OAUTH_ENABLED</code> / <code>NAAP_MCP_*</code> on Preview from outside.<br>
-          <b>Scenario A OAuth login→mint→store→resolve was NOT run.</b>
-          Missing for a green Scenario A: Preview
-          <code>MCP_INTERNAL_MINT_SECRET</code>, <code>MCP_INTERNAL_MINT_ALLOWLIST</code>,
-          M2M id/secret, Storyboard <code>NAAP_MCP_*</code> + shared secret + caller origin,
-          then Preview-only <code>MCP_OAUTH_ENABLED=1</code> + <code>MCP_OAUTH_PROVIDER=naap</code>.
+          <b>Re-probe 02:35Z:</b> custom-domain NaaP mint <b>wired</b> (wrong Bearer → app 401).
+          Login bridge allowlists Storyboard Preview callback (+ <code>state</code> → pending cookie).
+          Storyboard Production flag still <b>OFF</b> (A4). Preview hosts SSO-walled —
+          discovery/authorize not observable; Scenario A PKCE + <code>create_media</code>
+          <b>not run</b>. See <a href="#scenario-a-now">Scenario A re-probe</a>.
         </td>
       </tr>
       <tr>
         <td>C9</td>
-        <td>Internal mint: absent secret → 404; with secret allowlisted mint (Preview only)</td>
-        <td><span class="pill partial">PASS / BLOCKED</span></td>
-        <td>Absent-secret path <b>PASS</b> on operator + naap-platform → 404.
-          Allowlisted mint with real shared secret <b>BLOCKED</b> — secret not wired on reachable hosts;
-          this session did not set Preview env (ops-owned; prod flag remains OFF).</td>
+        <td>Internal mint: absent secret → 404; with secret → wrong Bearer 401 (wired)</td>
+        <td><span class="pill partial">PASS (401 wired) / D3 BLOCKED</span></td>
+        <td>
+          Earlier session: absent-secret → 404. <b>Now (after env wire / redeploy):</b>
+          <code>operator.livepeer.org</code> + <code>naap-platform.vercel.app</code>
+          wrong Bearer → <b>401</b> <code>unauthorized</code> (secret+allowlist present).
+          Successful mint <b>200</b> still BLOCKED without shared mint secret in-agent
+          (M2M secret is the wrong credential). Preview hostname still Vercel-Auth 401.
+        </td>
       </tr>
       <tr>
         <td>C10</td>
@@ -269,9 +308,9 @@
       </tr>
       <tr>
         <td>Scenario A — NaaP OAuth login → mint → <code>mcp_at_*</code> → inference</td>
-        <td>After ops + Preview flag</td>
-        <td><span class="pill no">NOT VERIFIED</span></td>
-        <td>Never run end-to-end. Mint/env not wired on reachable hosts. <b>Not fully supported.</b></td>
+        <td>After SSO + Preview flag + create_media</td>
+        <td><span class="pill blocked">BLOCKED</span></td>
+        <td>Mint wired (401) + Preview redirect allowlisted; full OAuth→asset chain not run (SSO + flag unknown). <b>Not GREEN.</b></td>
       </tr>
       <tr>
         <td>Claude / MCP connector “sign in” (OAuth UX)</td>
@@ -315,20 +354,21 @@
   <div class="callout danger">
     <b>Blunt answer.</b> User stories are <b>not</b> fully supported yet.
     Paste-key Daydream works. Composite paste mostly works (LR flaky on MCP).
-    OAuth Claude-connector sign-in / Scenario A mint path has <b>zero</b> live e2e proof this session.
-    Enabling production OAuth now would be premature.
+    OAuth Claude-connector sign-in / Scenario A still lacks full-chain
+    (<code>create_media</code> / asset) proof. Mint wire + login-bridge Preview allowlist are proven;
+    enabling production OAuth now would still be premature.
   </div>
 
   <!-- ============================================================ -->
   <h2 id="ops">3 · Gaps that truly require ops</h2>
   <ol>
-    <li><b>NaaP Preview env wire:</b> <code>MCP_INTERNAL_MINT_SECRET</code>,
-      <code>MCP_INTERNAL_MINT_ALLOWLIST</code>, M2M id/secret, test-app public client,
-      login-bridge redirect allowlist — then redeploy. Prove with wrong-Bearer → <b>401</b> (not 404).</li>
-    <li><b>Storyboard Preview env wire:</b> <code>NAAP_MCP_ORIGIN</code>,
-      <code>NAAP_MCP_MINT_URL</code>, shared mint secret, caller origin, KV, provider=<code>naap</code>;
-      then Preview-only <code>MCP_OAUTH_ENABLED=1</code>.</li>
-    <li><b>Vercel Auth bypass / access</b> so Preview probes are observable (or use a public Preview protection exception for probe paths).</li>
+    <li><b>NaaP mint wire:</b> <b>DONE</b> on custom-domain hosts (wrong-Bearer → 401; Preview SB
+      callback allowlisted). Preview <code>*.vercel.app</code> hostnames still SSO-walled.</li>
+    <li><b>Storyboard Preview env / Block C:</b> confirm or paste Preview-only
+      <code>MCP_OAUTH_ENABLED=1</code> + <code>NAAP_MCP_*</code> / shared mint / caller origin
+      (unobservable until SSO bypass).</li>
+    <li><b>Vercel Auth bypass / access</b> — user must SSO (GitHub/Google/SAML) on Preview URLs,
+      or provide automation bypass / share link.</li>
     <li><b>Scenario A Preview e2e:</b> full OAuth dance → bound <code>mcp_at_*</code> → <code>create_media</code>.</li>
     <li><b>PR-14:</b> register confidential <code>web_</code> client for Scenario B.</li>
     <li><b>§4.7 LR canary:</b> rebuild/deploy SDK image with <code>call_runner</code>; apply PR-12 overlay; OA-4 probe.</li>
