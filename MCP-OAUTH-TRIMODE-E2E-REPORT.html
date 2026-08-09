@@ -67,41 +67,36 @@
     corrected-host allowlist miss <b>03:11–03:12Z</b>;
     <b>allowlist-fixed re-probe 2026-08-09T03:16–03:18Z</b>;
     <b>human Google SSO → access_denied RCA 2026-08-09T03:30–03:32Z</b>;
-    <b>callback-reason ship + re-probe 2026-08-09T03:52–03:55Z</b> against
+    <b>callback-reason ship + re-probe 2026-08-09T03:52–03:55Z</b>;
+    <b>invalid_state RCA + Upstash parse fix 2026-08-09T04:23–04:35Z</b> against
     <code>https://agent.livepeer.org</code>.
     Credentials used in-memory only; <b>no secrets</b> in this doc.
     Companion to <a href="./MCP-OAUTH-TRIMODE-STATUS.html">MCP-OAUTH-TRIMODE-STATUS.html</a>
     / naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>.
   </p>
 
-  
-    <div class="callout ok" id="fresh-retry-now">
-    <b>Fresh retry NOW (2026-08-09T04:18Z) — reason LIVE + durable listener</b>
-    <p>Open (≤10&nbsp;min Redis TTL):<br>
-    <a class="mono" href="https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_v6x5cUAfR6yMqWPMo5zRt4elv5uW1h7SxpXd9-pcbcM&amp;redirect_uri=https%3A%2F%2Fagent.livepeer.org%2Fapi%2Fmcp%2Foauth%2Fcallback">https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_v6x5cUAfR6yMqWPMo5zRt4elv5uW1h7SxpXd9-pcbcM&amp;redirect_uri=https%3A%2F%2Fagent.livepeer.org%2Fapi%2Fmcp%2Foauth%2Fcallback</a></p>
+  <div class="callout warn" id="fresh-retry-now">
+    <b>DO NOW — Flip OFF Production <code>MCP_OAUTH_ENABLED</code> → Redeploy</b>
+    <p>OAuth path is proven (below). Optional one-shot for billed asset proof (≤30&nbsp;min TTL):</p>
+    <p><a class="mono" href="https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_PXI_xLFnSRd8rA7vHZzQFbylvNM4hc3jty1hiD2syac&amp;redirect_uri=https%3A%2F%2Fagent.livepeer.org%2Fapi%2Fmcp%2Foauth%2Fcallback">https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_PXI_xLFnSRd8rA7vHZzQFbylvNM4hc3jty1hiD2syac&amp;redirect_uri=https%3A%2F%2Fagent.livepeer.org%2Fapi%2Fmcp%2Foauth%2Fcallback</a></p>
     <ul>
-      <li>Listener: <code>http://127.0.0.1:54321/callback</code> (running; auto token + <code>create_media</code>)</li>
-      <li>Pending: <code>st_v6x5cUAfR6yMqWPMo5zRt4elv5uW1h7SxpXd9-pcbcM</code></li>
-      <li>On fail: paste JSON with <code>reason</code>. <b>Flip OFF after:</b> delete Production <code>MCP_OAUTH_ENABLED</code>.</li>
+      <li>Listener <code>127.0.0.1:54321</code> patched with <code>action:'generate'</code></li>
+      <li>Prior <code>mcp_ac_*</code> re-exchange → <code>{"error":"invalid_grant"}</code> (one-shot; token not persisted)</li>
     </ul>
   </div>
 
-  <div class="hero">
-    <b>Verdict: Scenario A prod e2e = BLOCKED (not GREEN) — opaque access_denied; reason PR shipping.</b><br>
-    Correct prod MCP host is <b><code>https://agent.livepeer.org</code></b>.
-    Flag <b>ON</b> (AS + PRM <b>200</b>, authorize <b>302</b> to NaaP login — reconfirmed 03:54Z).
-    Human Google SSO succeeded three times; Storyboard callback returned
-    <code>{"error":"access_denied"}</code> (400) with <code>external_user_id</code> present —
-    catch-all in <code>app/api/mcp/oauth/callback/route.ts</code> (not Google denying;
-    NaaP mint never called). Fake state probe → same opaque JSON (cannot distinguish
-    <code>invalid_state</code> vs <code>mint_config</code> until reason lands).
-    <b>Shipped + LIVE:</b> storyboard
-    <a href="https://github.com/livepeer/storyboard/pull/880">PR #880</a> merged/deployed
-    (<code>32db8d04</code>). Fake-state probe now returns
-    <code>{"error":"access_denied","reason":"invalid_state"}</code>.
-    Human: one fresh authorize + SSO; paste JSON body with <code>reason</code>.
-    Bound <code>mcp_at_*</code> / <code>create_media</code> still <b>not run</b>.
-    <b>Remind:</b> flip OFF Production <code>MCP_OAUTH_ENABLED</code> after the window.
+  <div class="hero ok" id="scenario-a-oauth-green">
+    <b>Verdict: Scenario A OAuth = GREEN (agent.livepeer.org ↔ operator.livepeer.org · test app <code>app_98575870…</code>).</b><br>
+    <b>04:46:06Z evidence (no secrets):</b> human SSO callback
+    <code>code=mcp_ac_…</code> + matching client <code>state</code> → token endpoint
+    <b>200</b> <code>token_type=Bearer</code> <code>expires_in=86400</code>
+    <code>access_token</code> prefix <code>mcp_at_261…</code>; MCP <code>initialize</code> <b>200</b>.
+    Fix: storyboard <a href="https://github.com/livepeer/storyboard/pull/881">#881</a>
+    <code>d29e161f</code> (Upstash JSON deserialize in <code>takePending</code>; TTL 30m).
+    <br><b>create_media asset:</b> first call returned tool <code>-32602</code>
+    (harness omitted required <code>action</code>). Re-exchange of same code →
+    <code>400 {"error":"invalid_grant"}</code>. Asset URL pending optional re-login above.
+    <b>Flip OFF now:</b> delete Production <code>MCP_OAUTH_ENABLED</code> → Redeploy.
   </div>
 
   <div class="callout danger" id="scenario-a-prod-flip">
