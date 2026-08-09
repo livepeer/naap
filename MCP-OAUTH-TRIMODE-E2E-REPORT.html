@@ -83,9 +83,11 @@
     catch-all in <code>app/api/mcp/oauth/callback/route.ts</code> (not Google denying;
     NaaP mint never called). Fake state probe → same opaque JSON (cannot distinguish
     <code>invalid_state</code> vs <code>mint_config</code> until reason lands).
-    <b>Shipped:</b> storyboard
-    <a href="https://github.com/livepeer/storyboard/pull/880">PR #880</a> returns
-    safe <code>reason</code> enum. After prod deploy: retry once and paste new JSON body.
+    <b>Shipped + LIVE:</b> storyboard
+    <a href="https://github.com/livepeer/storyboard/pull/880">PR #880</a> merged/deployed
+    (<code>32db8d04</code>). Fake-state probe now returns
+    <code>{"error":"access_denied","reason":"invalid_state"}</code>.
+    Human: one fresh authorize + SSO; paste JSON body with <code>reason</code>.
     Bound <code>mcp_at_*</code> / <code>create_media</code> still <b>not run</b>.
     <b>Remind:</b> flip OFF Production <code>MCP_OAUTH_ENABLED</code> after the window.
   </div>
