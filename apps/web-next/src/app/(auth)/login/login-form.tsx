@@ -86,6 +86,7 @@ export default function LoginForm() {
         searchParams.get('callbackUrl') ||
         searchParams.get('redirect') ||
         '/dashboard';
+      // Relative same-origin paths only (includes /api/v1/auth/mcp/complete).
       const safeRedirect =
         raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard';
       router.replace(safeRedirect);
