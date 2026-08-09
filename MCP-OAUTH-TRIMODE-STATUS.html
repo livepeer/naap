@@ -301,7 +301,7 @@
 
   <!-- ============================================================ -->
   <h2 id="prod">3 · Production verification status</h2>
-  <p class="muted">Hosts probed 2026-08-08: Storyboard <code>https://storyboard.daydream.monster</code>; NaaP <code>https://operator.livepeer.org</code> and <code>https://naap-platform.vercel.app</code>.</p>
+  <p class="muted">Hosts probed 2026-08-09: Storyboard Production MCP = <code>https://agent.livepeer.org</code> (not <code>storyboard.daydream.monster</code> for this OAuth path); NaaP <code>https://operator.livepeer.org</code> and <code>https://naap-platform.vercel.app</code>.</p>
 
   <table>
     <thead>
@@ -428,7 +428,7 @@
     <h4>Projects &amp; environments</h4>
     <ul>
       <li><b>NaaP:</b> Vercel project <code>naap-platform</code> (repo <code>livepeer/naap</code>, app <code>apps/web-next</code>). Set vars on <b>Preview</b> only for this test. Prod hosts (<code>operator.livepeer.org</code> / <code>naap-platform.vercel.app</code> Production) stay unconfigured for mint until stop-line.</li>
-      <li><b>Storyboard:</b> Vercel project <code>storyboard</code> (repo <code>livepeer/storyboard</code>, prod <code>storyboard.daydream.monster</code>). Set vars on <b>Preview</b> only. Keep Production <code>MCP_OAUTH_ENABLED</code> <em>unset</em>.</li>
+      <li><b>Storyboard:</b> Vercel project <code>storyboard</code> (repo <code>livepeer/storyboard</code>, prod MCP host <code>agent.livepeer.org</code>). Set vars on <b>Preview</b> only. Keep Production <code>MCP_OAUTH_ENABLED</code> <em>unset</em> except short approved flip windows (§9).</li>
       <li><b>Vercel Authentication:</b> Preview URLs often return SSO 401/302. Use a team member session, Deployment Protection bypass token, or temporarily allowlist probe paths — otherwise mint/login curls are not observable (E2E C8).</li>
     </ul>
 
@@ -559,7 +559,7 @@ curl -sSI "$STORYBOARD_PREVIEW_ORIGIN/api/mcp/oauth/authorize"
     <thead><tr><th>Name</th><th>Purpose</th><th>Placeholder</th></tr></thead>
     <tbody>
       <tr><td><code>MCP_INTERNAL_MINT_SECRET</code></td><td>Shared Bearer secret for Storyboard→NaaP mint</td><td><code>&lt;rotate-me-shared-mint-secret&gt;</code></td></tr>
-      <tr><td><code>MCP_INTERNAL_MINT_ALLOWLIST</code></td><td>Comma-separated caller origins (also derives login-bridge redirect allowlist → <code>…/api/mcp/oauth/callback</code>)</td><td><code>https://&lt;storyboard-preview&gt;.vercel.app,https://storyboard.daydream.monster</code></td></tr>
+      <tr><td><code>MCP_INTERNAL_MINT_ALLOWLIST</code></td><td>Comma-separated caller origins (also derives login-bridge redirect allowlist → <code>…/api/mcp/oauth/callback</code>)</td><td><code>https://&lt;storyboard-preview&gt;.vercel.app,https://agent.livepeer.org</code></td></tr>
       <tr><td><code>MCP_OAUTH_REDIRECT_ALLOWLIST</code></td><td>Optional exact redirect URI list (overrides/extends mint-origin derivation)</td><td><code>https://&lt;storyboard-preview&gt;.vercel.app/api/mcp/oauth/callback</code></td></tr>
       <tr><td><code>NEXTAUTH_SECRET</code> or <code>MCP_OAUTH_BRIDGE_SECRET</code></td><td>HMAC for pending-cookie / identity codes</td><td><code>&lt;existing-or-new-hmac-secret&gt;</code></td></tr>
       <tr><td><code>PYMTHOUSE_M2M_CLIENT_ID</code></td><td>Confidential M2M id (<code>m2m_…</code>)</td><td><code>m2m_&lt;…&gt;</code></td></tr>
@@ -809,8 +809,8 @@ export NAAP_PREVIEW='https://naap-platform-git-feat-mcp-oauth-log-1b639e-livepee
 export STORYBOARD_PREVIEW_ORIGIN='https://storyboard-git-feat-mcp-oauth-pr16-c-a54035-livepeer-foundation.vercel.app'
 # Latest ephemeral example: https://storyboard-mkmjvcg30-livepeer-foundation.vercel.app
 
-# Production tripwires — DO NOT set MCP_OAUTH_ENABLED=1 here; DO NOT change these for the OAuth flag
-#   https://storyboard.daydream.monster
+# Production tripwires — DO NOT leave MCP_OAUTH_ENABLED=1 after the short flip window
+#   https://agent.livepeer.org   ← prod MCP / OAuth host
 #   https://operator.livepeer.org
 #   https://naap-platform.vercel.app</pre>
 
@@ -908,53 +908,65 @@ unset SHARED_MINT_SECRET</pre>
     <li>Run curl D3 → expect <b>200</b> composite (do not log/paste <code>apiKey</code>). If 503 <code>billing_app_mismatch</code>, fix public client id. If 502, fix M2M/issuer.</li>
     <li>Paste Block B on <code>storyboard</code> Preview (<code>NAAP_MCP_*</code> → NaaP Preview from step 2; shared secret identical; caller origin = Storyboard origin). Confirm <code>KV_REST_API_*</code> present on Preview in dashboard. Leave <code>MCP_OAUTH_ENABLED</code> unset.</li>
     <li>Redeploy Storyboard Preview. Run D4 → expect broker <b>404</b>.</li>
-    <li>Prod tripwire (must stay green — do not change OAuth flag on these):
-      <code>curl -sSI https://storyboard.daydream.monster/.well-known/oauth-protected-resource</code> → 404 max-age=60;
-      <code>curl -sSI https://storyboard.daydream.monster/api/mcp/oauth/authorize</code> → 404;
-      NaaP prod mint stays config-dark: <code>curl -sS -X POST https://operator.livepeer.org/api/internal/mcp/mint -H 'content-type: application/json' -d '{}'</code> → <code>{"error":"not_found"}</code>.</li>
+    <li>Prod tripwire when OAuth should be OFF (do not leave Production flag ON):
+      <code>curl -sSI https://agent.livepeer.org/.well-known/oauth-protected-resource</code> → 404 max-age=60;
+      <code>curl -sSI https://agent.livepeer.org/api/mcp/oauth/authorize</code> → 404;
+      NaaP prod mint without secret stays config-dark or 401: <code>curl -sS -X POST https://operator.livepeer.org/api/internal/mcp/mint -H 'content-type: application/json' -d '{}'</code>.</li>
     <li>Only then paste Block C on that one Storyboard Preview → Redeploy → re-check well-known 200 / authorize not blanket 404.</li>
     <li><code>unset SHARED_MINT_SECRET</code>. Do <b>not</b> set Production <code>MCP_OAUTH_ENABLED=1</code>.</li>
   </ol>
 
   <h2 id="prod-temp-flip">9 · Production temporary flip (user-approved short window)</h2>
   <div class="callout danger">
-    <b>Flip probe 2026-08-09T03:05–03:07Z — BLOCKED.</b>
-    Flag <b>ON</b> (AS/PRM 200). Authorize <b>400</b> <code>redirect_uri not allow-listed</code>
-    (Storyboard Production missing <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> for client callbacks).
-    Login bridge <code>mcp_oauth_invalid</code> (NaaP Production missing prod Storyboard callback).
-    Mint wrong-Bearer 401; signer healthz 200. No PKCE / <code>create_media</code>.
-    <b>Delete <code>MCP_OAUTH_ENABLED</code> + Redeploy now.</b> Details:
+    <b>Re-probe 2026-08-09T03:11–03:12Z vs <code>https://agent.livepeer.org</code> — Scenario A = BLOCKED.</b>
+    Prod MCP host corrected to <b>agent.livepeer.org</b> (not <code>storyboard.daydream.monster</code>).
+    Flag <b>ON</b> (AS + PRM <b>200</b>; broker routes matched). Authorize still <b>400</b>
+    <code>redirect_uri not allow-listed</code> for localhost + prod callback (Storyboard Production
+    <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> empty / fail-closed — code name confirmed in
+    <code>oauth-broker.ts</code>).
+    NaaP login bridge with
+    <code>redirect_uri=https://agent.livepeer.org/api/mcp/oauth/callback</code> → <b>307</b> sets
+    <code>naap_mcp_oauth_pending</code> cookie (NOT <code>mcp_oauth_invalid</code>) — NaaP allowlist OK.
+    Mint wrong-Bearer <b>401</b>; unbound <code>mcp_at_*</code> <b>401</b> + RFC9728
+    <code>resource_metadata=</code>; signer healthz <b>200</b>. No PKCE complete / <code>create_media</code>.
+    <b>One-line fix:</b> set Storyboard Production
+    <code>MCP_OAUTH_REDIRECT_ALLOWLIST=http://127.0.0.1:*,http://localhost:*</code> (+ any real MCP client callbacks) → Redeploy → authorize must <b>302</b> to NaaP.
+    <b>Then flip OFF:</b> delete <code>MCP_OAUTH_ENABLED</code> + Redeploy. Details:
     <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html#scenario-a-prod-flip">E2E report</a>.
   </div>
   <p class="muted">
-    Pre-flip (02:53Z): Storyboard OAuth was OFF; NaaP mint wired (wrong Bearer → 401);
-    prod Storyboard callback not allowlisted. User flipped ON for Scenario A, then OFF.
+    Earlier 03:05Z probe used the wrong prod host name. NaaP Production now has
+    <code>MCP_INTERNAL_MINT_ALLOWLIST=https://agent.livepeer.org</code> and
+    <code>MCP_OAUTH_REDIRECT_ALLOWLIST=https://agent.livepeer.org/api/mcp/oauth/callback</code> (verified).
   </p>
   <div class="callout warn">
     <b>Risk.</b> Production OAuth ON exposes the broker publicly — keep the window short; billing stays test app
     <code>app_98575870…</code> only. Only string <code>1</code> enables; delete/unset (or any non-<code>1</code>) turns OFF.
+    <b>Remind:</b> flip OFF after test (delete <code>MCP_OAUTH_ENABLED</code>).
   </div>
-  <h3>NaaP Production (<code>naap-platform</code>)</h3>
-<pre class="cmd">MCP_INTERNAL_MINT_SECRET=&lt;REUSE_EXISTING_OR_openssl_rand_-hex_32&gt;
-MCP_INTERNAL_MINT_ALLOWLIST=https://storyboard.daydream.monster
-MCP_OAUTH_REDIRECT_ALLOWLIST=https://storyboard.daydream.monster/api/mcp/oauth/callback
+  <h3>NaaP Production (<code>naap-platform</code>) — already set / verified</h3>
+<pre class="cmd">MCP_INTERNAL_MINT_SECRET=&lt;REUSE_EXISTING&gt;
+MCP_INTERNAL_MINT_ALLOWLIST=https://agent.livepeer.org
+MCP_OAUTH_REDIRECT_ALLOWLIST=https://agent.livepeer.org/api/mcp/oauth/callback
 PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870d7ae33589a3f0660
 PYMTHOUSE_M2M_CLIENT_ID=m2m_5ad45661715c8bb7eb30d18f
 PYMTHOUSE_M2M_CLIENT_SECRET=&lt;YOUR_M2M_SECRET&gt;
 PYMTHOUSE_ISSUER_URL=https://pymthouse.com/api/v1/oidc</pre>
-  <h3>Storyboard Production (<code>storyboard</code>) — flip ON</h3>
+  <h3>Storyboard Production (<code>storyboard</code> / <code>agent.livepeer.org</code>) — flip ON</h3>
 <pre class="cmd">NAAP_MCP_ORIGIN=https://operator.livepeer.org
 NAAP_MCP_MINT_URL=https://operator.livepeer.org/api/internal/mcp/mint
 MCP_INTERNAL_MINT_SECRET=&lt;SAME_AS_NAAP&gt;
-MCP_INTERNAL_MINT_CALLER_ORIGIN=https://storyboard.daydream.monster
+MCP_INTERNAL_MINT_CALLER_ORIGIN=https://agent.livepeer.org
 MCP_OAUTH_PROVIDER=naap
 MCP_OAUTH_BILLING_APP_ID=app_98575870d7ae33589a3f0660
 MCP_OAUTH_ENABLED=1
-# Confirm KV_REST_API_URL + KV_REST_API_TOKEN already present (do not invent)</pre>
+MCP_OAUTH_REDIRECT_ALLOWLIST=http://127.0.0.1:*,http://localhost:*
+# Confirm KV_REST_API_URL + KV_REST_API_TOKEN already present (do not invent)
+# Var name MCP_OAUTH_REDIRECT_ALLOWLIST confirmed in storyboard oauth-broker.ts (fail-closed if empty)</pre>
   <h3>Flip OFF after test</h3>
 <pre class="cmd"># Delete MCP_OAUTH_ENABLED on storyboard Production (or set to anything other than the string 1)
 # Prefer: remove the variable entirely, then Redeploy Production</pre>
-  <p class="muted">After both Production redeploys, tell the agent <b>flipped on</b> → Scenario A e2e on prod URLs.</p>
+  <p class="muted">After Storyboard Production sets client <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> + Redeploy, tell the agent <b>allowlist set</b> → re-run Scenario A e2e on <code>https://agent.livepeer.org</code>. Then flip OFF.</p>
 
   <p class="foot">
     Sources: <code>gh pr view</code> storyboard #868–#876/#878/#879, naap #457/#458/#459,

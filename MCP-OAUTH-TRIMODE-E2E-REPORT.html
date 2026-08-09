@@ -63,7 +63,9 @@
   <h1>MCP OAuth Tri-Mode — Live E2E Matrix Report</h1>
   <p class="sub">
     Single-worker live matrix. Earlier pass <b>2026-08-09T01:44–01:47Z</b>; Scenario A re-probe
-    <b>2026-08-09T02:35–02:40Z</b>; <b>Production flip window 2026-08-09T03:05–03:07Z</b>.
+    <b>2026-08-09T02:35–02:40Z</b>; wrong-host flip <b>03:05–03:07Z</b>;
+    <b>corrected host re-probe 2026-08-09T03:11–03:12Z</b> against
+    <code>https://agent.livepeer.org</code>.
     Credentials used in-memory only; <b>no secrets</b> in this doc.
     Companion to <a href="./MCP-OAUTH-TRIMODE-STATUS.html">MCP-OAUTH-TRIMODE-STATUS.html</a>
     / naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>.
@@ -71,57 +73,63 @@
 
   <div class="hero">
     <b>Verdict: Scenario A prod e2e = BLOCKED (not GREEN).</b><br>
-    Production OAuth flag is <b>ON</b> (AS + PRM <b>200</b>; authorize not 404). Full PKCE →
-    bound <code>mcp_at_*</code> → <code>create_media</code> <b>did not complete</b> — blocked on
-    two allowlists. Mint wrong-Bearer still <b>401</b>; signer <code>/healthz</code> <b>200</b>.
-    <b>Tripwire now:</b> delete Production <code>MCP_OAUTH_ENABLED</code> and redeploy to close
-    the public broker window (do this immediately even though e2e is not GREEN).
+    Correct prod MCP host is <b><code>https://agent.livepeer.org</code></b>.
+    Flag <b>ON</b> (AS + PRM <b>200</b>; broker live). NaaP allowlist for
+    <code>agent.livepeer.org</code> callback is <b>OK</b> (no <code>mcp_oauth_invalid</code>).
+    Still blocked: Storyboard Production client
+    <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> empty → authorize <b>400</b>
+    <code>redirect_uri not allow-listed</code>. Full PKCE → bound <code>mcp_at_*</code> →
+    <code>create_media</code> <b>not run</b>. Mint wrong-Bearer <b>401</b>; signer
+    <code>/healthz</code> <b>200</b>.
+    <b>Remind:</b> after the next allowlist fix + re-probe, delete Production
+    <code>MCP_OAUTH_ENABLED</code> and redeploy to close the public broker window.
   </div>
 
   <div class="callout danger" id="scenario-a-prod-flip">
-    <b>Production flip probe (03:05–03:07Z) — evidence</b>
+    <b>Production re-probe vs agent.livepeer.org (03:11–03:12Z) — evidence</b>
     <ul>
-      <li><b>Flag ON:</b>
-        <code>GET https://storyboard.daydream.monster/.well-known/oauth-authorization-server</code>
-        → <b>200</b> JSON with
+      <li><b>Flag ON / broker serves:</b>
+        <code>GET https://agent.livepeer.org/.well-known/oauth-authorization-server</code>
+        → <b>200</b> JSON issuer <code>https://agent.livepeer.org</code> with
         <code>authorization_endpoint</code> / <code>token_endpoint</code> / S256.
-        PRM → <b>200</b>. Authorize route matched (<code>x-matched-path: /api/mcp/oauth/authorize</code>),
-        not blanket 404.</li>
+        PRM → <b>200</b> <code>resource=https://agent.livepeer.org/api/mcp</code>.
+        Authorize route matched (<code>x-matched-path: /api/mcp/oauth/authorize</code>).</li>
       <li><b>Authorize PKCE:</b> valid S256 challenge + state →
         <b>400</b> <code>{"error":"invalid_request","error_description":"redirect_uri not allow-listed"}</code>
-        for every probed client callback
-        (<code>http://127.0.0.1:1455/…</code>, Cursor scheme, Claude callback, Storyboard callback).
-        Playwright confirm: HTTP 400 on authorize URL. Empty/missing Storyboard
-        <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> (fail-closed).</li>
-      <li><b>Login bridge:</b>
-        <code>GET https://operator.livepeer.org/login?mcp_oauth=1&amp;state=…&amp;redirect_uri=https://storyboard.daydream.monster/api/mcp/oauth/callback</code>
-        → <b>307</b> <code>/login?error=mcp_oauth_invalid</code>. Same for previously allowlisted
-        Preview Storyboard callback hosts. NaaP Production redirect allowlist does <b>not</b>
-        include prod Storyboard callback (STATUS §9 paste incomplete / not redeployed).</li>
+        for <code>http://127.0.0.1:54321/callback</code>, <code>http://localhost:54321/callback</code>,
+        and <code>https://agent.livepeer.org/api/mcp/oauth/callback</code>.
+        Storyboard Production <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> empty/missing (fail-closed;
+        var name confirmed in <code>lib/mcp-server/auth/oauth-broker.ts</code>).</li>
+      <li><b>Login bridge (NaaP allowlist FIXED):</b>
+        <code>GET https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_probe&amp;redirect_uri=https://agent.livepeer.org/api/mcp/oauth/callback</code>
+        → <b>307</b> <code>/login?callbackUrl=/api/v1/auth/mcp/complete</code> +
+        <code>Set-Cookie: naap_mcp_oauth_pending=…</code> — <b>not</b>
+        <code>mcp_oauth_invalid</code>. Evil redirect still rejected
+        (<code>/login?error=mcp_oauth_invalid</code>).</li>
       <li><b>Mint smoke:</b>
-        <code>POST /api/internal/mcp/mint</code> wrong Bearer → <b>401</b>
+        <code>POST /api/internal/mcp/mint</code> wrong Bearer +
+        <code>X-Mcp-Caller-Origin: https://agent.livepeer.org</code> → <b>401</b>
         <code>{"error":"unauthorized"}</code> (secret+allowlist loaded). Broker mint-via-OAuth
         200 not exercised (PKCE blocked upstream).</li>
       <li><b>Signer:</b> <code>https://pymthouse-production.up.railway.app/healthz</code> →
         <b>200</b> <code>OK</code>.</li>
       <li><b>Unbound session:</b> Bearer <code>mcp_at_*</code> → <b>401</b>
-        “MCP session token is not bound…” (fail-closed still holds with flag ON).</li>
+        “MCP session token is not bound…” +
+        <code>WWW-Authenticate: Bearer resource_metadata="https://agent.livepeer.org/.well-known/oauth-protected-resource"</code>.</li>
       <li><b>Not run:</b> Google/GitHub login, token exchange, bound <code>mcp_at_*</code>,
         <code>create_media</code> asset. No full-chain proof → <b>not GREEN</b>.</li>
     </ul>
-    <p style="margin:10px 0 0"><b>One-line fixes (then re-run before flipping OFF again):</b></p>
+    <p style="margin:10px 0 0"><b>One-line fix (then re-run maximal Scenario A before flipping OFF):</b></p>
     <ol>
-      <li><b>NaaP Production:</b> set
-        <code>MCP_INTERNAL_MINT_ALLOWLIST=https://storyboard.daydream.monster</code> and
-        <code>MCP_OAUTH_REDIRECT_ALLOWLIST=https://storyboard.daydream.monster/api/mcp/oauth/callback</code>
-        → Redeploy → login bridge must <b>not</b> return <code>mcp_oauth_invalid</code>.</li>
       <li><b>Storyboard Production:</b> set
-        <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> to the MCP client callback(s) you will use
-        (prefix ok, e.g. <code>http://127.0.0.1:*,http://localhost:*</code> and/or Claude callback)
-        → Redeploy → authorize must <b>302</b> to NaaP login, not 400 allow-listed.</li>
+        <code>MCP_OAUTH_REDIRECT_ALLOWLIST=http://127.0.0.1:*,http://localhost:*</code>
+        (add Claude/Cursor callbacks if used) → Redeploy → authorize must <b>302</b> to
+        <code>operator.livepeer.org/login?mcp_oauth=1…</code>, not 400.</li>
     </ol>
-    <p class="muted" style="margin:8px 0 0"><b>Do now regardless:</b> delete Production
-      <code>MCP_OAUTH_ENABLED</code> → Redeploy Storyboard Production. Public broker is live until then.</p>
+    <p class="muted" style="margin:8px 0 0"><b>NaaP already correct</b>
+      (<code>MCP_INTERNAL_MINT_ALLOWLIST=https://agent.livepeer.org</code>,
+      <code>MCP_OAUTH_REDIRECT_ALLOWLIST=https://agent.livepeer.org/api/mcp/oauth/callback</code>).
+      <b>After test:</b> delete Production <code>MCP_OAUTH_ENABLED</code> → Redeploy.</p>
   </div>
 
   <div class="callout warn" id="scenario-a-now">
@@ -142,17 +150,19 @@
   </p>
 
   <div class="callout danger" id="prod-url-path">
-    <b>Production URL path (flip window 2026-08-09T03:05Z).</b>
-    Flag <b>ON</b> confirmed (AS/PRM 200). Scenario A e2e <b>BLOCKED</b> on NaaP redirect
-    allowlist + Storyboard client <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> (see
-    <a href="#scenario-a-prod-flip">prod flip probe</a>). Mint wrong-Bearer 401 + signer 200 hold.
+    <b>Production URL path (corrected host 2026-08-09T03:11Z).</b>
+    Use <code>https://agent.livepeer.org</code> for MCP OAuth prod (not
+    <code>storyboard.daydream.monster</code>). Flag <b>ON</b> (AS/PRM 200). Scenario A e2e
+    <b>BLOCKED</b> only on Storyboard client <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> (NaaP
+    allowlist verified OK — see <a href="#scenario-a-prod-flip">prod re-probe</a>).
+    Mint wrong-Bearer 401 + signer 200 hold.
     STATUS paste: <a href="./MCP-OAUTH-TRIMODE-STATUS.html#prod-temp-flip">§9</a>.
-    <b>Close the window:</b> delete <code>MCP_OAUTH_ENABLED</code> on Storyboard Production → Redeploy.
+    <b>After test:</b> delete <code>MCP_OAUTH_ENABLED</code> on Storyboard Production → Redeploy.
   </div>
 
   <!-- ============================================================ -->
   <h2 id="matrix">1 · E2E matrix (this session)</h2>
-  <p class="muted">Hosts: Storyboard <code>https://storyboard.daydream.monster</code>;
+  <p class="muted">Hosts: Storyboard MCP <code>https://agent.livepeer.org</code>;
     SDK <code>https://sdk.daydream.monster</code>; Signer <code>https://pymthouse-production.up.railway.app</code>;
     NaaP <code>https://operator.livepeer.org</code> + <code>https://naap-platform.vercel.app</code>.
     Storyboard unit suite on <code>main</code> @ <span class="sha">37db2dac</span>.</p>
@@ -242,12 +252,14 @@
       <tr>
         <td>C8</td>
         <td>Scenario A e2e on Production URLs (flag temporarily ON)</td>
-        <td><span class="pill blocked">BLOCKED (allowlists)</span></td>
+        <td><span class="pill blocked">BLOCKED (SB redirect allowlist)</span></td>
         <td>
-          <b>03:05Z flip:</b> AS/PRM <b>200</b> (flag ON). Authorize → <b>400</b> redirect_uri not
-          allow-listed. Login bridge → <code>mcp_oauth_invalid</code>. Mint wrong-Bearer <b>401</b>.
-          No PKCE / <code>mcp_at_*</code> / <code>create_media</code>. See
-          <a href="#scenario-a-prod-flip">prod flip probe</a>.
+          <b>03:11Z vs agent.livepeer.org:</b> AS/PRM <b>200</b> (flag ON). Authorize → <b>400</b>
+          redirect_uri not allow-listed (Storyboard <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code>).
+          NaaP login bridge with agent callback → <b>OK</b> (cookie set, not
+          <code>mcp_oauth_invalid</code>). Mint wrong-Bearer <b>401</b>. No PKCE /
+          <code>mcp_at_*</code> / <code>create_media</code>. See
+          <a href="#scenario-a-prod-flip">prod re-probe</a>.
         </td>
       </tr>
       <tr>
@@ -266,7 +278,7 @@
         <td>C10</td>
         <td>Production <code>MCP_OAUTH_ENABLED</code> temporary flip + tripwire OFF</td>
         <td><span class="pill partial">ON for probe / OFF pending user</span></td>
-        <td>User flipped ON for short window. Agent verified ON + BLOCKED e2e.
+        <td>Flag still ON at 03:11Z on <code>agent.livepeer.org</code>. Agent verified ON + BLOCKED e2e (SB client redirect allowlist).
           <b>User must delete <code>MCP_OAUTH_ENABLED</code> + redeploy now</b> to close broker.</td>
       </tr>
     </tbody>
