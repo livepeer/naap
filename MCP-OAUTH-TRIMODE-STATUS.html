@@ -918,16 +918,16 @@ unset SHARED_MINT_SECRET</pre>
 
   <h2 id="prod-temp-flip">9 · Production temporary flip (user-approved short window)</h2>
   <div class="callout danger">
-    <b>Re-probe 2026-08-09T03:16–03:18Z vs <code>https://agent.livepeer.org</code> — Scenario A = BLOCKED (human SSO).</b>
-    Prod MCP host <b>agent.livepeer.org</b>. Flag <b>ON</b> (AS + PRM <b>200</b>).
-    Storyboard <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> is <b>FIXED</b>: authorize PKCE →
-    <b>302</b> to NaaP login for localhost + agent callback (prior 400 gone).
-    NaaP login bridge with agent callback → <b>307</b> +
-    <code>naap_mcp_oauth_pending</code> (NOT <code>mcp_oauth_invalid</code>).
-    Playwright reached GitHub OAuth login; no automated credentials —
-    bound <code>mcp_at_*</code> / <code>create_media</code> not run.
-    Mint wrong-Bearer <b>401</b>; unbound <code>mcp_at_*</code> <b>401</b>; signer healthz <b>200</b>.
-    <b>Flip OFF now:</b> delete Production <code>MCP_OAUTH_ENABLED</code> + Redeploy.
+    <b>Re-probe 2026-08-09T03:52Z vs <code>https://agent.livepeer.org</code> — Scenario A = BLOCKED (opaque access_denied).</b>
+    Prod MCP host <b>agent.livepeer.org</b>. Flag <b>ON</b> (AS + PRM <b>200</b>; authorize localhost → <b>302</b>).
+    Human Google SSO OK three times; Storyboard callback returned
+    <code>{"error":"access_denied"}</code> (mint never called on NaaP).
+    Shipping storyboard <a href="https://github.com/livepeer/storyboard/pull/880">PR #880</a>
+    so callback returns safe <code>reason</code>
+    (<code>invalid_state</code> | <code>mint_config</code> | <code>mint_http_*</code> | …).
+    After deploy: one fresh authorize + SSO; paste JSON body with <code>reason</code>.
+    Bound <code>mcp_at_*</code> / <code>create_media</code> not run.
+    <b>Flip OFF after window:</b> delete Production <code>MCP_OAUTH_ENABLED</code> + Redeploy.
     Details: <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html#scenario-a-prod-flip">E2E report</a>.
   </div>
   <p class="muted">
