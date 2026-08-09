@@ -917,11 +917,18 @@ unset SHARED_MINT_SECRET</pre>
   </ol>
 
   <h2 id="prod-temp-flip">9 · Production temporary flip (user-approved short window)</h2>
+  <div class="callout danger">
+    <b>Flip probe 2026-08-09T03:05–03:07Z — BLOCKED.</b>
+    Flag <b>ON</b> (AS/PRM 200). Authorize <b>400</b> <code>redirect_uri not allow-listed</code>
+    (Storyboard Production missing <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> for client callbacks).
+    Login bridge <code>mcp_oauth_invalid</code> (NaaP Production missing prod Storyboard callback).
+    Mint wrong-Bearer 401; signer healthz 200. No PKCE / <code>create_media</code>.
+    <b>Delete <code>MCP_OAUTH_ENABLED</code> + Redeploy now.</b> Details:
+    <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html#scenario-a-prod-flip">E2E report</a>.
+  </div>
   <p class="muted">
-    Verified <b>2026-08-09T02:53Z</b>: Storyboard OAuth still <b>OFF</b> (AS/authorize 404);
-    NaaP mint on <code>operator.livepeer.org</code> already <b>wired</b> (wrong Bearer → 401);
-    prod Storyboard callback <b>not</b> allowlisted (<code>mcp_oauth_invalid</code>).
-    User chose: flip Production OAuth ON briefly for Scenario A, then OFF.
+    Pre-flip (02:53Z): Storyboard OAuth was OFF; NaaP mint wired (wrong Bearer → 401);
+    prod Storyboard callback not allowlisted. User flipped ON for Scenario A, then OFF.
   </p>
   <div class="callout warn">
     <b>Risk.</b> Production OAuth ON exposes the broker publicly — keep the window short; billing stays test app

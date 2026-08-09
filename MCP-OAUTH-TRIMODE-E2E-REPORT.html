@@ -63,59 +63,74 @@
   <h1>MCP OAuth Tri-Mode — Live E2E Matrix Report</h1>
   <p class="sub">
     Single-worker live matrix. Earlier pass <b>2026-08-09T01:44–01:47Z</b>; Scenario A re-probe
-    <b>2026-08-09T02:35–02:40Z</b>. Credentials used in-memory only; <b>no secrets</b> in this doc.
+    <b>2026-08-09T02:35–02:40Z</b>; <b>Production flip window 2026-08-09T03:05–03:07Z</b>.
+    Credentials used in-memory only; <b>no secrets</b> in this doc.
     Companion to <a href="./MCP-OAUTH-TRIMODE-STATUS.html">MCP-OAUTH-TRIMODE-STATUS.html</a>
     / naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>.
   </p>
 
   <div class="hero">
-    <b>Verdict: Scenario A e2e = BLOCKED (not GREEN).</b><br>
-    NaaP mint is now <b>wired</b> on the custom-domain hosts (wrong Bearer → app
-    <code>401 {"error":"unauthorized"}</code>, not config-dark 404). Login-bridge allowlists the
-    Storyboard Preview callback (with <code>state</code>). Storyboard Production OAuth flag remains
-    <b>OFF</b>. Storyboard/NaaP <code>*.vercel.app</code> Previews are behind <b>Vercel Authentication</b>
-    (SSO login wall) — cannot observe Preview discovery/authorize or finish PKCE /
-    <code>create_media</code> from automation. Do <b>not</b> set Production
-    <code>MCP_OAUTH_ENABLED=1</code>.
+    <b>Verdict: Scenario A prod e2e = BLOCKED (not GREEN).</b><br>
+    Production OAuth flag is <b>ON</b> (AS + PRM <b>200</b>; authorize not 404). Full PKCE →
+    bound <code>mcp_at_*</code> → <code>create_media</code> <b>did not complete</b> — blocked on
+    two allowlists. Mint wrong-Bearer still <b>401</b>; signer <code>/healthz</code> <b>200</b>.
+    <b>Tripwire now:</b> delete Production <code>MCP_OAUTH_ENABLED</code> and redeploy to close
+    the public broker window (do this immediately even though e2e is not GREEN).
+  </div>
+
+  <div class="callout danger" id="scenario-a-prod-flip">
+    <b>Production flip probe (03:05–03:07Z) — evidence</b>
+    <ul>
+      <li><b>Flag ON:</b>
+        <code>GET https://storyboard.daydream.monster/.well-known/oauth-authorization-server</code>
+        → <b>200</b> JSON with
+        <code>authorization_endpoint</code> / <code>token_endpoint</code> / S256.
+        PRM → <b>200</b>. Authorize route matched (<code>x-matched-path: /api/mcp/oauth/authorize</code>),
+        not blanket 404.</li>
+      <li><b>Authorize PKCE:</b> valid S256 challenge + state →
+        <b>400</b> <code>{"error":"invalid_request","error_description":"redirect_uri not allow-listed"}</code>
+        for every probed client callback
+        (<code>http://127.0.0.1:1455/…</code>, Cursor scheme, Claude callback, Storyboard callback).
+        Playwright confirm: HTTP 400 on authorize URL. Empty/missing Storyboard
+        <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> (fail-closed).</li>
+      <li><b>Login bridge:</b>
+        <code>GET https://operator.livepeer.org/login?mcp_oauth=1&amp;state=…&amp;redirect_uri=https://storyboard.daydream.monster/api/mcp/oauth/callback</code>
+        → <b>307</b> <code>/login?error=mcp_oauth_invalid</code>. Same for previously allowlisted
+        Preview Storyboard callback hosts. NaaP Production redirect allowlist does <b>not</b>
+        include prod Storyboard callback (STATUS §9 paste incomplete / not redeployed).</li>
+      <li><b>Mint smoke:</b>
+        <code>POST /api/internal/mcp/mint</code> wrong Bearer → <b>401</b>
+        <code>{"error":"unauthorized"}</code> (secret+allowlist loaded). Broker mint-via-OAuth
+        200 not exercised (PKCE blocked upstream).</li>
+      <li><b>Signer:</b> <code>https://pymthouse-production.up.railway.app/healthz</code> →
+        <b>200</b> <code>OK</code>.</li>
+      <li><b>Unbound session:</b> Bearer <code>mcp_at_*</code> → <b>401</b>
+        “MCP session token is not bound…” (fail-closed still holds with flag ON).</li>
+      <li><b>Not run:</b> Google/GitHub login, token exchange, bound <code>mcp_at_*</code>,
+        <code>create_media</code> asset. No full-chain proof → <b>not GREEN</b>.</li>
+    </ul>
+    <p style="margin:10px 0 0"><b>One-line fixes (then re-run before flipping OFF again):</b></p>
+    <ol>
+      <li><b>NaaP Production:</b> set
+        <code>MCP_INTERNAL_MINT_ALLOWLIST=https://storyboard.daydream.monster</code> and
+        <code>MCP_OAUTH_REDIRECT_ALLOWLIST=https://storyboard.daydream.monster/api/mcp/oauth/callback</code>
+        → Redeploy → login bridge must <b>not</b> return <code>mcp_oauth_invalid</code>.</li>
+      <li><b>Storyboard Production:</b> set
+        <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> to the MCP client callback(s) you will use
+        (prefix ok, e.g. <code>http://127.0.0.1:*,http://localhost:*</code> and/or Claude callback)
+        → Redeploy → authorize must <b>302</b> to NaaP login, not 400 allow-listed.</li>
+    </ol>
+    <p class="muted" style="margin:8px 0 0"><b>Do now regardless:</b> delete Production
+      <code>MCP_OAUTH_ENABLED</code> → Redeploy Storyboard Production. Public broker is live until then.</p>
   </div>
 
   <div class="callout warn" id="scenario-a-now">
-    <b>Scenario A re-probe (02:35–02:40Z) — evidence</b>
+    <b>Earlier Scenario A re-probe (02:35–02:40Z) — superseded by prod flip above</b>
     <ul>
-      <li><b>Mint smoke (reachable):</b>
-        <code>POST https://operator.livepeer.org/api/internal/mcp/mint</code> +
-        <code>https://naap-platform.vercel.app/…</code> with wrong Bearer →
-        <b>401</b> <code>{"error":"unauthorized"}</code> (app-level; proves
-        <code>MCP_INTERNAL_MINT_SECRET</code> + allowlist present). M2M client-secret as Bearer also
-        401 (expected — mint uses shared mint secret, not M2M). D3=200 not proven (shared secret
-        not available to agent).</li>
-      <li><b>Mint smoke (Preview alias):</b>
-        <code>naap-platform-git-feat-mcp-oauth-log-1b639e-…vercel.app</code> → Vercel
-        <b>401 Protected deployment</b> / 302 → <code>vercel.com/sso-api</code> (SSO). App mint status
-        not observable on Preview hostname.</li>
-      <li><b>Login bridge:</b>
-        <code>GET /login?mcp_oauth=1&amp;redirect_uri=&lt;SB Preview callback&gt;&amp;state=…</code>
-        → <b>307</b> <code>/login?callbackUrl=/api/v1/auth/mcp/complete</code> +
-        <code>naap_mcp_oauth_pending</code> cookie. Same with
-        <code>storyboard.daydream.monster</code> callback → <code>mcp_oauth_invalid</code>
-        (prod SB origin not allowlisted — expected).</li>
-      <li><b>Storyboard flag:</b> Production
-        <code>/.well-known/oauth-authorization-server</code> +
-        <code>/api/mcp/oauth/authorize</code> → <b>404</b> Bearer-only / <code>not_found</code>
-        (flag <b>OFF</b>). Target Preview
-        <code>storyboard-git-feat-mcp-oauth-pr16-c-a54035-…</code> → SSO redirect to
-        <code>vercel.com/login</code>; Playwright stopped at login (needs GitHub/Google/SAML SSO
-        or automation bypass). <b>Cannot confirm Preview <code>MCP_OAUTH_ENABLED</code></b> —
-        if authorize is 404 after SSO, paste Block C.</li>
-      <li><b>Not run:</b> PKCE authorize→callback→mint→bound <code>mcp_at_*</code>→
-        <code>create_media</code> asset. No full-chain proof → not GREEN.</li>
+      <li>Mint wired (wrong Bearer → 401). Preview login-bridge allowlist worked then;
+        prod SB callback was <code>mcp_oauth_invalid</code>. Flag was OFF (AS/authorize 404).</li>
+      <li>Preview hosts SSO-walled. Full PKCE / <code>create_media</code> not run.</li>
     </ul>
-    <p class="muted" style="margin:8px 0 0"><b>Next user action:</b> Open the Storyboard Preview URL in a
-      browser, complete <b>Vercel Authentication</b> (Continue with GitHub / Google / SAML SSO), then
-      re-hit <code>/.well-known/oauth-authorization-server</code>. If 404 → paste Block C
-      (<code>MCP_OAUTH_ENABLED=1</code> Preview-only). Optionally share
-      <code>VERCEL_AUTOMATION_BYPASS_SECRET</code> / a share link so agents can probe without SSO.
-      Do not enable Production OAuth flag.</p>
   </div>
 
   <p class="toc muted">
@@ -126,14 +141,13 @@
     <a href="#prod-url-path">5 · Production URL path</a>
   </p>
 
-  <div class="callout warn" id="prod-url-path">
-    <b>Production URL path (2026-08-09T02:53Z).</b>
-    User approved temporary Production OAuth flip for Scenario A (then OFF).
-    Current: Storyboard flag <b>OFF</b> (AS/authorize 404); NaaP mint <b>wired</b> (wrong Bearer → 401);
-    prod SB origin <b>not</b> allowlisted (<code>mcp_oauth_invalid</code>);
-    flag-OFF sk_* paste still <b>PASS</b> (create_media 200 + fal asset).
-    Exact Vercel Production paste: STATUS <a href="./MCP-OAUTH-TRIMODE-STATUS.html#prod-temp-flip">§9</a>.
-    Waiting on user <b>flipped on</b> before full Scenario A e2e.
+  <div class="callout danger" id="prod-url-path">
+    <b>Production URL path (flip window 2026-08-09T03:05Z).</b>
+    Flag <b>ON</b> confirmed (AS/PRM 200). Scenario A e2e <b>BLOCKED</b> on NaaP redirect
+    allowlist + Storyboard client <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> (see
+    <a href="#scenario-a-prod-flip">prod flip probe</a>). Mint wrong-Bearer 401 + signer 200 hold.
+    STATUS paste: <a href="./MCP-OAUTH-TRIMODE-STATUS.html#prod-temp-flip">§9</a>.
+    <b>Close the window:</b> delete <code>MCP_OAUTH_ENABLED</code> on Storyboard Production → Redeploy.
   </div>
 
   <!-- ============================================================ -->
@@ -227,14 +241,13 @@
     <tbody>
       <tr>
         <td>C8</td>
-        <td>Probe NaaP / Storyboard Preview mint env wired → Scenario A e2e if yes</td>
-        <td><span class="pill blocked">BLOCKED (SSO + flag)</span></td>
+        <td>Scenario A e2e on Production URLs (flag temporarily ON)</td>
+        <td><span class="pill blocked">BLOCKED (allowlists)</span></td>
         <td>
-          <b>Re-probe 02:35Z:</b> custom-domain NaaP mint <b>wired</b> (wrong Bearer → app 401).
-          Login bridge allowlists Storyboard Preview callback (+ <code>state</code> → pending cookie).
-          Storyboard Production flag still <b>OFF</b> (A4). Preview hosts SSO-walled —
-          discovery/authorize not observable; Scenario A PKCE + <code>create_media</code>
-          <b>not run</b>. See <a href="#scenario-a-now">Scenario A re-probe</a>.
+          <b>03:05Z flip:</b> AS/PRM <b>200</b> (flag ON). Authorize → <b>400</b> redirect_uri not
+          allow-listed. Login bridge → <code>mcp_oauth_invalid</code>. Mint wrong-Bearer <b>401</b>.
+          No PKCE / <code>mcp_at_*</code> / <code>create_media</code>. See
+          <a href="#scenario-a-prod-flip">prod flip probe</a>.
         </td>
       </tr>
       <tr>
@@ -251,9 +264,10 @@
       </tr>
       <tr>
         <td>C10</td>
-        <td>Do NOT enable <code>MCP_OAUTH_ENABLED</code> on production</td>
-        <td><span class="pill ok">PASS (honored)</span></td>
-        <td>Prod behavior still flag-OFF (A4). No prod env flip performed.</td>
+        <td>Production <code>MCP_OAUTH_ENABLED</code> temporary flip + tripwire OFF</td>
+        <td><span class="pill partial">ON for probe / OFF pending user</span></td>
+        <td>User flipped ON for short window. Agent verified ON + BLOCKED e2e.
+          <b>User must delete <code>MCP_OAUTH_ENABLED</code> + redeploy now</b> to close broker.</td>
       </tr>
     </tbody>
   </table>
@@ -319,9 +333,9 @@
       </tr>
       <tr>
         <td>Scenario A — NaaP OAuth login → mint → <code>mcp_at_*</code> → inference</td>
-        <td>After SSO + Preview flag + create_media</td>
+        <td>Prod flag ON but allowlists incomplete</td>
         <td><span class="pill blocked">BLOCKED</span></td>
-        <td>Mint wired (401) + Preview redirect allowlisted; full OAuth→asset chain not run (SSO + flag unknown). <b>Not GREEN.</b></td>
+        <td>AS 200; authorize 400 redirect allowlist; login <code>mcp_oauth_invalid</code>; no asset. <b>Not GREEN.</b> Flip OFF now.</td>
       </tr>
       <tr>
         <td>Claude / MCP connector “sign in” (OAuth UX)</td>
@@ -402,7 +416,7 @@
   </ol>
 
   <p class="foot">
-    Generated 2026-08-09 from live curls + storyboard unit tests.
+    Updated 2026-08-09T03:07Z from live Production curls + Playwright authorize probe.
     No credentials, tokens, or client secrets included.
     See also <a href="./MCP-OAUTH-TRIMODE-STATUS.html">STATUS</a> /
     <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">IMPL PLAN</a>.
