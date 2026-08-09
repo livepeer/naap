@@ -98,6 +98,7 @@
     <a href="#remaining">5 · Remaining PR table</a>
     <a href="#stories">6 · User stories</a>
     <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html">7 · Live E2E report</a>
+    <a href="#exact-paste">8 · Exact copy-paste</a>
   </p>
 
   <!-- ============================================================ -->
@@ -773,12 +774,154 @@ curl -sSI "$NAAP_PREVIEW/login?mcp_oauth=1&amp;state=st_probe&amp;redirect_uri=$
     If Preview mint cannot be wired, shipping P0 paste-key + inert OAuth head remains an approved outcome: invariants, resolution layer, composite visibility, durable store, and fail-closed <code>mcp_at_*</code> still have standalone value.
   </div>
 
+  <!-- ============================================================ -->
+  <h2 id="exact-paste">8 · Exact copy-paste (Preview mint wire)</h2>
+  <p class="muted">
+    Verified from source 2026-08-09: NaaP mint
+    <code>apps/web-next/src/app/api/internal/mcp/mint/route.ts</code> + login bridge
+    <code>mcp-oauth-login-bridge.ts</code>; Storyboard
+    <code>lib/mcp-server/auth/providers/naap.ts</code> + <code>oauth-flags.ts</code> + <code>oauth-store.ts</code>.
+    Preview hosts from GitHub Deployments / Vercel bot on PRs (CLI team scope unauthorized).
+    <b>No secret values</b> in this file.
+  </p>
+
+  <div class="callout warn">
+    <b>Which Preview URL to use.</b>
+    Preview env vars apply to all Preview deploys, but the <em>deployment SHA must include mint code</em>.
+    <code>feat/mcp-oauth-tri-mode-plan</code> Preview is <b>docs-only</b> (no
+    <code>/api/internal/mcp/mint</code>) — do <b>not</b> use
+    <code>naap-platform-git-feat-mcp-oauth-tri-…</code> for mint smoke.
+    Use a Preview whose commit is on <code>main</code> after naap <a href="https://github.com/livepeer/naap/pull/458">#458</a>/<a href="https://github.com/livepeer/naap/pull/459">#459</a>
+    (concrete example below: login-bridge git alias from #459).
+    Storyboard: use project <code>storyboard</code> (not <code>storyboard-a3</code>).
+    Ephemeral pattern: <code>https://&lt;project&gt;-&lt;hash&gt;-livepeer-foundation.vercel.app</code>.
+    Stable-per-branch: <code>https://&lt;project&gt;-git-&lt;branch-slug&gt;-livepeer-foundation.vercel.app</code>.
+    <b>Copy origin from Vercel UI:</b> project → Deployments → latest Ready <b>Preview</b> → open → copy origin (no trailing slash).
+  </div>
+
+  <h3>Origins used in Blocks A–D (concrete examples)</h3>
+<pre class="cmd"># NaaP Preview WITH mint+login-bridge (PR #459 git alias — prefer this or any post-#459 main Preview)
+export NAAP_PREVIEW='https://naap-platform-git-feat-mcp-oauth-log-1b639e-livepeer-foundation.vercel.app'
+# Latest ephemeral example (same project, hash rotates): https://naap-platform-2tep99szv-livepeer-foundation.vercel.app
+
+# Storyboard Preview WITH oauth broker/naap provider (PR #879 git alias)
+export STORYBOARD_PREVIEW_ORIGIN='https://storyboard-git-feat-mcp-oauth-pr16-c-a54035-livepeer-foundation.vercel.app'
+# Latest ephemeral example: https://storyboard-mkmjvcg30-livepeer-foundation.vercel.app
+
+# Production tripwires — DO NOT set MCP_OAUTH_ENABLED=1 here; DO NOT change these for the OAuth flag
+#   https://storyboard.daydream.monster
+#   https://operator.livepeer.org
+#   https://naap-platform.vercel.app</pre>
+
+  <h3>0) Generate shared mint secret (shell only — never commit / never paste into git)</h3>
+<pre class="cmd">export SHARED_MINT_SECRET="$(openssl rand -hex 32)"
+echo "Generated SHARED_MINT_SECRET (length ${#SHARED_MINT_SECRET}) — paste into both Vercel Previews below"
+# use the M2M secret you already have for PYMTHOUSE_M2M_CLIENT_SECRET; do not invent another</pre>
+
+  <h3>Block A — NaaP Preview (<code>naap-platform</code> → Environment = Preview)</h3>
+  <p class="muted">Paste into Vercel → <code>naap-platform</code> → Settings → Environment Variables → <b>Preview</b>, then Redeploy that Preview.</p>
+<pre class="cmd">MCP_INTERNAL_MINT_SECRET=&lt;GENERATE_WITH_OPENSSL&gt;
+MCP_INTERNAL_MINT_ALLOWLIST=https://storyboard-git-feat-mcp-oauth-pr16-c-a54035-livepeer-foundation.vercel.app
+MCP_OAUTH_REDIRECT_ALLOWLIST=https://storyboard-git-feat-mcp-oauth-pr16-c-a54035-livepeer-foundation.vercel.app/api/mcp/oauth/callback
+PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870d7ae33589a3f0660
+PYMTHOUSE_M2M_CLIENT_ID=m2m_5ad45661715c8bb7eb30d18f
+PYMTHOUSE_M2M_CLIENT_SECRET=&lt;YOUR_M2M_SECRET&gt;
+PYMTHOUSE_ISSUER_URL=https://pymthouse.com/api/v1/oidc
+# HMAC for login-bridge cookies/codes — reuse existing NEXTAUTH_SECRET if already on Preview; else:
+# MCP_OAUTH_BRIDGE_SECRET=&lt;GENERATE_WITH_OPENSSL_OR_REUSE_NEXTAUTH_SECRET&gt;</pre>
+  <p class="muted">
+    If you copy a <em>different</em> Storyboard Preview origin from the Vercel UI, replace both
+    <code>MCP_INTERNAL_MINT_ALLOWLIST</code> and <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> (and Block B
+    <code>MCP_INTERNAL_MINT_CALLER_ORIGIN</code>) with that exact origin / callback. Exact match; no trailing slash on origins.
+  </p>
+
+  <h3>Block B — Storyboard Preview (<code>storyboard</code> → Environment = Preview)</h3>
+  <p class="muted">Flag still <b>OFF</b> (<code>MCP_OAUTH_ENABLED</code> unset). Redeploy after paste.</p>
+<pre class="cmd">NAAP_MCP_ORIGIN=https://naap-platform-git-feat-mcp-oauth-log-1b639e-livepeer-foundation.vercel.app
+NAAP_MCP_MINT_URL=https://naap-platform-git-feat-mcp-oauth-log-1b639e-livepeer-foundation.vercel.app/api/internal/mcp/mint
+# optional override (default is fine):
+# NAAP_MCP_IDENTITY_URL=https://naap-platform-git-feat-mcp-oauth-log-1b639e-livepeer-foundation.vercel.app/api/v1/auth/mcp/identity
+MCP_INTERNAL_MINT_SECRET=&lt;GENERATE_WITH_OPENSSL&gt;
+MCP_INTERNAL_MINT_CALLER_ORIGIN=https://storyboard-git-feat-mcp-oauth-pr16-c-a54035-livepeer-foundation.vercel.app
+MCP_OAUTH_PROVIDER=naap
+MCP_OAUTH_BILLING_APP_ID=app_98575870d7ae33589a3f0660
+# KV: already provisioned on storyboard (T-KV). Confirm Preview has these in dashboard — do not invent values:
+# KV_REST_API_URL=&lt;already on storyboard Marketplace — confirm Preview&gt;
+# KV_REST_API_TOKEN=&lt;already on storyboard Marketplace — confirm Preview&gt;
+# (aliases also accepted: UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN)
+# Leave unset until Block C:
+# MCP_OAUTH_ENABLED</pre>
+
+  <h3>Block C — Flag flip (Storyboard Preview only, AFTER mint smoke D1–D3 green)</h3>
+<pre class="cmd">MCP_OAUTH_ENABLED=1
+MCP_OAUTH_PROVIDER=naap</pre>
+  <p class="muted">Must be the string <code>1</code> (<code>true</code> does nothing). Never set these two on Storyboard Production until §4.4 stop-line.</p>
+
+  <h3>Block D — Smoke curls (fully substituted origins; secret via env)</h3>
+<pre class="cmd">export NAAP_PREVIEW='https://naap-platform-git-feat-mcp-oauth-log-1b639e-livepeer-foundation.vercel.app'
+export STORYBOARD_PREVIEW_ORIGIN='https://storyboard-git-feat-mcp-oauth-pr16-c-a54035-livepeer-foundation.vercel.app'
+# SHARED_MINT_SECRET already exported from step 0
+# If Vercel Auth blocks Preview, use team SSO session or Deployment Protection bypass header first.
+
+# D1) wrong Bearer → expect 401 {"error":"unauthorized"}  (still 404 ⇒ secret/allowlist not on this deploy)
+curl -sS -D - -o /tmp/mint-wrong.json -X POST "$NAAP_PREVIEW/api/internal/mcp/mint" \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer wrong' \
+  -H "x-mcp-caller-origin: $STORYBOARD_PREVIEW_ORIGIN" \
+  -d '{"externalUserId":"ops-probe"}'
+
+# D2) foreign origin → expect 403 {"error":"forbidden"}
+curl -sS -D - -o /tmp/mint-forbid.json -X POST "$NAAP_PREVIEW/api/internal/mcp/mint" \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer $SHARED_MINT_SECRET" \
+  -H 'x-mcp-caller-origin: https://evil.example' \
+  -d '{"externalUserId":"ops-probe"}'
+
+# D3) allowlisted + good secret → expect 200 {"apiKey":"app_98575870…_pmth_…"} — do NOT paste apiKey
+curl -sS -D - -o /tmp/mint-ok.json -X POST "$NAAP_PREVIEW/api/internal/mcp/mint" \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer $SHARED_MINT_SECRET" \
+  -H "x-mcp-caller-origin: $STORYBOARD_PREVIEW_ORIGIN" \
+  -d '{"externalUserId":"ops-probe","label":"mcp-oauth-smoke"}'
+
+# D4) Storyboard broker still dark before Block C
+curl -sSI "$STORYBOARD_PREVIEW_ORIGIN/api/mcp/oauth/authorize"
+# expect: 404
+
+# After Block C + Redeploy:
+curl -sS "$STORYBOARD_PREVIEW_ORIGIN/.well-known/oauth-protected-resource"
+# expect: 200 PRM JSON
+unset SHARED_MINT_SECRET</pre>
+
+  <h3>Numbered order (zero ambiguity)</h3>
+  <ol class="steps">
+    <li>Confirm Storyboard Preview origin in Vercel UI (project <code>storyboard</code> → latest Ready Preview). If different from the example above, substitute that origin everywhere in Blocks A/B/D.</li>
+    <li>Confirm NaaP Preview SHA includes mint (post-#458/#459). Prefer
+      <code>naap-platform-git-feat-mcp-oauth-log-1b639e-livepeer-foundation.vercel.app</code>
+      or any Ready Preview of <code>main</code> after those merges — <b>not</b> the docs-only tri-mode Preview.</li>
+    <li>Run step 0: <code>export SHARED_MINT_SECRET="$(openssl rand -hex 32)"</code>.</li>
+    <li>Paste Block A’s <b>8 vars</b> on <code>naap-platform</code> Preview (<code>MCP_OAUTH_BRIDGE_SECRET</code> only if <code>NEXTAUTH_SECRET</code> missing). Use your existing M2M secret for <code>PYMTHOUSE_M2M_CLIENT_SECRET</code>.</li>
+    <li>Redeploy that NaaP Preview.</li>
+    <li>Run curl D1 → expect <b>401</b>. If 404, secret/allowlist not loaded or wrong deploy — stop.</li>
+    <li>Run curl D2 → expect <b>403</b>.</li>
+    <li>Run curl D3 → expect <b>200</b> composite (do not log/paste <code>apiKey</code>). If 503 <code>billing_app_mismatch</code>, fix public client id. If 502, fix M2M/issuer.</li>
+    <li>Paste Block B on <code>storyboard</code> Preview (<code>NAAP_MCP_*</code> → NaaP Preview from step 2; shared secret identical; caller origin = Storyboard origin). Confirm <code>KV_REST_API_*</code> present on Preview in dashboard. Leave <code>MCP_OAUTH_ENABLED</code> unset.</li>
+    <li>Redeploy Storyboard Preview. Run D4 → expect broker <b>404</b>.</li>
+    <li>Prod tripwire (must stay green — do not change OAuth flag on these):
+      <code>curl -sSI https://storyboard.daydream.monster/.well-known/oauth-protected-resource</code> → 404 max-age=60;
+      <code>curl -sSI https://storyboard.daydream.monster/api/mcp/oauth/authorize</code> → 404;
+      NaaP prod mint stays config-dark: <code>curl -sS -X POST https://operator.livepeer.org/api/internal/mcp/mint -H 'content-type: application/json' -d '{}'</code> → <code>{"error":"not_found"}</code>.</li>
+    <li>Only then paste Block C on that one Storyboard Preview → Redeploy → re-check well-known 200 / authorize not blanket 404.</li>
+    <li><code>unset SHARED_MINT_SECRET</code>. Do <b>not</b> set Production <code>MCP_OAUTH_ENABLED=1</code>.</li>
+  </ol>
+
   <p class="foot">
     Sources: <code>gh pr view</code> storyboard #868–#876/#878/#879, naap #457/#458/#459,
     simple-infra #125/#126; INV unit tests on storyboard <code>main</code> @ <span class="sha">37db2dac</span>
     (58 oauth-related unit tests green 2026-08-09);
     live e2e matrix in <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html">MCP-OAUTH-TRIMODE-E2E-REPORT.html</a>;
-    plan doc <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a>.
+    plan doc <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a>;
+    Preview hosts from GH Deployments + Vercel bot comments (2026-08-09).
     No credentials included.
   </p>
 
