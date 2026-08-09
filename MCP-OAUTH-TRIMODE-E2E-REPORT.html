@@ -75,27 +75,23 @@
     / naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>.
   </p>
 
-  <div class="callout warn" id="fresh-retry-now">
+  <div class="callout danger" id="fresh-retry-now">
     <b>DO NOW — Flip OFF Production <code>MCP_OAUTH_ENABLED</code> → Redeploy</b>
-    <p>OAuth path is proven (below). Optional one-shot for billed asset proof (≤30&nbsp;min TTL):</p>
-    <p><a class="mono" href="https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_PXI_xLFnSRd8rA7vHZzQFbylvNM4hc3jty1hiD2syac&amp;redirect_uri=https%3A%2F%2Fagent.livepeer.org%2Fapi%2Fmcp%2Foauth%2Fcallback">https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_PXI_xLFnSRd8rA7vHZzQFbylvNM4hc3jty1hiD2syac&amp;redirect_uri=https%3A%2F%2Fagent.livepeer.org%2Fapi%2Fmcp%2Foauth%2Fcallback</a></p>
-    <ul>
-      <li>Listener <code>127.0.0.1:54321</code> patched with <code>action:'generate'</code></li>
-      <li>Prior <code>mcp_ac_*</code> re-exchange → <code>{"error":"invalid_grant"}</code> (one-shot; token not persisted)</li>
-    </ul>
+    <p>Scenario A full chain is <b>GREEN</b> (below). Leave the flag unset after redeploy.</p>
   </div>
 
   <div class="hero ok" id="scenario-a-oauth-green">
-    <b>Verdict: Scenario A OAuth = GREEN (agent.livepeer.org ↔ operator.livepeer.org · test app <code>app_98575870…</code>).</b><br>
-    <b>04:46:06Z evidence (no secrets):</b> human SSO callback
-    <code>code=mcp_ac_…</code> + matching client <code>state</code> → token endpoint
-    <b>200</b> <code>token_type=Bearer</code> <code>expires_in=86400</code>
-    <code>access_token</code> prefix <code>mcp_at_261…</code>; MCP <code>initialize</code> <b>200</b>.
-    Fix: storyboard <a href="https://github.com/livepeer/storyboard/pull/881">#881</a>
-    <code>d29e161f</code> (Upstash JSON deserialize in <code>takePending</code>; TTL 30m).
-    <br><b>create_media asset:</b> first call returned tool <code>-32602</code>
-    (harness omitted required <code>action</code>). Re-exchange of same code →
-    <code>400 {"error":"invalid_grant"}</code>. Asset URL pending optional re-login above.
+    <b>Verdict: Scenario A = GREEN end-to-end</b>
+    (<code>agent.livepeer.org</code> ↔ <code>operator.livepeer.org</code> · test app
+    <code>app_98575870…</code>).<br>
+    <b>04:49:29Z:</b> SSO → <code>mcp_ac_*</code> → token <b>200</b>
+    (<code>mcp_at_1xk…</code>, <code>expires_in=86400</code>) → MCP
+    <code>initialize</code> <b>200</b> → <code>create_media</code>
+    <code>action=generate</code> <b>200</b> · asset
+    <a href="https://v3b.fal.media/files/b/0aa59a49/OPfu9uKMx82zolqCboa2J.jpg">https://v3b.fal.media/files/b/0aa59a49/OPfu9uKMx82zolqCboa2J.jpg</a>
+    (~$0.003). Fix: storyboard
+    <a href="https://github.com/livepeer/storyboard/pull/881">#881</a>
+    <code>d29e161f</code> (Upstash <code>takePending</code> deserialize + 30m TTL).
     <b>Flip OFF now:</b> delete Production <code>MCP_OAUTH_ENABLED</code> → Redeploy.
   </div>
 
