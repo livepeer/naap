@@ -8,6 +8,12 @@ import {
   extractDeviceApprovalTupleFromTargetLink,
   validatePymthouseDeviceInitiateQuery,
 } from '@/lib/pymthouse-device-initiate';
+import {
+  NAAP_MCP_OAUTH_PENDING_COOKIE,
+  encodeMcpOauthPendingCookie,
+  isAllowedMcpOauthRedirectUri,
+  tryParseMcpOauthPendingCookie,
+} from '@/lib/mcp-oauth-login-bridge';
 
 // Plugin route mapping: path prefix → plugin name (camelCase DB name).
 // Maps custom route prefixes to their plugin so the middleware can rewrite
@@ -161,6 +167,57 @@ export async function middleware(request: NextRequest) {
   // Get the auth token from cookies
   const token = request.cookies.get('naap_auth_token')?.value;
 
+  // Storyboard MCP OAuth bridge: /login?mcp_oauth=1&state=&redirect_uri=
+  if (pathname === '/login' && request.method === 'GET') {
+    const mcpOauth = request.nextUrl.searchParams.get('mcp_oauth');
+    if (mcpOauth === '1') {
+      const state = request.nextUrl.searchParams.get('state')?.trim() ?? '';
+      const redirectUri = request.nextUrl.searchParams.get('redirect_uri')?.trim() ?? '';
+      if (!state || !redirectUri || !isAllowedMcpOauthRedirectUri(redirectUri)) {
+        const u = new URL('/login', request.url);
+        u.searchParams.set('error', 'mcp_oauth_invalid');
+        const res = NextResponse.redirect(u);
+        res.headers.set('x-request-id', requestId);
+        res.headers.set('x-trace-id', traceId);
+        return res;
+      }
+      let pendingCookie: string;
+      try {
+        pendingCookie = await encodeMcpOauthPendingCookie({ state, redirectUri });
+      } catch (err) {
+        console.error('[middleware] Failed to encode MCP OAuth pending cookie', err);
+        const u = new URL('/login', request.url);
+        u.searchParams.set('error', 'mcp_oauth_invalid');
+        const res = NextResponse.redirect(u);
+        res.headers.set('x-request-id', requestId);
+        res.headers.set('x-trace-id', traceId);
+        return res;
+      }
+      const pendingOpts = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax' as const,
+        maxAge: 600,
+        path: '/',
+      };
+      if (token) {
+        const complete = new URL('/api/v1/auth/mcp/complete', request.url);
+        const res = NextResponse.redirect(complete);
+        res.cookies.set(NAAP_MCP_OAUTH_PENDING_COOKIE, pendingCookie, pendingOpts);
+        res.headers.set('x-request-id', requestId);
+        res.headers.set('x-trace-id', traceId);
+        return res;
+      }
+      const clean = new URL('/login', request.url);
+      clean.searchParams.set('callbackUrl', '/api/v1/auth/mcp/complete');
+      const res = NextResponse.redirect(clean);
+      res.cookies.set(NAAP_MCP_OAUTH_PENDING_COOKIE, pendingCookie, pendingOpts);
+      res.headers.set('x-request-id', requestId);
+      res.headers.set('x-trace-id', traceId);
+      return res;
+    }
+  }
+
   // PymtHouse OIDC device-flow third-party initiate → NAAP login → /oidc/device-approved (server approve)
   if (pathname === '/login' && request.method === 'GET') {
     const iss = request.nextUrl.searchParams.get('iss');
@@ -298,6 +355,11 @@ export async function middleware(request: NextRequest) {
     if (token) {
       const devicePending = request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value;
       const allowLoginForDeviceReturn = pathname === '/login' && Boolean(devicePending);
+      const mcpPendingRaw = request.cookies.get(NAAP_MCP_OAUTH_PENDING_COOKIE)?.value;
+      const mcpPending = await tryParseMcpOauthPendingCookie(mcpPendingRaw);
+      if (pathname === '/login' && mcpPending) {
+        return NextResponse.redirect(new URL('/api/v1/auth/mcp/complete', request.url));
+      }
       if (!allowLoginForDeviceReturn) {
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }

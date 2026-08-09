@@ -9,6 +9,10 @@ import {
   NAAP_PMTH_DEVICE_APPROVAL_COOKIE,
   tryParseDeviceApprovalCookie,
 } from '@/lib/pymthouse-device-initiate';
+import {
+  NAAP_MCP_OAUTH_PENDING_COOKIE,
+  tryParseMcpOauthPendingCookie,
+} from '@/lib/mcp-oauth-login-bridge';
 
 interface RouteParams {
   params: Promise<{ provider: string }>;
@@ -50,9 +54,14 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     const deviceApproval = await tryParseDeviceApprovalCookie(
       request.cookies.get(NAAP_PMTH_DEVICE_APPROVAL_COOKIE)?.value,
     );
+    const mcpPending = await tryParseMcpOauthPendingCookie(
+      request.cookies.get(NAAP_MCP_OAUTH_PENDING_COOKIE)?.value,
+    );
     const redirectUrl = deviceApproval
       ? new URL('/oidc/device-approved', request.url)
-      : new URL('/dashboard', request.url);
+      : mcpPending
+        ? new URL('/api/v1/auth/mcp/complete', request.url)
+        : new URL('/dashboard', request.url);
 
     const response = NextResponse.redirect(redirectUrl);
 
