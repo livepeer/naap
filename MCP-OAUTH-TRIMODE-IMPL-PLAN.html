@@ -885,7 +885,7 @@ sequenceDiagram
 
 <div class="pr" id="pr-11">
 <h3>PR-11 · Make the missing LR gateway export a <b>loud build-time failure</b></h3>
-<div class="prmeta"><span class="tag t-keep">simple-infra</span><span class="tag t-off">no runtime flag</span><span class="tag t-yes">unblocked — start now</span></div>
+<div class="prmeta"><span class="tag t-keep">simple-infra</span><span class="tag t-off">no runtime flag</span><span class="tag t-yes">MERGED simple-infra#125 → ae0f3f5a</span></div>
 <table>
   <tr><th>Purpose</th><td>The vendored gateway in the deployed SDK image lacks <span class="mono">live_runner.py</span>, so <code>call_runner</code> is missing and LR dispatch fails at <em>runtime</em>, late and confusingly. Convert that into a build-time assertion so an image that cannot do LR dispatch <b>cannot be built</b>.</td></tr>
   <tr><th>Files</th><td class="mono">sdk-service-build/ — build script + a <code>verify_gateway_exports</code> step in the image build; CI wiring</td></tr>
@@ -899,9 +899,9 @@ sequenceDiagram
 </table>
 </div>
 
-<div class="pr blocked" id="pr-12">
+<div class="pr" id="pr-12">
 <h3>PR-12 · Isolated LR canary — pymthouse composite → production signer → LR orch</h3>
-<div class="prmeta"><span class="tag t-keep">simple-infra</span><span class="tag t-off">canary overlay only</span><span class="tag t-no">blocked: OA-2, OA-4</span></div>
+<div class="prmeta"><span class="tag t-keep">simple-infra</span><span class="tag t-off">canary overlay only</span><span class="tag t-yes">MERGED overlay #126 → 4a7bdb48</span><span class="tag t-no">e2e still OA-2/OA-4</span></div>
 <table>
   <tr><th>Purpose</th><td>Prove the billed pymthouse tail end-to-end on an <b>isolated</b> SDK instance: composite bearer → <code>PYMTHOUSE_SIGNER_URL</code> (production signer, RS-3) → <code>type=fixed</code> payment → LR orchestrator dispatch.</td></tr>
   <tr><th>Files</th><td class="mono">canary deployment overlay (env + image digest); no application source changes</td></tr>
@@ -949,9 +949,9 @@ sequenceDiagram
 </table>
 </div>
 
-<div class="pr blocked" id="pr-15">
+<div class="pr" id="pr-15">
 <h3>PR-15 · Storyboard <code>pymthouse</code> provider (P2)</h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_PROVIDER=pymthouse</span><span class="tag t-no">blocked: PR-14, OA-1</span></div>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">MCP_OAUTH_PROVIDER=pymthouse</span><span class="tag t-yes">MERGED storyboard#878 → 245879a0</span><span class="tag t-no">live e2e: PR-14 ops</span></div>
 <table>
   <tr><th>Purpose</th><td>Scenario B: pymthouse OIDC login for identity, then Storyboard mints the composite directly via M2M Basic. Same <code>BillingProvider</code> contract, same output shape as P1 (LSP) — only the identity source and the mint caller differ.</td></tr>
   <tr><th>Files</th><td class="mono">lib/mcp-server/auth/providers/pymthouse.ts <span class="tag t-new">NEW</span> · config/mcp-auth-providers.json (one entry)</td></tr>
@@ -967,7 +967,7 @@ sequenceDiagram
 
 <div class="pr" id="pr-16">
 <h3>PR-16 · Connector docs + one-click connect entry</h3>
-<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">docs</span><span class="tag t-part">after PR-04</span></div>
+<div class="prmeta"><span class="tag t-a">storyboard-a3</span><span class="tag t-off">docs</span><span class="tag t-yes">MERGED storyboard#879 → 37db2dac</span></div>
 <table>
   <tr><th>Purpose</th><td>Document the three ways to connect (paste <code>sk_*</code>, paste composite, OAuth sign-in) and emit a connector config that matches the real PRM.</td></tr>
   <tr><th>Files</th><td class="mono">docs/ + the public connect page copy</td></tr>

@@ -72,22 +72,20 @@
 
   <h1>MCP OAuth Tri-Mode — Status &amp; Ops Guide</h1>
   <p class="sub">
-    Grounded status for Tracks&nbsp;1–3 + T-KV. Claims below were checked with
-    <code>gh pr view</code>, live <code>curl</code> against production hosts, and
+    Implementation complete for all code PRs that can land without ops credentials.
+    Checked with <code>gh pr view</code>, live <code>curl</code> against production hosts, and
     <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a>
     (naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>).
-    Generated <b>2026-08-08</b>. <b>No secret values</b> appear in this document — placeholders only.
+    Updated <b>2026-08-09</b>. <b>No secret values</b> — placeholders only.
   </p>
 
   <div class="hero">
-    <b>Bottom line.</b> Tracks&nbsp;1–3 code for Scenario&nbsp;A is
-    <span class="pill merged">MERGED</span> on
-    <code>livepeer/storyboard</code> (#868–#876) and <code>livepeer/naap</code> (#458).
-    Production still has <code>MCP_OAUTH_ENABLED</code> unset: OAuth broker is inert (404),
-    well-known stays Bearer-only 404 with short TTL, and paste-key paths remain the live UX.
-    <b>OAuth login → mint → inference is not live.</b> Next gate is ops wiring on
-    <b>Preview</b> (shared mint secret + allowlist + M2M), then a Preview-only flag flip —
-    never prod — before stop-line checks.
+    <b>Bottom line.</b> <b>All IMPLEMENT-NOW code PRs are merged.</b>
+    Tracks&nbsp;1–3 Scenario&nbsp;A + NaaP login bridge + Track&nbsp;4 build guard/canary overlay +
+    Track&nbsp;5 PR-15/PR-16 are on <code>main</code>. Production still has
+    <code>MCP_OAUTH_ENABLED</code> <b>OFF</b> (well-known 404 + short TTL; broker 404).
+    <b>What remains is OPS only</b> — Preview env wire, Scenario&nbsp;B <code>web_</code> client,
+    LR gateway rebuild/deploy, secret rotation. Do not flip prod OAuth until §4.4 stop-line.
   </div>
 
   <p class="toc muted">
@@ -95,7 +93,8 @@
     <a href="#main">2 · On main</a>
     <a href="#prod">3 · Prod verification</a>
     <a href="#ops">4 · Ops gaps guide</a>
-    <a href="#stories">5 · User stories</a>
+    <a href="#remaining">5 · Remaining PR table</a>
+    <a href="#stories">6 · User stories</a>
   </p>
 
   <!-- ============================================================ -->
@@ -112,7 +111,21 @@
     </div>
     <div class="card">
       <h3>Track 3 — Mint (Scenario A)</h3>
-      <p>NaaP internal mint route (#458) + Storyboard <code>naap</code> BillingProvider (#876). Live mint still needs Preview env wire. Scenario&nbsp;B / LR tracks not started.</p>
+      <p>NaaP mint (#458) + login bridge (#459) + Storyboard <code>naap</code> provider (#876). Live mint still needs Preview env wire.</p>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <h3>Track 4 — LR / canary</h3>
+      <p>PR-11 build-time <code>call_runner</code> guard (simple-infra #125). PR-12 canary overlay (#126) landed — <b>deploy/e2e still ops</b> (OA-2/OA-4). PR-13 deferred until canary green.</p>
+    </div>
+    <div class="card">
+      <h3>Track 5 — Scenario B + docs</h3>
+      <p>PR-15 <code>pymthouse</code> provider (#878) behind flag. PR-16 connector docs (#879). PR-14 <code>web_</code> client = ops. PR-17 revocation deferred (N11).</p>
+    </div>
+    <div class="card">
+      <h3>INV / regression</h3>
+      <p>INV suite green on <code>storyboard</code> main (34 unit tests: INV + naap + pymthouse). Prod flag-OFF posture re-verified 2026-08-09.</p>
     </div>
   </div>
 
@@ -126,11 +139,12 @@
     <li><b>Metering:</b> usage-API debit reads deferred as <span class="pill deferred">FU-1</span>. Billed proof bar = signer 200 + <code>numTickets</code> in range + real asset URL.</li>
   </ul>
 
-  <h3>Explicitly not done yet</h3>
+  <h3>Explicitly remaining (ops / deferred — not code blockers)</h3>
   <ul>
-    <li>Track 4 (simple-infra LR / <code>call_runner</code>): PR-11…PR-13 — not opened.</li>
-    <li>Track 5 Scenario&nbsp;B: PR-14 (<code>web_</code> client) → PR-15 pymthouse provider — not opened.</li>
-    <li>PR-16 connector docs, PR-17 revocation — deferred / not opened.</li>
+    <li><b>OPS:</b> NaaP Preview M2M + mint secret + allowlist; Storyboard Preview <code>NAAP_MCP_*</code> + flag; rotate chat-pasted secrets.</li>
+    <li><b>OPS:</b> PR-14 register confidential <code>web_</code> client (OA-5) for Scenario&nbsp;B.</li>
+    <li><b>OPS/OWNER:</b> Rebuild/deploy SDK image with <code>live_runner.call_runner</code> (OA-2); apply PR-12 canary; OA-4 probe.</li>
+    <li><b>DEFERRED:</b> PR-13 LR promotion (needs PR-12 green); PR-17 revocation (N11); FU-1 metering reads.</li>
   </ul>
 
   <!-- ============================================================ -->
@@ -206,6 +220,20 @@
         <td>2026-08-08</td>
         <td><span class="pill merged">MERGED</span></td>
       </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/878">#878</a></td>
+        <td>PR-15 — pymthouse BillingProvider (Scenario B)</td>
+        <td class="sha">245879a0…469c8b</td>
+        <td>2026-08-09</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/storyboard/pull/879">#879</a></td>
+        <td>PR-16 — connector docs + OAuth connect entry</td>
+        <td class="sha">37db2dac…af31317</td>
+        <td>2026-08-09</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
     </tbody>
   </table>
 
@@ -223,11 +251,41 @@
         <td><span class="pill merged">MERGED</span> on <code>main</code></td>
       </tr>
       <tr>
+        <td><a href="https://github.com/livepeer/naap/pull/459">#459</a></td>
+        <td>NaaP login bridge <code>/login?mcp_oauth=1</code> + identity</td>
+        <td class="sha">7dde3685…f7eb8</td>
+        <td>2026-08-09</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
         <td><a href="https://github.com/livepeer/naap/pull/457">#457</a></td>
-        <td>docs: MCP OAuth tri-mode implementation plan</td>
+        <td>docs: MCP OAuth tri-mode implementation plan + status</td>
         <td class="sha">— (docs branch)</td>
         <td>—</td>
         <td><span class="pill open">OPEN</span> <code>feat/mcp-oauth-tri-mode-plan</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>livepeer/simple-infra</h3>
+  <table>
+    <thead>
+      <tr><th>PR</th><th>Title</th><th>Merge SHA</th><th>Merged</th><th>State</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="https://github.com/livepeer/simple-infra/pull/125">#125</a></td>
+        <td>PR-11 — fail SDK image build without <code>call_runner</code></td>
+        <td class="sha">ae0f3f5a…3f74</td>
+        <td>2026-08-09</td>
+        <td><span class="pill merged">MERGED</span></td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/livepeer/simple-infra/pull/126">#126</a></td>
+        <td>PR-12 — isolated LR canary overlay (config only)</td>
+        <td class="sha">4a7bdb48…a47e</td>
+        <td>2026-08-09</td>
+        <td><span class="pill merged">MERGED</span> — deploy/e2e still ops</td>
       </tr>
     </tbody>
   </table>
@@ -309,12 +367,17 @@
       <tr>
         <td>Scenario B (pymthouse-direct OAuth)</td>
         <td><span class="pill no">NOT VERIFIED</span></td>
-        <td>Needs <code>web_</code> confidential client (OA-5) + PR-14/PR-15. Not built.</td>
+        <td>PR-15 code merged (#878). Live e2e needs PR-14 <code>web_</code> client (OA-5) + Preview env. Provider stays dark until <code>MCP_OAUTH_PROVIDER=pymthouse</code>.</td>
       </tr>
       <tr>
         <td>LR front-door / <code>call_runner</code></td>
         <td><span class="pill no">NOT VERIFIED</span></td>
-        <td>Plan OA-2: deployed gateway image still lacks <code>live_runner</code> / <code>call_runner</code>. Track 4 not started.</td>
+        <td>PR-11 guard merged (#125). PR-12 overlay merged (#126). Deploy + OA-4 probe still ops/owner (OA-2 image rebuild).</td>
+      </tr>
+      <tr>
+        <td><code>MCP_OAUTH_ENABLED</code> prod (recheck 2026-08-09)</td>
+        <td><span class="pill ok">FULLY VERIFIED</span> OFF</td>
+        <td>Well-known 404 <code>Cache-Control: public, max-age=60</code>; <code>/api/mcp/oauth/authorize</code> → <b>404</b>.</td>
       </tr>
       <tr>
         <td>T-KV live cross-instance bind/lookup</td>
@@ -339,19 +402,29 @@
   </div>
 
   <h3>4.1 NaaP Preview env vars</h3>
-  <p class="muted">Project: Vercel <code>naap-platform</code> (Preview). Exact names from PR-09 route + pymthouse BFF.</p>
+  <p class="muted">Project: Vercel <code>naap-platform</code> (Preview). Exact names from PR-09 mint + #459 login bridge + pymthouse BFF.</p>
   <table>
     <thead><tr><th>Name</th><th>Purpose</th><th>Placeholder</th></tr></thead>
     <tbody>
       <tr><td><code>MCP_INTERNAL_MINT_SECRET</code></td><td>Shared Bearer secret for Storyboard→NaaP mint</td><td><code>&lt;rotate-me-shared-mint-secret&gt;</code></td></tr>
-      <tr><td><code>MCP_INTERNAL_MINT_ALLOWLIST</code></td><td>Comma-separated caller origins (Storyboard Preview + prod origins you intend to allow)</td><td><code>https://&lt;storyboard-preview&gt;.vercel.app,https://storyboard.daydream.monster</code></td></tr>
+      <tr><td><code>MCP_INTERNAL_MINT_ALLOWLIST</code></td><td>Comma-separated caller origins (also derives login-bridge redirect allowlist → <code>…/api/mcp/oauth/callback</code>)</td><td><code>https://&lt;storyboard-preview&gt;.vercel.app,https://storyboard.daydream.monster</code></td></tr>
+      <tr><td><code>MCP_OAUTH_REDIRECT_ALLOWLIST</code></td><td>Optional exact redirect URI list (overrides/extends mint-origin derivation)</td><td><code>https://&lt;storyboard-preview&gt;.vercel.app/api/mcp/oauth/callback</code></td></tr>
+      <tr><td><code>NEXTAUTH_SECRET</code> or <code>MCP_OAUTH_BRIDGE_SECRET</code></td><td>HMAC for pending-cookie / identity codes</td><td><code>&lt;existing-or-new-hmac-secret&gt;</code></td></tr>
       <tr><td><code>PYMTHOUSE_M2M_CLIENT_ID</code></td><td>Confidential M2M id (<code>m2m_…</code>)</td><td><code>m2m_&lt;…&gt;</code></td></tr>
       <tr><td><code>PYMTHOUSE_M2M_CLIENT_SECRET</code></td><td>Matching M2M secret (required for mint)</td><td><code>&lt;rotate-after-chat-paste&gt;</code></td></tr>
       <tr><td><code>PYMTHOUSE_PUBLIC_CLIENT_ID</code></td><td>Must equal hard-coded test app (RS-2)</td><td><code>app_98575870d7ae33589a3f0660</code></td></tr>
       <tr><td><code>PYMTHOUSE_ISSUER_URL</code></td><td>OIDC issuer used by existing pymthouse integration</td><td><code>https://&lt;pymthouse-host&gt;/api/v1/oidc</code></td></tr>
     </tbody>
   </table>
-  <p class="muted">Absent <code>MCP_INTERNAL_MINT_SECRET</code> or empty allowlist ⇒ route returns <b>404</b> (do not advertise).</p>
+  <p class="muted">Absent <code>MCP_INTERNAL_MINT_SECRET</code> or empty allowlist ⇒ mint returns <b>404</b>. Absent redirect allowlist ⇒ <code>/login?mcp_oauth=1</code> errors (bridge inert).</p>
+
+  <h3 id="ops-login">4.1.1 Login bridge smoke (after Preview wire)</h3>
+<pre class="cmd"># 1) Unauthenticated: should set pending cookie and show login
+curl -sSI "$NAAP_PREVIEW/login?mcp_oauth=1&amp;state=st_probe&amp;redirect_uri=$STORYBOARD_PREVIEW_ORIGIN/api/mcp/oauth/callback"
+# expect: 307/302 to /login?callbackUrl=/api/v1/auth/mcp/complete  (or error=mcp_oauth_invalid if allowlist missing)
+
+# 2) After browser Google/GitHub sign-in on that login page, browser should land on
+#    $STORYBOARD_PREVIEW_ORIGIN/api/mcp/oauth/callback?state=st_probe&amp;external_user_id=…&amp;code=mcp_id_…</pre>
 
   <h3>4.2 Storyboard Preview env vars</h3>
   <p class="muted">Exact names from <code>oauth-flags.ts</code>, <code>oauth-store.ts</code>, <code>providers/naap.ts</code> on storyboard <code>main</code>.</p>
@@ -359,7 +432,7 @@
     <thead><tr><th>Name</th><th>Purpose</th><th>Placeholder / notes</th></tr></thead>
     <tbody>
       <tr><td><code>MCP_OAUTH_ENABLED</code></td><td>Master gate — only <code>1</code> enables</td><td>Leave <b>unset</b> until step 4.5</td></tr>
-      <tr><td><code>MCP_OAUTH_PROVIDER</code></td><td>Mint provider id</td><td><code>naap</code> (Scenario A). Unset ⇒ broker 404 even if enabled</td></tr>
+      <tr><td><code>MCP_OAUTH_PROVIDER</code></td><td>Mint provider id</td><td><code>naap</code> (Scenario A) or <code>pymthouse</code> (Scenario B after PR-14). Unset ⇒ broker 404 even if enabled</td></tr>
       <tr><td><code>NAAP_MCP_ORIGIN</code></td><td>NaaP origin for login bridge</td><td><code>https://&lt;naap-preview-or-operator&gt;</code></td></tr>
       <tr><td><code>NAAP_MCP_IDENTITY_URL</code></td><td>Optional identity exchange override</td><td>default <code>{NAAP_MCP_ORIGIN}/api/v1/auth/mcp/identity</code></td></tr>
       <tr><td><code>NAAP_MCP_MINT_URL</code></td><td>Internal mint endpoint</td><td><code>https://&lt;naap&gt;/api/internal/mcp/mint</code></td></tr>
@@ -368,6 +441,9 @@
       <tr><td><code>MCP_OAUTH_BILLING_APP_ID</code> or <code>PYMTHOUSE_PUBLIC_CLIENT_ID</code></td><td>RS-2 test-app assertion</td><td><code>app_98575870d7ae33589a3f0660</code></td></tr>
       <tr><td><code>KV_REST_API_URL</code> + <code>KV_REST_API_TOKEN</code></td><td>oauth-store (Vercel Marketplace)</td><td>already provisioned per T-KV; confirm Preview has them</td></tr>
       <tr><td><code>UPSTASH_REDIS_REST_URL</code> + <code>UPSTASH_REDIS_REST_TOKEN</code></td><td>Aliases accepted by adapter</td><td>optional if <code>KV_*</code> present</td></tr>
+      <tr><td><code>PYMTHOUSE_WEB_CLIENT_ID</code> / <code>PYMTHOUSE_WEB_CLIENT_SECRET</code></td><td>Scenario B only (after §4.6)</td><td><code>web_&lt;…&gt;</code> / <code>&lt;secret&gt;</code></td></tr>
+      <tr><td><code>PYMTHOUSE_ISSUER_URL</code></td><td>Scenario B OIDC + Builder origin</td><td><code>https://&lt;pymthouse-host&gt;/api/v1/oidc</code></td></tr>
+      <tr><td><code>PYMTHOUSE_M2M_CLIENT_ID</code> / <code>SECRET</code></td><td>Scenario B Storyboard-held mint</td><td>same M2M as NaaP (or dedicated test M2M)</td></tr>
     </tbody>
   </table>
 
@@ -453,8 +529,49 @@
     </tbody>
   </table>
 
+  <h3 id="ops-scenariob">4.6 Scenario B — register <code>web_</code> client (PR-14 / OA-5)</h3>
+  <p>Public <code>app_</code> clients cannot do <code>authorization_code</code>. Ops must register a confidential pymthouse client:</p>
+  <ol>
+    <li>Client id prefix <code>web_</code>, confidential, grants: authorization_code + PKCE S256.</li>
+    <li>Redirect URIs (exact): <code>https://&lt;storyboard-preview&gt;.vercel.app/api/mcp/oauth/callback</code> and (later) prod Storyboard callback.</li>
+    <li>Scope to the <b>test app</b> only (RS-2).</li>
+    <li>On Storyboard Preview set: <code>PYMTHOUSE_WEB_CLIENT_ID</code>, <code>PYMTHOUSE_WEB_CLIENT_SECRET</code>, <code>PYMTHOUSE_ISSUER_URL</code>, M2M id/secret, <code>PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870d7ae33589a3f0660</code>, then <code>MCP_OAUTH_PROVIDER=pymthouse</code> only after Scenario A Preview is proven (or on a separate Preview deployment).</li>
+  </ol>
+  <p class="muted">PR-15 code is already on storyboard main (#878). Without the <code>web_</code> client, Scenario B cannot e2e — that is expected.</p>
+
+  <h3 id="ops-lr">4.7 LR canary deploy (PR-12 e2e / OA-2 / OA-4) — owner</h3>
+  <ol>
+    <li>Pin gateway with <code>call_runner</code>: <code>./scripts/pin-sdk-gateway.sh feat/byoc-inference-capabilities-protobuf</code> (PR-11 makes a bad pin fail the Docker build).</li>
+    <li>Build/push an isolated image tag (do not overwrite shared staging tags).</li>
+    <li>On an <b>isolated</b> canary VM only:
+<pre class="cmd">export SDK_IMAGE="us-docker.pkg.dev/livepeer-simple-infra/simple-infra/sdk-service:&lt;lr-tag&gt;"
+./scripts/deploy-byoc.sh --env canary \
+  --sdk-values environments/canary/mcp-oauth-lr.canary.values.yaml</pre>
+    </li>
+    <li>Probe pre-minted test-app composite against canary (RS-1): expect signer 200 + tickets in range + asset. Record OA-4 (type=fixed vs zero CapabilitiesPrices).</li>
+    <li>Confirm shared <code>sdk-staging-1</code> env untouched. PR-13 stays deferred until this is green.</li>
+  </ol>
+
   <!-- ============================================================ -->
-  <h2 id="stories">5 · User stories (based on test results)</h2>
+  <h2 id="remaining">5 · Remaining PR classification</h2>
+  <table>
+    <thead><tr><th>PR</th><th>Class</th><th>Status</th><th>Evidence / notes</th></tr></thead>
+    <tbody>
+      <tr><td>PR-11</td><td>IMPLEMENT</td><td><span class="pill merged">MERGED</span></td><td><a href="https://github.com/livepeer/simple-infra/pull/125">simple-infra#125</a> → <span class="sha">ae0f3f5a</span></td></tr>
+      <tr><td>PR-12 overlay</td><td>IMPLEMENT (config)</td><td><span class="pill merged">MERGED</span></td><td><a href="https://github.com/livepeer/simple-infra/pull/126">#126</a> → <span class="sha">4a7bdb48</span>; <b>deploy/e2e = OPS</b></td></tr>
+      <tr><td>PR-12 e2e / OA-2/4</td><td>OPS / OWNER</td><td><span class="pill open">OPEN</span></td><td>§4.7 — do not block coding</td></tr>
+      <tr><td>PR-13</td><td>DEFERRED</td><td><span class="pill deferred">DEFERRED</span></td><td>Needs PR-12 green + OA-4; scope unspecified until then</td></tr>
+      <tr><td>PR-14</td><td>OPS ONLY</td><td><span class="pill open">OPEN</span></td><td>§4.6 <code>web_</code> client registration</td></tr>
+      <tr><td>PR-15</td><td>IMPLEMENT</td><td><span class="pill merged">MERGED</span></td><td><a href="https://github.com/livepeer/storyboard/pull/878">storyboard#878</a> → <span class="sha">245879a0</span></td></tr>
+      <tr><td>PR-16</td><td>IMPLEMENT</td><td><span class="pill merged">MERGED</span></td><td><a href="https://github.com/livepeer/storyboard/pull/879">#879</a> → <span class="sha">37db2dac</span></td></tr>
+      <tr><td>PR-17</td><td>DEFERRED</td><td><span class="pill deferred">DEFERRED</span></td><td>N11 — short TTL substitutes for revocation in MVP</td></tr>
+      <tr><td>NaaP login bridge</td><td>IMPLEMENT</td><td><span class="pill merged">MERGED</span></td><td><a href="https://github.com/livepeer/naap/pull/459">naap#459</a> → <span class="sha">7dde3685</span></td></tr>
+      <tr><td>FU-1 metering</td><td>DEFERRED</td><td><span class="pill deferred">DEFERRED</span></td><td>Usage-API debit read out of acceptance bar</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2 id="stories">6 · User stories (based on test results)</h2>
 
   <h3>What this ENABLES now</h3>
   <ul>
@@ -477,9 +594,9 @@
   <h3>What is STILL NOT SUPPORTED / not possible</h3>
   <ul>
     <li><b>Prod OAuth login</b> until stop-line + Preview matrix — do not set <code>MCP_OAUTH_ENABLED=1</code> on Storyboard Production yet.</li>
-    <li><b>Scenario B</b> (pymthouse-direct OAuth without NaaP) — needs confidential <code>web_</code> client (OA-5) and PR-14/PR-15; public <code>app_</code> clients cannot do authorization_code for this design.</li>
+    <li><b>Scenario B live</b> — PR-15 code merged; needs confidential <code>web_</code> client (OA-5 / §4.6) before Preview e2e.</li>
     <li><b>Metering debit confirmation</b> — FU-1 deferred; cannot claim “usage API shows the charge” yet.</li>
-    <li><b>LR front-door inference</b> if gateway still lacks <code>live_runner</code>/<code>call_runner</code> (OA-2 / Track 4).</li>
+    <li><b>LR front-door inference</b> until owner rebuilds/deploys image with <code>call_runner</code> and applies §4.7 canary (OA-2).</li>
     <li><b>Live mint against a customer app</b> — hard-blocked (RS-2); only test app id is accepted.</li>
     <li><b>Refresh tokens / long MCP sessions / revocation</b> — N8/N11; short TTL only.</li>
     <li><b>OAuth on REST proxy routes</b> — INV-6 / AP-8; MCP entry only.</li>
@@ -491,11 +608,10 @@
   </div>
 
   <p class="foot">
-    Sources: <code>gh pr view</code> storyboard #868–#876, naap #457/#458;
-    <code>curl</code> 2026-08-08 against <code>storyboard.daydream.monster</code>,
-    <code>operator.livepeer.org</code>, <code>naap-platform.vercel.app</code>;
-    plan doc <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a>;
-    code on <code>origin/main</code> for env names.
+    Sources: <code>gh pr view</code> storyboard #868–#876/#878/#879, naap #457/#458/#459,
+    simple-infra #125/#126; INV unit tests on storyboard <code>main</code> @ <span class="sha">37db2dac</span>;
+    <code>curl</code> 2026-08-09 prod flag-OFF recheck;
+    plan doc <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a>.
     No credentials included.
   </p>
 
