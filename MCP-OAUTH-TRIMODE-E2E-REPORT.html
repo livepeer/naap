@@ -64,7 +64,8 @@
   <p class="sub">
     Single-worker live matrix. Earlier pass <b>2026-08-09T01:44–01:47Z</b>; Scenario A re-probe
     <b>2026-08-09T02:35–02:40Z</b>; wrong-host flip <b>03:05–03:07Z</b>;
-    <b>corrected host re-probe 2026-08-09T03:11–03:12Z</b> against
+    corrected-host allowlist miss <b>03:11–03:12Z</b>;
+    <b>allowlist-fixed re-probe 2026-08-09T03:16–03:18Z</b> against
     <code>https://agent.livepeer.org</code>.
     Credentials used in-memory only; <b>no secrets</b> in this doc.
     Companion to <a href="./MCP-OAUTH-TRIMODE-STATUS.html">MCP-OAUTH-TRIMODE-STATUS.html</a>
@@ -72,21 +73,25 @@
   </p>
 
   <div class="hero">
-    <b>Verdict: Scenario A prod e2e = BLOCKED (not GREEN).</b><br>
+    <b>Verdict: Scenario A prod e2e = BLOCKED (not GREEN) — human SSO required.</b><br>
     Correct prod MCP host is <b><code>https://agent.livepeer.org</code></b>.
-    Flag <b>ON</b> (AS + PRM <b>200</b>; broker live). NaaP allowlist for
-    <code>agent.livepeer.org</code> callback is <b>OK</b> (no <code>mcp_oauth_invalid</code>).
-    Still blocked: Storyboard Production client
-    <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> empty → authorize <b>400</b>
-    <code>redirect_uri not allow-listed</code>. Full PKCE → bound <code>mcp_at_*</code> →
-    <code>create_media</code> <b>not run</b>. Mint wrong-Bearer <b>401</b>; signer
-    <code>/healthz</code> <b>200</b>.
-    <b>Remind:</b> after the next allowlist fix + re-probe, delete Production
-    <code>MCP_OAUTH_ENABLED</code> and redeploy to close the public broker window.
+    Flag <b>ON</b> (AS + PRM <b>200</b>). Storyboard Production
+    <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> is <b>FIXED</b>: authorize PKCE →
+    <b>302</b> to <code>operator.livepeer.org/login?mcp_oauth=1…</code>
+    (not 400) for <code>127.0.0.1</code>, <code>localhost</code>, and
+    <code>agent.livepeer.org</code> callback URIs. NaaP login bridge <b>OK</b>
+    (pending cookie; not <code>mcp_oauth_invalid</code>). Playwright reached
+    NaaP login → GitHub OAuth authorize page; <b>no automated session</b>
+    (no <code>E2E_USER_*</code> in agent env; GitHub secrets unreadable).
+    Bound <code>mcp_at_*</code> / <code>create_media</code> asset <b>not run</b>.
+    Mint wrong-Bearer <b>401</b>; signer <code>/healthz</code> <b>200</b>; unbound
+    <code>mcp_at_*</code> → <b>401</b>.
+    <b>Remind NOW:</b> delete Production <code>MCP_OAUTH_ENABLED</code> → Redeploy
+    to close the public broker window.
   </div>
 
   <div class="callout danger" id="scenario-a-prod-flip">
-    <b>Production re-probe vs agent.livepeer.org (03:11–03:12Z) — evidence</b>
+    <b>Production re-probe vs agent.livepeer.org (03:16–03:18Z) — allowlist FIXED; SSO BLOCKED</b>
     <ul>
       <li><b>Flag ON / broker serves:</b>
         <code>GET https://agent.livepeer.org/.well-known/oauth-authorization-server</code>
@@ -94,42 +99,54 @@
         <code>authorization_endpoint</code> / <code>token_endpoint</code> / S256.
         PRM → <b>200</b> <code>resource=https://agent.livepeer.org/api/mcp</code>.
         Authorize route matched (<code>x-matched-path: /api/mcp/oauth/authorize</code>).</li>
-      <li><b>Authorize PKCE:</b> valid S256 challenge + state →
-        <b>400</b> <code>{"error":"invalid_request","error_description":"redirect_uri not allow-listed"}</code>
-        for <code>http://127.0.0.1:54321/callback</code>, <code>http://localhost:54321/callback</code>,
-        and <code>https://agent.livepeer.org/api/mcp/oauth/callback</code>.
-        Storyboard Production <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> empty/missing (fail-closed;
-        var name confirmed in <code>lib/mcp-server/auth/oauth-broker.ts</code>).</li>
-      <li><b>Login bridge (NaaP allowlist FIXED):</b>
-        <code>GET https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_probe&amp;redirect_uri=https://agent.livepeer.org/api/mcp/oauth/callback</code>
+      <li><b>Authorize PKCE (FIXED):</b> valid S256 challenge + state →
+        <b>302</b>
+        <code>Location: https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_…&amp;redirect_uri=https://agent.livepeer.org/api/mcp/oauth/callback</code>
+        for <code>http://127.0.0.1:54321/callback</code>,
+        <code>http://localhost:54321/callback</code>, and
+        <code>https://agent.livepeer.org/api/mcp/oauth/callback</code>.
+        Prior 400 <code>redirect_uri not allow-listed</code> is gone.</li>
+      <li><b>Login bridge (still OK):</b>
+        <code>GET https://operator.livepeer.org/login?mcp_oauth=1&amp;state=…&amp;redirect_uri=https://agent.livepeer.org/api/mcp/oauth/callback</code>
         → <b>307</b> <code>/login?callbackUrl=/api/v1/auth/mcp/complete</code> +
         <code>Set-Cookie: naap_mcp_oauth_pending=…</code> — <b>not</b>
         <code>mcp_oauth_invalid</code>. Evil redirect still rejected
         (<code>/login?error=mcp_oauth_invalid</code>).</li>
+      <li><b>Playwright OAuth dance:</b> authorize → NaaP
+        <code>/login?callbackUrl=/api/v1/auth/mcp/complete</code> (email/password +
+        Google/GitHub). Clicked GitHub →
+        <code>github.com/login?client_id=…&amp;return_to=…/login/oauth/authorize…</code>
+        (Livepeer Network OAuth app). <b>Human login required</b> — no browser
+        session, empty local Playwright storageState, repo
+        <code>E2E_USER_*</code> are Actions secrets (not readable variables).</li>
       <li><b>Mint smoke:</b>
         <code>POST /api/internal/mcp/mint</code> wrong Bearer +
         <code>X-Mcp-Caller-Origin: https://agent.livepeer.org</code> → <b>401</b>
-        <code>{"error":"unauthorized"}</code> (secret+allowlist loaded). Broker mint-via-OAuth
-        200 not exercised (PKCE blocked upstream).</li>
+        <code>{"error":"unauthorized"}</code>. Broker mint-via-OAuth 200 not
+        exercised (SSO incomplete).</li>
       <li><b>Signer:</b> <code>https://pymthouse-production.up.railway.app/healthz</code> →
         <b>200</b> <code>OK</code>.</li>
       <li><b>Unbound session:</b> Bearer <code>mcp_at_*</code> → <b>401</b>
         “MCP session token is not bound…” +
         <code>WWW-Authenticate: Bearer resource_metadata="https://agent.livepeer.org/.well-known/oauth-protected-resource"</code>.</li>
-      <li><b>Not run:</b> Google/GitHub login, token exchange, bound <code>mcp_at_*</code>,
-        <code>create_media</code> asset. No full-chain proof → <b>not GREEN</b>.</li>
+      <li><b>Not run:</b> completed Google/GitHub/email login, token exchange,
+        bound <code>mcp_at_*</code>, <code>create_media</code> asset.
+        No full-chain proof → <b>not GREEN</b>.</li>
     </ul>
-    <p style="margin:10px 0 0"><b>One-line fix (then re-run maximal Scenario A before flipping OFF):</b></p>
+    <p style="margin:10px 0 0"><b>To finish GREEN (then flip OFF):</b></p>
     <ol>
-      <li><b>Storyboard Production:</b> set
-        <code>MCP_OAUTH_REDIRECT_ALLOWLIST=http://127.0.0.1:*,http://localhost:*</code>
-        (add Claude/Cursor callbacks if used) → Redeploy → authorize must <b>302</b> to
-        <code>operator.livepeer.org/login?mcp_oauth=1…</code>, not 400.</li>
+      <li>Human: complete NaaP login (email/password or GitHub/Google) on the
+        live authorize URL, or provide <code>E2E_USER_EMAIL</code> /
+        <code>E2E_USER_PASSWORD</code> in-agent for Playwright.</li>
+      <li>Agent resumes: callback → token exchange → bound <code>mcp_at_*</code>
+        → <code>create_media</code> asset (metering deferred).</li>
     </ol>
-    <p class="muted" style="margin:8px 0 0"><b>NaaP already correct</b>
-      (<code>MCP_INTERNAL_MINT_ALLOWLIST=https://agent.livepeer.org</code>,
-      <code>MCP_OAUTH_REDIRECT_ALLOWLIST=https://agent.livepeer.org/api/mcp/oauth/callback</code>).
-      <b>After test:</b> delete Production <code>MCP_OAUTH_ENABLED</code> → Redeploy.</p>
+    <p class="muted" style="margin:8px 0 0"><b>Allowlists OK</b>
+      (Storyboard redirect allowlist + NaaP
+      <code>MCP_INTERNAL_MINT_ALLOWLIST</code> /
+      <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> for
+      <code>agent.livepeer.org</code>).
+      <b>Flip OFF now:</b> delete Production <code>MCP_OAUTH_ENABLED</code> → Redeploy.</p>
   </div>
 
   <div class="callout warn" id="scenario-a-now">
@@ -150,14 +167,15 @@
   </p>
 
   <div class="callout danger" id="prod-url-path">
-    <b>Production URL path (corrected host 2026-08-09T03:11Z).</b>
+    <b>Production URL path (allowlist-fixed re-probe 2026-08-09T03:16Z).</b>
     Use <code>https://agent.livepeer.org</code> for MCP OAuth prod (not
-    <code>storyboard.daydream.monster</code>). Flag <b>ON</b> (AS/PRM 200). Scenario A e2e
-    <b>BLOCKED</b> only on Storyboard client <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code> (NaaP
-    allowlist verified OK — see <a href="#scenario-a-prod-flip">prod re-probe</a>).
+    <code>storyboard.daydream.monster</code>). Flag <b>ON</b> (AS/PRM 200). Authorize
+    <b>302</b> (Storyboard redirect allowlist FIXED). Scenario A e2e still
+    <b>BLOCKED</b> on interactive NaaP/GitHub SSO — see
+    <a href="#scenario-a-prod-flip">prod re-probe</a>.
     Mint wrong-Bearer 401 + signer 200 hold.
     STATUS paste: <a href="./MCP-OAUTH-TRIMODE-STATUS.html#prod-temp-flip">§9</a>.
-    <b>After test:</b> delete <code>MCP_OAUTH_ENABLED</code> on Storyboard Production → Redeploy.
+    <b>Flip OFF now:</b> delete <code>MCP_OAUTH_ENABLED</code> on Storyboard Production → Redeploy.
   </div>
 
   <!-- ============================================================ -->
@@ -252,13 +270,13 @@
       <tr>
         <td>C8</td>
         <td>Scenario A e2e on Production URLs (flag temporarily ON)</td>
-        <td><span class="pill blocked">BLOCKED (SB redirect allowlist)</span></td>
+        <td><span class="pill blocked">BLOCKED (human SSO)</span></td>
         <td>
-          <b>03:11Z vs agent.livepeer.org:</b> AS/PRM <b>200</b> (flag ON). Authorize → <b>400</b>
-          redirect_uri not allow-listed (Storyboard <code>MCP_OAUTH_REDIRECT_ALLOWLIST</code>).
-          NaaP login bridge with agent callback → <b>OK</b> (cookie set, not
-          <code>mcp_oauth_invalid</code>). Mint wrong-Bearer <b>401</b>. No PKCE /
-          <code>mcp_at_*</code> / <code>create_media</code>. See
+          <b>03:16Z vs agent.livepeer.org:</b> AS/PRM <b>200</b>. Authorize PKCE →
+          <b>302</b> NaaP login (allowlist FIXED for localhost + agent callback).
+          Login bridge → <b>OK</b> (not <code>mcp_oauth_invalid</code>). Playwright
+          reached GitHub OAuth login; human SSO required. Mint wrong-Bearer
+          <b>401</b>. No bound <code>mcp_at_*</code> / <code>create_media</code>. See
           <a href="#scenario-a-prod-flip">prod re-probe</a>.
         </td>
       </tr>
@@ -278,8 +296,9 @@
         <td>C10</td>
         <td>Production <code>MCP_OAUTH_ENABLED</code> temporary flip + tripwire OFF</td>
         <td><span class="pill partial">ON for probe / OFF pending user</span></td>
-        <td>Flag still ON at 03:11Z on <code>agent.livepeer.org</code>. Agent verified ON + BLOCKED e2e (SB client redirect allowlist).
-          <b>User must delete <code>MCP_OAUTH_ENABLED</code> + redeploy now</b> to close broker.</td>
+        <td>Flag still ON at 03:18Z on <code>agent.livepeer.org</code>. Allowlist FIXED;
+          e2e BLOCKED on human SSO. <b>User must delete <code>MCP_OAUTH_ENABLED</code> +
+          redeploy now</b> to close broker.</td>
       </tr>
     </tbody>
   </table>
@@ -345,9 +364,9 @@
       </tr>
       <tr>
         <td>Scenario A — NaaP OAuth login → mint → <code>mcp_at_*</code> → inference</td>
-        <td>Prod flag ON but allowlists incomplete</td>
+        <td>Prod flag ON; allowlists OK; human SSO needed</td>
         <td><span class="pill blocked">BLOCKED</span></td>
-        <td>AS 200; authorize 400 redirect allowlist; login <code>mcp_oauth_invalid</code>; no asset. <b>Not GREEN.</b> Flip OFF now.</td>
+        <td>AS 200; authorize <b>302</b>; login bridge OK; Playwright stopped at GitHub login; no bound token/asset. <b>Not GREEN.</b> Flip OFF now.</td>
       </tr>
       <tr>
         <td>Claude / MCP connector “sign in” (OAuth UX)</td>
@@ -428,7 +447,8 @@
   </ol>
 
   <p class="foot">
-    Updated 2026-08-09T03:07Z from live Production curls + Playwright authorize probe.
+    Updated 2026-08-09T03:18Z from live Production curls + Playwright OAuth dance
+    (stopped at GitHub login — human SSO required).
     No credentials, tokens, or client secrets included.
     See also <a href="./MCP-OAUTH-TRIMODE-STATUS.html">STATUS</a> /
     <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">IMPL PLAN</a>.
