@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MCP OAuth Tri-Mode — Live E2E Matrix Report</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1c2029; --line:#2a2f3a;
+    --text:#e6e9ef; --muted:#9aa4b2; --accent:#5aa2ff;
+    --green:#2ec16b; --amber:#e0a83a; --blue:#4f8cff; --red:#e5484d; --violet:#a06bff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.55 "IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:40px 24px 96px}
+  h1{font-size:28px;margin:0 0 6px;letter-spacing:-.35px;font-weight:700}
+  .sub{color:var(--muted);margin:0 0 22px;font-size:13.5px;max-width:78ch}
+  h2{font-size:19px;margin:40px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--accent)}
+  p{margin:10px 0}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code, .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12.2px}
+  td code, p code, li code{background:#0c0e12;border:1px solid var(--line);border-radius:5px;
+    padding:1px 5px;color:#cbd3e1}
+  .hero{
+    background:linear-gradient(145deg,#2a1518 0%,#151820 55%,#1a1520 100%);
+    border:1px solid #5a2a30;border-radius:14px;padding:20px 22px;margin:8px 0 18px}
+  .hero.ok{
+    background:linear-gradient(145deg,#122018 0%,#151820 55%,#1a1520 100%);
+    border-color:#2a5a3a}
+  .hero b{color:#ffd0d4}
+  .callout{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;margin:14px 0;font-size:13.5px}
+  .callout.warn{border-color:rgba(224,168,58,.45);background:linear-gradient(180deg,#221c12,#171a21)}
+  .callout.danger{border-color:rgba(229,72,77,.45);background:linear-gradient(180deg,#241416,#171a21)}
+  .callout.ok{border-color:rgba(46,193,107,.35);background:linear-gradient(180deg,#122018,#171a21)}
+  table{width:100%;border-collapse:collapse;margin:12px 0 6px;font-size:13.4px;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--panel2);color:var(--muted);font-weight:600;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:.4px}
+  tr:last-child td{border-bottom:none}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.3px;
+    padding:2px 8px;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+  .ok{background:rgba(46,193,107,.15);color:var(--green);border-color:rgba(46,193,107,.4)}
+  .partial{background:rgba(224,168,58,.15);color:var(--amber);border-color:rgba(224,168,58,.45)}
+  .no{background:rgba(229,72,77,.14);color:#ff8b8e;border-color:rgba(229,72,77,.4)}
+  .blocked{background:rgba(160,107,255,.14);color:var(--violet);border-color:rgba(160,107,255,.4)}
+  ul,ol{margin:8px 0;padding-left:22px}
+  li{margin:6px 0}
+  .muted{color:var(--muted)}
+  .foot{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+  .sha{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#c9d2e3}
+  .toc a{display:inline-block;margin:0 12px 8px 0;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>MCP OAuth Tri-Mode — Live E2E Matrix Report</h1>
+  <p class="sub">
+    Single-worker live matrix run against production hosts (and Preview where reachable)
+    on <b>2026-08-09T01:44–01:47Z</b>. Credentials used in-memory only; <b>no secrets</b> in this doc.
+    Companion to <a href="./MCP-OAUTH-TRIMODE-STATUS.html">MCP-OAUTH-TRIMODE-STATUS.html</a>
+    / naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>.
+  </p>
+
+  <div class="hero">
+    <b>Verdict: Ready for ops + production OAuth enable? NO.</b><br>
+    Flag-OFF / paste-key regression is green. User stories that require OAuth login → mint →
+    bound <code>mcp_at_*</code> → inference are <b>not</b> fully e2e-verified. Preview mint/OAuth
+    env is not proven wired (prod mint still 404; login bridge <code>mcp_oauth_invalid</code>;
+    Preview hosts behind Vercel Auth). Do <b>not</b> set <code>MCP_OAUTH_ENABLED=1</code> on
+    Storyboard Production.
+  </div>
+
+  <p class="toc muted">
+    <a href="#matrix">1 · Matrix</a>
+    <a href="#stories">2 · User stories</a>
+    <a href="#ops">3 · Ops-only gaps</a>
+    <a href="#stopline">4 · Stop-line</a>
+  </p>
+
+  <!-- ============================================================ -->
+  <h2 id="matrix">1 · E2E matrix (this session)</h2>
+  <p class="muted">Hosts: Storyboard <code>https://storyboard.daydream.monster</code>;
+    SDK <code>https://sdk.daydream.monster</code>; Signer <code>https://pymthouse-production.up.railway.app</code>;
+    NaaP <code>https://operator.livepeer.org</code> + <code>https://naap-platform.vercel.app</code>.
+    Storyboard unit suite on <code>main</code> @ <span class="sha">37db2dac</span>.</p>
+
+  <h3>A · Flag-OFF / no-regression (must pass before any prod enable)</h3>
+  <table>
+    <thead><tr><th>#</th><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>A1</td>
+        <td>Daydream <code>sk_*</code> → Storyboard MCP / SDK inference → Daydream/BYOC path</td>
+        <td><span class="pill ok">PASS</span></td>
+        <td>
+          MCP <code>create_media</code> action=generate → HTTP 200; asset
+          <code>v3b.fal.media/…</code>; ~2090&nbsp;ms; cost $0.00320 (flux-schnell).<br>
+          SDK <code>POST /inference</code> with same key → HTTP 200; asset URL;
+          <code>orchestrator=https://byoc-staging-1.daydream.monster:8935</code>; balance present.
+        </td>
+      </tr>
+      <tr>
+        <td>A2</td>
+        <td>pymthouse composite paste → DIRECT signer / generation path</td>
+        <td><span class="pill partial">PASS (with caveat)</span></td>
+        <td>
+          <b>Signer:</b> <code>POST /sign-orchestrator-info</code> → <b>200</b> (address + signature) with composite bearer.<br>
+          <b>SDK:</b> <code>POST /inference</code> → <b>200</b>; real asset URL;
+          <code>orchestrator=live-runner</code> (balance null).<br>
+          <b>MCP first attempt:</b> 502
+          <code>ORCH_PIN_BY_PATH=1; LR dispatch returned no result and BYOC fall-open is disabled</code>.
+          <b>MCP recheck (~1&nbsp;min later):</b> 200 + fal.media asset + $0.00320.
+          Front-door is flaky when LR dispatch misses; complementary SDK/signer proof holds.
+          Local gateway <code>run50</code> blocked (missing <code>av</code>/<code>grpc</code>) — not a prod defect.
+        </td>
+      </tr>
+      <tr>
+        <td>A3</td>
+        <td>Unbound <code>mcp_at_*</code> → 401 fail-close</td>
+        <td><span class="pill ok">PASS</span></td>
+        <td>POST <code>/api/mcp</code> → <b>401</b>
+          “MCP session token is not bound…” +
+          <code>WWW-Authenticate: Bearer realm="storyboard-mcp"</code>.</td>
+      </tr>
+      <tr>
+        <td>A4</td>
+        <td>Well-known Cache-Control not immutable; authorize 404 when flag OFF</td>
+        <td><span class="pill ok">PASS</span></td>
+        <td>PRM + AS → <b>404</b> Bearer-only JSON,
+          <code>Cache-Control: public, max-age=60</code> (no <code>immutable</code>).
+          <code>/api/mcp/oauth/authorize</code> → <b>404</b> <code>{"error":"not_found"}</code>.</td>
+      </tr>
+      <tr>
+        <td>A5</td>
+        <td>INV suite on storyboard <code>main</code></td>
+        <td><span class="pill ok">PASS</span></td>
+        <td><code>vitest</code> on oauth unit suite @ <span class="sha">37db2dac</span>:
+          <b>7 files / 58 tests passed</b> (INV + broker/store/well-known/www-authenticate + naap/pymthouse providers).</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>B · Auth Resolution / schemes</h3>
+  <table>
+    <thead><tr><th>#</th><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>B6</td>
+        <td><code>pmth-composite</code> recognized; <code>sk_*</code> unchanged</td>
+        <td><span class="pill ok">PASS</span></td>
+        <td>Live initialize: both <code>sk_*</code> and composite →
+          <code>serverInfo.name=livepeer-agent</code> (not demo).
+          INV-2/INV-6 unit coverage for byte-identity + <code>pmth-composite</code> REST parity.</td>
+      </tr>
+      <tr>
+        <td>B7</td>
+        <td><code>resolveAuth</code> does not forward <code>mcp_at_*</code> as credential</td>
+        <td><span class="pill ok">PASS</span></td>
+        <td>Live unbound → 401 (never reaches SDK). INV-3 asserts
+          <code>forwardBearer</code> never starts with <code>mcp_at_</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>C · OAuth / mint (without finishing ops)</h3>
+  <table>
+    <thead><tr><th>#</th><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>C8</td>
+        <td>Probe NaaP / Storyboard Preview mint env wired → Scenario A e2e if yes</td>
+        <td><span class="pill blocked">BLOCKED (ops)</span></td>
+        <td>
+          <b>Prod NaaP:</b> mint still <b>404</b> <code>not_found</code> (secret/allowlist absent).
+          Login bridge → <code>/login?error=mcp_oauth_invalid</code> (redirect allowlist absent).<br>
+          <b>NaaP Preview URLs</b> (e.g. <code>naap-platform-git-feat-mcp-oauth-tri-…vercel.app</code>)
+          return <b>Vercel Authentication</b> 401/302 — app mint status not observable without SSO bypass.<br>
+          <b>Storyboard Preview</b> deployments exist but also SSO-redirect; cannot confirm
+          <code>MCP_OAUTH_ENABLED</code> / <code>NAAP_MCP_*</code> on Preview from outside.<br>
+          <b>Scenario A OAuth login→mint→store→resolve was NOT run.</b>
+          Missing for a green Scenario A: Preview
+          <code>MCP_INTERNAL_MINT_SECRET</code>, <code>MCP_INTERNAL_MINT_ALLOWLIST</code>,
+          M2M id/secret, Storyboard <code>NAAP_MCP_*</code> + shared secret + caller origin,
+          then Preview-only <code>MCP_OAUTH_ENABLED=1</code> + <code>MCP_OAUTH_PROVIDER=naap</code>.
+        </td>
+      </tr>
+      <tr>
+        <td>C9</td>
+        <td>Internal mint: absent secret → 404; with secret allowlisted mint (Preview only)</td>
+        <td><span class="pill partial">PASS / BLOCKED</span></td>
+        <td>Absent-secret path <b>PASS</b> on operator + naap-platform → 404.
+          Allowlisted mint with real shared secret <b>BLOCKED</b> — secret not wired on reachable hosts;
+          this session did not set Preview env (ops-owned; prod flag remains OFF).</td>
+      </tr>
+      <tr>
+        <td>C10</td>
+        <td>Do NOT enable <code>MCP_OAUTH_ENABLED</code> on production</td>
+        <td><span class="pill ok">PASS (honored)</span></td>
+        <td>Prod behavior still flag-OFF (A4). No prod env flip performed.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>D · LR / pymthouse billed tail</h3>
+  <table>
+    <thead><tr><th>#</th><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>D11</td>
+        <td>type=fixed mint + paid generation (signer 200, tickets≤100, real asset)</td>
+        <td><span class="pill partial">PARTIAL</span></td>
+        <td>
+          Signer auth <b>200</b>; SDK/MCP generation with composite produced <b>real asset URLs</b>
+          (SDK reported <code>orchestrator=live-runner</code>).
+          Direct <code>/generate-live-payment</code> with hand-built orch blob → 400
+          (needs full orch <code>payment_params</code> from <code>get_orch_info</code>; local gateway missing <code>grpc</code>).
+          <b><code>numTickets</code> not directly observed</b> this session (metering FU-1 still deferred;
+          ticket count remains complementary when payment probe tooling is available).
+        </td>
+      </tr>
+      <tr>
+        <td>D12</td>
+        <td>LR discovery / <code>call_runner</code> on sdk-staging</td>
+        <td><span class="pill blocked">BLOCKED</span></td>
+        <td><code>sdk-staging.daydream.monster</code> / <code>sdk-staging-1…</code> DNS NXDOMAIN.
+          Prod SDK OpenAPI exposes <code>/inference</code> (no public <code>call_runner</code> surface).
+          Live evidence of LR path is the composite <code>orchestrator=live-runner</code> response + intermittent MCP 502 when LR dispatch fails.
+          Canary deploy / image rebuild still ops/owner (STATUS §4.7).</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2 id="stories">2 · User-story verdict table</h2>
+  <p class="muted">Mapped from STATUS §6. Be blunt: code-on-main ≠ fully supported.</p>
+  <table>
+    <thead><tr><th>User story</th><th>Enabled now?</th><th>E2E verdict</th><th>Evidence / blocker</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Paste Daydream <code>sk_*</code> → inference</td>
+        <td>Yes (prod)</td>
+        <td><span class="pill ok">FULLY E2E VERIFIED</span></td>
+        <td>A1 MCP + SDK assets this session.</td>
+      </tr>
+      <tr>
+        <td>Paste pymthouse composite → inference</td>
+        <td>Yes (prod path exists; LR pin)</td>
+        <td><span class="pill partial">PARTIAL</span></td>
+        <td>SDK live-runner asset PASS; MCP saw one 502 then PASS. Not rock-solid front-door.</td>
+      </tr>
+      <tr>
+        <td>Flag-OFF safety / fail-closed unbound <code>mcp_at_*</code></td>
+        <td>Yes</td>
+        <td><span class="pill ok">FULLY E2E VERIFIED</span></td>
+        <td>A3–A5.</td>
+      </tr>
+      <tr>
+        <td>Auth Resolution Layer (scheme classify, no <code>mcp_at_*</code> forward)</td>
+        <td>Yes (code)</td>
+        <td><span class="pill ok">FULLY E2E VERIFIED</span></td>
+        <td>B6–B7 live + INV.</td>
+      </tr>
+      <tr>
+        <td>Scenario A — NaaP OAuth login → mint → <code>mcp_at_*</code> → inference</td>
+        <td>After ops + Preview flag</td>
+        <td><span class="pill no">NOT VERIFIED</span></td>
+        <td>Never run end-to-end. Mint/env not wired on reachable hosts. <b>Not fully supported.</b></td>
+      </tr>
+      <tr>
+        <td>Claude / MCP connector “sign in” (OAuth UX)</td>
+        <td>After ops + Preview flag</td>
+        <td><span class="pill no">NOT VERIFIED</span></td>
+        <td>No browser OAuth dance performed. Docs/code present; live connector sign-in <b>not</b> supported yet.</td>
+      </tr>
+      <tr>
+        <td>Scenario B — pymthouse-direct OAuth (<code>web_</code>)</td>
+        <td>After PR-14 ops</td>
+        <td><span class="pill no">NOT SUPPORTED</span></td>
+        <td>Provider code merged; confidential <code>web_</code> client not registered (OA-5).</td>
+      </tr>
+      <tr>
+        <td>§2.3.1 billed proof bar (signer 200 + tickets + asset)</td>
+        <td>Partial on paste composite</td>
+        <td><span class="pill partial">PARTIAL</span></td>
+        <td>Signer 200 + asset yes; <code>numTickets</code> not read; FU-1 deferred.</td>
+      </tr>
+      <tr>
+        <td>LR front-door / canary with <code>call_runner</code></td>
+        <td>After owner deploy</td>
+        <td><span class="pill no">NOT VERIFIED</span></td>
+        <td>D12 staging DNS missing; canary overlay not deployed/e2e’d.</td>
+      </tr>
+      <tr>
+        <td>Metering debit read (usage API)</td>
+        <td>Deferred FU-1</td>
+        <td><span class="pill no">NOT SUPPORTED</span></td>
+        <td>Explicitly out of acceptance bar.</td>
+      </tr>
+      <tr>
+        <td>Prod OAuth enable for customers</td>
+        <td>No — stop-line</td>
+        <td><span class="pill no">NOT SUPPORTED</span></td>
+        <td>Flag OFF by design until Preview matrix green.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout danger">
+    <b>Blunt answer.</b> User stories are <b>not</b> fully supported yet.
+    Paste-key Daydream works. Composite paste mostly works (LR flaky on MCP).
+    OAuth Claude-connector sign-in / Scenario A mint path has <b>zero</b> live e2e proof this session.
+    Enabling production OAuth now would be premature.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="ops">3 · Gaps that truly require ops</h2>
+  <ol>
+    <li><b>NaaP Preview env wire:</b> <code>MCP_INTERNAL_MINT_SECRET</code>,
+      <code>MCP_INTERNAL_MINT_ALLOWLIST</code>, M2M id/secret, test-app public client,
+      login-bridge redirect allowlist — then redeploy. Prove with wrong-Bearer → <b>401</b> (not 404).</li>
+    <li><b>Storyboard Preview env wire:</b> <code>NAAP_MCP_ORIGIN</code>,
+      <code>NAAP_MCP_MINT_URL</code>, shared mint secret, caller origin, KV, provider=<code>naap</code>;
+      then Preview-only <code>MCP_OAUTH_ENABLED=1</code>.</li>
+    <li><b>Vercel Auth bypass / access</b> so Preview probes are observable (or use a public Preview protection exception for probe paths).</li>
+    <li><b>Scenario A Preview e2e:</b> full OAuth dance → bound <code>mcp_at_*</code> → <code>create_media</code>.</li>
+    <li><b>PR-14:</b> register confidential <code>web_</code> client for Scenario B.</li>
+    <li><b>§4.7 LR canary:</b> rebuild/deploy SDK image with <code>call_runner</code>; apply PR-12 overlay; OA-4 probe.</li>
+    <li><b>Rotate</b> any M2M / mint secrets that appeared in chat before/after wiring.</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2 id="stopline">4 · Stop-line checklist (before prod enable)</h2>
+  <div class="callout warn">
+    <b>Ready for ops+prod enable? NO</b> — all boxes below must be green first.
+  </div>
+  <ol>
+    <li>☐ NaaP Preview mint wrong-secret → <b>401</b> (not 404)</li>
+    <li>☐ Storyboard Preview flag ON discovery → PRM/AS <b>200</b></li>
+    <li>☐ Scenario A Preview: login → mint → bound <code>mcp_at_*</code> → inference asset</li>
+    <li>☐ Prod regression tripwire still green (A3–A4 + sk_* A1) with Preview flag ON</li>
+    <li>☐ §7 / paste-key matrix still green after Preview flag</li>
+    <li>☐ Secrets rotated; billing still test-app only (RS-2)</li>
+    <li>☐ Only then consider Storyboard <b>Production</b> <code>MCP_OAUTH_ENABLED=1</code></li>
+  </ol>
+
+  <p class="foot">
+    Generated 2026-08-09 from live curls + storyboard unit tests.
+    No credentials, tokens, or client secrets included.
+    See also <a href="./MCP-OAUTH-TRIMODE-STATUS.html">STATUS</a> /
+    <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">IMPL PLAN</a>.
+  </p>
+
+</div>
+</body>
+</html>

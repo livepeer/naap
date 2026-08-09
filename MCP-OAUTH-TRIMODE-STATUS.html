@@ -80,12 +80,13 @@
   </p>
 
   <div class="hero">
-    <b>Bottom line.</b> <b>All IMPLEMENT-NOW code PRs are merged.</b>
-    Tracks&nbsp;1–3 Scenario&nbsp;A + NaaP login bridge + Track&nbsp;4 build guard/canary overlay +
-    Track&nbsp;5 PR-15/PR-16 are on <code>main</code>. Production still has
-    <code>MCP_OAUTH_ENABLED</code> <b>OFF</b> (well-known 404 + short TTL; broker 404).
-    <b>What remains is OPS only</b> — Preview env wire, Scenario&nbsp;B <code>web_</code> client,
-    LR gateway rebuild/deploy, secret rotation. Do not flip prod OAuth until §4.4 stop-line.
+    <b>Bottom line.</b> Code PRs are merged, but
+    <b>Ready for ops + production OAuth enable? NO.</b>
+    Live e2e matrix (2026-08-09): flag-OFF / <code>sk_*</code> paste / fail-closed
+    <code>mcp_at_*</code> are green; OAuth login→mint→inference was
+    <b>not</b> run (Preview mint env not proven wired). See
+    <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html">MCP-OAUTH-TRIMODE-E2E-REPORT.html</a>.
+    Do not set <code>MCP_OAUTH_ENABLED=1</code> on Storyboard Production until §4.4 + Scenario&nbsp;A Preview e2e.
   </div>
 
   <p class="toc muted">
@@ -95,6 +96,7 @@
     <a href="#ops">4 · Ops gaps guide</a>
     <a href="#remaining">5 · Remaining PR table</a>
     <a href="#stories">6 · User stories</a>
+    <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html">7 · Live E2E report</a>
   </p>
 
   <!-- ============================================================ -->
@@ -350,9 +352,19 @@
           <code>serverInfo.name = "livepeer-agent (demo — no key)"</code>.</td>
       </tr>
       <tr>
+        <td>Daydream <code>sk_*</code> MCP + SDK inference (2026-08-09)</td>
+        <td><span class="pill ok">FULLY VERIFIED</span></td>
+        <td>MCP <code>create_media</code> + SDK <code>/inference</code> → fal.media assets; BYOC orch on SDK.</td>
+      </tr>
+      <tr>
+        <td>Composite paste signer + generation (2026-08-09)</td>
+        <td><span class="pill partial">PARTIALLY VERIFIED</span></td>
+        <td>Signer <code>/sign-orchestrator-info</code> 200; SDK asset via <code>live-runner</code>; MCP once 502 (LR miss) then PASS.</td>
+      </tr>
+      <tr>
         <td>OAuth e2e: login → mint → composite → inference</td>
         <td><span class="pill no">NOT VERIFIED</span></td>
-        <td>Blocked on Preview env wire + flag ON. Not run on prod (correct — stop line).</td>
+        <td>Blocked on Preview env wire + flag ON. Not run on prod (correct — stop line). See E2E report C8.</td>
       </tr>
       <tr>
         <td>Live mint with M2M + shared secret</td>
@@ -572,16 +584,32 @@ curl -sSI "$NAAP_PREVIEW/login?mcp_oauth=1&amp;state=st_probe&amp;redirect_uri=$
 
   <!-- ============================================================ -->
   <h2 id="stories">6 · User stories (based on test results)</h2>
+  <p class="muted">Live matrix 2026-08-09 — full table in
+    <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html">MCP-OAUTH-TRIMODE-E2E-REPORT.html</a>.
+    Code-on-main ≠ fully supported.</p>
+
+  <table>
+    <thead><tr><th>Story</th><th>E2E verdict</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Paste Daydream <code>sk_*</code></td><td><span class="pill ok">FULLY E2E VERIFIED</span></td><td>MCP + SDK assets this session</td></tr>
+      <tr><td>Paste pymthouse composite</td><td><span class="pill partial">PARTIAL</span></td><td>SDK live-runner asset; MCP once 502 then PASS</td></tr>
+      <tr><td>Flag-OFF / unbound <code>mcp_at_*</code> fail-close</td><td><span class="pill ok">FULLY E2E VERIFIED</span></td><td>Prod curls + INV suite</td></tr>
+      <tr><td>Scenario A OAuth login→mint→inference</td><td><span class="pill no">NOT VERIFIED</span></td><td>Blocked on Preview env wire</td></tr>
+      <tr><td>Claude connector “sign in”</td><td><span class="pill no">NOT VERIFIED</span></td><td>No live OAuth dance</td></tr>
+      <tr><td>Scenario B pymthouse-direct OAuth</td><td><span class="pill no">NOT SUPPORTED</span></td><td>Needs <code>web_</code> client (PR-14)</td></tr>
+      <tr><td>LR canary / <code>call_runner</code></td><td><span class="pill no">NOT VERIFIED</span></td><td>Staging DNS / deploy still ops</td></tr>
+      <tr><td>Metering debit (FU-1)</td><td><span class="pill no">NOT SUPPORTED</span></td><td>Deferred</td></tr>
+      <tr><td>Prod OAuth enable</td><td><span class="pill no">NOT SUPPORTED</span></td><td><b>Do not enable yet</b></td></tr>
+    </tbody>
+  </table>
 
   <h3>What this ENABLES now</h3>
   <ul>
-    <li><b>Paste Daydream <code>sk_*</code></b> — still the primary prod path; Track 1 invariants pin byte-identity.</li>
-    <li><b>Paste pymthouse composite <code>app_*_pmth_*</code></b> — classified as <code>pmth-composite</code> (log-only); billing tail unchanged when signer/routing already work for that key.</li>
-    <li><b>Flag-OFF safety</b> — OAuth broker and PRM/AS discovery stay dark; short-TTL well-known means a future flag flip is not stuck behind 24h immutable CDN cache.</li>
-    <li><b>Auth Resolution Layer</b> — single mode-selection site; tools/SDK stay auth-agnostic.</li>
-    <li><b>Unbound <code>mcp_at_*</code> cannot silently bill Daydream</b> — fail-closed 401 verified on prod.</li>
-    <li><b>oauth-store ready</b> — Upstash-backed binding module merged; used only when broker runs under flag ON.</li>
-    <li><b>Scenario A code path present</b> — NaaP mint route + Storyboard naap provider on <code>main</code>, inert until secrets + flag.</li>
+    <li><b>Paste Daydream <code>sk_*</code></b> — live-verified this session (MCP + SDK).</li>
+    <li><b>Paste pymthouse composite <code>app_*_pmth_*</code></b> — signer 200 + SDK asset; MCP front-door can 502 when LR dispatch misses.</li>
+    <li><b>Flag-OFF safety</b> — OAuth broker and PRM/AS discovery stay dark; short-TTL well-known.</li>
+    <li><b>Auth Resolution Layer</b> — unbound <code>mcp_at_*</code> fail-closed 401 verified on prod.</li>
+    <li><b>Scenario A code path present</b> — inert until secrets + Preview flag; <b>not</b> live-proven.</li>
   </ul>
 
   <h3>What becomes possible AFTER ops wire + Preview flag ON</h3>
@@ -609,8 +637,9 @@ curl -sSI "$NAAP_PREVIEW/login?mcp_oauth=1&amp;state=st_probe&amp;redirect_uri=$
 
   <p class="foot">
     Sources: <code>gh pr view</code> storyboard #868–#876/#878/#879, naap #457/#458/#459,
-    simple-infra #125/#126; INV unit tests on storyboard <code>main</code> @ <span class="sha">37db2dac</span>;
-    <code>curl</code> 2026-08-09 prod flag-OFF recheck;
+    simple-infra #125/#126; INV unit tests on storyboard <code>main</code> @ <span class="sha">37db2dac</span>
+    (58 oauth-related unit tests green 2026-08-09);
+    live e2e matrix in <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html">MCP-OAUTH-TRIMODE-E2E-REPORT.html</a>;
     plan doc <a href="./MCP-OAUTH-TRIMODE-IMPL-PLAN.html">MCP-OAUTH-TRIMODE-IMPL-PLAN.html</a>.
     No credentials included.
   </p>
