@@ -74,6 +74,18 @@
     / naap PR <a href="https://github.com/livepeer/naap/pull/457">#457</a>.
   </p>
 
+  
+  <div class="callout ok" id="fresh-retry-now">
+    <b>Fresh retry NOW (2026-08-09T04:08Z) — reason LIVE + durable listener</b>
+    <p>Open (≤10&nbsp;min TTL):<br>
+    <a class="mono" href="https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_1EZLZJVtjpR8XytZK4GUqDtI1PG8x6U7jzDr_tu9D2o&amp;redirect_uri=https%3A%2F%2Fagent.livepeer.org%2Fapi%2Fmcp%2Foauth%2Fcallback">https://operator.livepeer.org/login?mcp_oauth=1&amp;state=st_1EZLZJVtjpR8XytZK4GUqDtI1PG8x6U7jzDr_tu9D2o&amp;redirect_uri=https%3A%2F%2Fagent.livepeer.org%2Fapi%2Fmcp%2Foauth%2Fcallback</a></p>
+    <ul>
+      <li>Listener: <code>http://127.0.0.1:54321/callback</code> (running; auto token + <code>create_media</code>)</li>
+      <li>Pending: <code>st_1EZLZJVtjpR8XytZK4GUqDtI1PG8x6U7jzDr_tu9D2o</code></li>
+      <li>On fail: paste JSON with <code>reason</code>. <b>Flip OFF after:</b> delete Production <code>MCP_OAUTH_ENABLED</code>.</li>
+    </ul>
+  </div>
+
   <div class="hero">
     <b>Verdict: Scenario A prod e2e = BLOCKED (not GREEN) — opaque access_denied; reason PR shipping.</b><br>
     Correct prod MCP host is <b><code>https://agent.livepeer.org</code></b>.
