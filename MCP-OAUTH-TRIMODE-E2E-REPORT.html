@@ -123,7 +123,18 @@
     <a href="#stories">2 · User stories</a>
     <a href="#ops">3 · Ops-only gaps</a>
     <a href="#stopline">4 · Stop-line</a>
+    <a href="#prod-url-path">5 · Production URL path</a>
   </p>
+
+  <div class="callout warn" id="prod-url-path">
+    <b>Production URL path (2026-08-09T02:53Z).</b>
+    User approved temporary Production OAuth flip for Scenario A (then OFF).
+    Current: Storyboard flag <b>OFF</b> (AS/authorize 404); NaaP mint <b>wired</b> (wrong Bearer → 401);
+    prod SB origin <b>not</b> allowlisted (<code>mcp_oauth_invalid</code>);
+    flag-OFF sk_* paste still <b>PASS</b> (create_media 200 + fal asset).
+    Exact Vercel Production paste: STATUS <a href="./MCP-OAUTH-TRIMODE-STATUS.html#prod-temp-flip">§9</a>.
+    Waiting on user <b>flipped on</b> before full Scenario A e2e.
+  </div>
 
   <!-- ============================================================ -->
   <h2 id="matrix">1 · E2E matrix (this session)</h2>

@@ -99,6 +99,7 @@
     <a href="#stories">6 · User stories</a>
     <a href="./MCP-OAUTH-TRIMODE-E2E-REPORT.html">7 · Live E2E report</a>
     <a href="#exact-paste">8 · Exact copy-paste</a>
+    <a href="#prod-temp-flip">9 · Production temporary flip</a>
   </p>
 
   <!-- ============================================================ -->
@@ -914,6 +915,39 @@ unset SHARED_MINT_SECRET</pre>
     <li>Only then paste Block C on that one Storyboard Preview → Redeploy → re-check well-known 200 / authorize not blanket 404.</li>
     <li><code>unset SHARED_MINT_SECRET</code>. Do <b>not</b> set Production <code>MCP_OAUTH_ENABLED=1</code>.</li>
   </ol>
+
+  <h2 id="prod-temp-flip">9 · Production temporary flip (user-approved short window)</h2>
+  <p class="muted">
+    Verified <b>2026-08-09T02:53Z</b>: Storyboard OAuth still <b>OFF</b> (AS/authorize 404);
+    NaaP mint on <code>operator.livepeer.org</code> already <b>wired</b> (wrong Bearer → 401);
+    prod Storyboard callback <b>not</b> allowlisted (<code>mcp_oauth_invalid</code>).
+    User chose: flip Production OAuth ON briefly for Scenario A, then OFF.
+  </p>
+  <div class="callout warn">
+    <b>Risk.</b> Production OAuth ON exposes the broker publicly — keep the window short; billing stays test app
+    <code>app_98575870…</code> only. Only string <code>1</code> enables; delete/unset (or any non-<code>1</code>) turns OFF.
+  </div>
+  <h3>NaaP Production (<code>naap-platform</code>)</h3>
+<pre class="cmd">MCP_INTERNAL_MINT_SECRET=&lt;REUSE_EXISTING_OR_openssl_rand_-hex_32&gt;
+MCP_INTERNAL_MINT_ALLOWLIST=https://storyboard.daydream.monster
+MCP_OAUTH_REDIRECT_ALLOWLIST=https://storyboard.daydream.monster/api/mcp/oauth/callback
+PYMTHOUSE_PUBLIC_CLIENT_ID=app_98575870d7ae33589a3f0660
+PYMTHOUSE_M2M_CLIENT_ID=m2m_5ad45661715c8bb7eb30d18f
+PYMTHOUSE_M2M_CLIENT_SECRET=&lt;YOUR_M2M_SECRET&gt;
+PYMTHOUSE_ISSUER_URL=https://pymthouse.com/api/v1/oidc</pre>
+  <h3>Storyboard Production (<code>storyboard</code>) — flip ON</h3>
+<pre class="cmd">NAAP_MCP_ORIGIN=https://operator.livepeer.org
+NAAP_MCP_MINT_URL=https://operator.livepeer.org/api/internal/mcp/mint
+MCP_INTERNAL_MINT_SECRET=&lt;SAME_AS_NAAP&gt;
+MCP_INTERNAL_MINT_CALLER_ORIGIN=https://storyboard.daydream.monster
+MCP_OAUTH_PROVIDER=naap
+MCP_OAUTH_BILLING_APP_ID=app_98575870d7ae33589a3f0660
+MCP_OAUTH_ENABLED=1
+# Confirm KV_REST_API_URL + KV_REST_API_TOKEN already present (do not invent)</pre>
+  <h3>Flip OFF after test</h3>
+<pre class="cmd"># Delete MCP_OAUTH_ENABLED on storyboard Production (or set to anything other than the string 1)
+# Prefer: remove the variable entirely, then Redeploy Production</pre>
+  <p class="muted">After both Production redeploys, tell the agent <b>flipped on</b> → Scenario A e2e on prod URLs.</p>
 
   <p class="foot">
     Sources: <code>gh pr view</code> storyboard #868–#876/#878/#879, naap #457/#458/#459,
