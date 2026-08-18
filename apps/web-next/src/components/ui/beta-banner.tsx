@@ -1,6 +1,6 @@
 import { ExternalLink } from 'lucide-react';
 
-const DISCORD_URL = 'https://discord.gg/livepeer';
+const DISCORD_URL = 'https://discord.gg/55SZFEEH5y';
 
 export function BetaBanner() {
   return (
